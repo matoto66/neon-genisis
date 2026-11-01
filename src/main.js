@@ -624,7 +624,6 @@ function startCity() {
 }
 
 const appearanceChoices = {
-  gender: ["Male", "Female"],
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
   jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
@@ -1156,8 +1155,8 @@ window.addEventListener("resize", () => {
 });
 renderer.setAnimationLoop(time => {
   const delta = Math.min(clock.getDelta(), 0.05);
-  // Fallback in case the browser misses the XR sessionstart event.
-  if (renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady) showVRIntro();
+  // Initialize only after this frame has updated Three.js' tracked XR camera.
+  const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
   if (isInCity) movePlayer(delta);
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
@@ -1167,4 +1166,5 @@ renderer.setAnimationLoop(time => {
   platformRing.rotation.y = time * 0.00018;
   platformRingInner.rotation.y = -time * 0.00024;
   renderer.render(scene, camera);
+  if (needsVRIntro && renderer.xr.isPresenting) showVRIntro();
 });
