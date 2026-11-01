@@ -169,3 +169,41 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
   .customize-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .customize-grid select { padding: 7px 5px; font-size: 11px; }
 }
+
+
+/* Character creator: editor on the left, live 3D operator preview on the right. */
+.start-brand {
+  top: 4vh;
+  left: 5vw;
+  right: auto;
+  width: min(520px, 46vw);
+  max-width: none;
+  transform: none;
+  text-align: left;
+}
+.start-brand h1 { font-size: clamp(32px, 4.8vw, 62px); }
+.start-card {
+  top: 22vh;
+  left: 5vw;
+  bottom: auto;
+  transform: none;
+  width: min(520px, 46vw);
+  max-height: 72vh;
+  text-align: left;
+}
+.start-card h2, .start-copy { text-align: left; }
+.customize-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+#start-status { text-align: left; }
+#start-actions { justify-content: flex-start; }
+@media (max-width: 760px) {
+  .start-brand { top: 2vh; left: 4vw; width: 92vw; text-align: center; }
+  .start-brand h1 { font-size: clamp(27px, 7vw, 42px); }
+  .start-card {
+    top: 19vh; left: 4vw; bottom: auto; width: 92vw;
+    max-height: 74vh; transform: none; padding: 14px;
+  }
+  .customize-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+}
