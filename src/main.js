@@ -608,6 +608,7 @@ function startCity() {
   cityWorld.visible = true;
   mainMenuWorld.visible = false;
   vrStart.visible = false;
+  characterPreview.visible = false;
   vrStartReady = true;
   vrStartHovered = null;
   vrMenu.visible = false;
@@ -785,10 +786,10 @@ function updateCharacterPreview() {
   add(new THREE.BoxGeometry(0.28, 0.34, 0.14), darkFabric, 0, 1.12, -0.20);
 }
 
-function setCharacterPreviewLocation(parent, x, y, z, scale = 1) {
+function setCharacterPreviewLocation(parent, x, y, z, scale = 1, yaw = 0) {
   parent.add(characterPreview);
   characterPreview.position.set(x, y, z);
-  characterPreview.rotation.set(0, 0, 0);
+  characterPreview.rotation.set(0, yaw, 0);
   characterPreview.scale.setScalar(scale);
   characterPreview.visible = true;
 }
@@ -986,8 +987,18 @@ function showVRIntro() {
   );
   vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
-  setCharacterPreviewLocation(vrStart, 0.98, -1.20, 0.02, 0.58);
   vrStart.visible = true;
+
+  // Keep the avatar out of the terminal's mesh hierarchy. It is a separate
+  // scene object, positioned beside and slightly in front of the terminal so
+  // the terminal backing and side rails cannot cover the character.
+  const previewRight = new THREE.Vector3(1, 0, 0).applyAxisAngle(up, menuYaw);
+  const previewPosition = spawnPosition.clone()
+    .addScaledVector(previewRight, 1.18)
+    .addScaledVector(flatForward, -0.14);
+  setCharacterPreviewLocation(
+    scene, previewPosition.x, spawnPosition.y, previewPosition.z, 0.78, menuYaw
+  );
   for (const row of startRows) row.userData.refresh();
 }
 renderer.xr.addEventListener("sessionstart", () => {
@@ -1002,7 +1013,7 @@ renderer.xr.addEventListener("sessionend", () => {
   isInCity = false;
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
-  setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9);
+  setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9, 0);
   startScreen.classList.remove("hidden");
 });
 
