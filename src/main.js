@@ -790,36 +790,27 @@ function showVRIntro() {
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
   vrStartReady = false;
-  const xrCamera = renderer.xr.getCamera(camera);
-  xrCamera.updateMatrixWorld(true);
-
-  // Read the headset's initial position and horizontal facing direction only.
-  // Ignore pitch and roll so looking up/down or tilting the head cannot tilt
-  // the menu. Once placed, vrStart stays in the world and never follows the HMD.
-  const headPosition = new THREE.Vector3();
+  // Anchor the menu to the player's fixed spawn transform, not the headset.
+  // That means the height and facing direction are identical whether the user
+  // enters VR looking straight ahead, down, up, or with their head tilted.
+  const playerWorldPosition = new THREE.Vector3();
   const flatForward = new THREE.Vector3();
-  const fallbackForward = new THREE.Vector3(0, 0, -1);
-  xrCamera.getWorldPosition(headPosition);
-  xrCamera.getWorldDirection(flatForward);
+  player.getWorldPosition(playerWorldPosition);
+  player.getWorldDirection(flatForward);
   flatForward.y = 0;
 
-  if (flatForward.lengthSq() < 0.0001) {
-    player.getWorldDirection(fallbackForward);
-    fallbackForward.y = 0;
-    flatForward.copy(fallbackForward);
-  }
+  // The player root sits at floor level. Place the center of the panel at a
+  // fixed 1.2m world height and 1.75m ahead of the spawn, independent of HMD pose.
+  if (flatForward.lengthSq() < 0.0001) flatForward.set(0, 0, -1);
   flatForward.normalize();
 
   const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
-  const playerWorldPosition = new THREE.Vector3();
-  player.getWorldPosition(playerWorldPosition);
-
   vrStart.position.set(
-    headPosition.x + flatForward.x * 1.75,
-    playerWorldPosition.y + camera.position.y - 0.40,
-    headPosition.z + flatForward.z * 1.75
+    playerWorldPosition.x + flatForward.x * 1.75,
+    playerWorldPosition.y + 1.20,
+    playerWorldPosition.z + flatForward.z * 1.75
   );
-  // Zero pitch and roll: the panel's vertical edges stay perfectly vertical.
+  // Yaw only: pitch and roll are always zero, and the menu remains world-locked.
   vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
   vrStart.visible = true;
