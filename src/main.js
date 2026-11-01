@@ -193,9 +193,11 @@ updateCharacterUI();
 // because browser DOM overlays are not consistently displayed in Quest VR.
 const vrMenu = new THREE.Group();
 vrMenu.visible = false;
-camera.add(vrMenu);
-vrMenu.position.set(0, 0, -1.35);
-vrMenu.scale.set(0.00135, 0.00135, 0.00135);
+scene.add(vrMenu);
+// These values are replaced with hand-relative placement when the left
+// controller connects. The menu is deliberately compact, like a wrist display.
+vrMenu.position.set(0, 1.2, 0);
+vrMenu.scale.set(0.00062, 0.00062, 0.00062);
 
 const vrMenuCanvas = document.createElement("canvas");
 vrMenuCanvas.width = 1024;
@@ -214,15 +216,39 @@ vrMenuPanel.renderOrder = 1000;
 const vrMenuRaycaster = new THREE.Raycaster();
 const vrMenuPointer = new THREE.Vector3();
 const vrControllerRays = [];
+const vrCursor = new THREE.Mesh(
+  new THREE.SphereGeometry(0.018, 12, 12),
+  new THREE.MeshBasicMaterial({ color: 0x5ff5e8, depthTest: false })
+);
+vrCursor.visible = false;
+scene.add(vrCursor);
+
 for (let i = 0; i < 2; i++) {
   const controller = renderer.xr.getController(i);
   const rayLine = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3)]),
-    new THREE.LineBasicMaterial({ color: 0x5ff5e8 })
+    new THREE.LineBasicMaterial({ color: 0x5ff5e8, depthTest: false })
   );
   rayLine.visible = false;
   controller.add(rayLine);
-  controller.addEventListener("select", () => activateVRMenuAtController(controller));
+  controller.addEventListener("connected", event => {
+    controller.userData.handedness = event.data.handedness;
+    if (event.data.handedness === "left") {
+      // Attach the small menu to the left hand so it follows the hand,
+      // rather than staying behind at the player's original spawn position.
+      controller.add(vrMenu);
+      vrMenu.position.set(0.18, 0.08, -0.28);
+      vrMenu.rotation.set(-0.28, 0.12, 0);
+    }
+  });
+  controller.addEventListener("disconnected", () => {
+    controller.userData.handedness = undefined;
+  });
+  controller.addEventListener("select", () => {
+    if (controller.userData.handedness === "right") {
+      activateVRMenuAtController(controller);
+    }
+  });
   scene.add(controller);
   vrControllerRays.push({ controller, rayLine });
 }
@@ -314,7 +340,10 @@ function setVRMenuOpen(open) {
   vrMenu.visible = open;
   vrMenuPage = "character";
   if (open) drawVRMenu();
-  for (const item of vrControllerRays) item.rayLine.visible = open;
+  vrCursor.visible = false;
+  for (const item of vrControllerRays) {
+    item.rayLine.visible = open && item.controller.userData.handedness === "right";
+  }
 }
 function activateVRMenuAtController(controller) {
   if (!renderer.xr.isPresenting || !vrMenu.visible) return;
@@ -346,18 +375,29 @@ function activateVRMenuAtController(controller) {
   drawVRMenu();
 }
 function updateVRMenuPointer() {
-  if (!renderer.xr.isPresenting || !vrMenu.visible) return;
-  const session = renderer.xr.getSession();
-  if (!session) return;
-  session.inputSources.forEach((source, index) => {
-    if (source.handedness !== "right") return;
-    const item = vrControllerRays[index];
-    if (!item) return;
-    item.rayLine.visible = true;
-    vrMenuRaycaster.setFromXRController(item.controller);
-    const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
-    item.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
-  });
+  if (!renderer.xr.isPresenting || !vrMenu.visible) {
+    vrCursor.visible = false;
+    return;
+  }
+  // Match the controller by handedness, not by inputSources array position.
+  // Quest can reorder that array, which previously left the pointer at spawn.
+  const rightItem = vrControllerRays.find(item =>
+    item.controller.userData.handedness === "right"
+  );
+  if (!rightItem) {
+    vrCursor.visible = false;
+    return;
+  }
+  rightItem.rayLine.visible = true;
+  vrMenuRaycaster.setFromXRController(rightItem.controller);
+  const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
+  rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
+  if (hit) {
+    vrCursor.position.copy(hit.point);
+    vrCursor.visible = true;
+  } else {
+    vrCursor.visible = false;
+  }
 }
 
 // Mouse-look supports pointer lock and click-and-drag fallback.
@@ -433,24 +473,28 @@ function getLeftStick() {
 
 function getRightStickAndMenuButton() {
   const session = renderer.xr.getSession();
-  if (!session) return { x: 0, y: 0, menu: false };
+  if (!session) return { x: 0, y: 0 };
   for (const source of session.inputSources) {
     if (source.handedness !== "right" || !source.gamepad) continue;
-    const pad = source.gamepad;
-    const axes = pad.axes;
-    // xr-standard usually places the right thumbstick in axes 2/3.
+    const axes = source.gamepad.axes;
     const x = axes.length >= 4 ? axes[2] : axes[0];
     const y = axes.length >= 4 ? axes[3] : axes[1];
-    // Controller layouts vary between browser versions. Check the standard B
-    // position first, with the alternate final face-button slot as a fallback.
-    const menu = !!(pad.buttons[5]?.pressed || pad.buttons[4]?.pressed);
     return {
       x: Math.abs(x || 0) > 0.15 ? x : 0,
-      y: Math.abs(y || 0) > 0.15 ? y : 0,
-      menu
+      y: Math.abs(y || 0) > 0.15 ? y : 0
     };
   }
-  return { x: 0, y: 0, menu: false };
+  return { x: 0, y: 0 };
+}
+
+function getLeftYButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  const leftSource = Array.from(session.inputSources).find(source =>
+    source.handedness === "left" && source.gamepad
+  );
+  // Quest Touch: Y is the left controller's secondary face button.
+  return !!leftSource?.gamepad?.buttons[4]?.pressed;
 }
 
 function movePlayer(delta) {
@@ -459,10 +503,11 @@ function movePlayer(delta) {
   if (renderer.xr.isPresenting) {
     const stick = getLeftStick();
     const look = getRightStickAndMenuButton();
+    const yPressed = getLeftYButton();
     stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
-    if (look.menu && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
-    previousMenuButton = look.menu;
+    if (yPressed && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
+    previousMenuButton = yPressed;
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
     player.rotation.y -= look.x * 2.2 * delta;
   } else {
