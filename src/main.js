@@ -993,11 +993,21 @@ function showVRIntro() {
   // scene object, positioned beside and slightly in front of the terminal so
   // the terminal backing and side rails cannot cover the character.
   const previewRight = new THREE.Vector3(1, 0, 0).applyAxisAngle(up, menuYaw);
-  const previewPosition = spawnPosition.clone()
-    .addScaledVector(previewRight, 1.18)
-    .addScaledVector(flatForward, -0.14);
+  // Anchor the preview to the terminal itself, not to the player's side.
+  // This puts the character just beyond the terminal's right edge, at the
+  // same forward distance so it reads as part of the character-creator setup.
+  const previewPosition = vrStart.position.clone()
+    .addScaledVector(previewRight, 1.48);
+  // The avatar's front is its local +Z axis. Aim that axis diagonally toward
+  // the player's standing position so the character looks toward the user.
+  const towardPlayer = spawnPosition.clone()
+    .addScaledVector(flatForward, 0.35)
+    .sub(previewPosition);
+  towardPlayer.y = 0;
+  towardPlayer.normalize();
+  const characterYaw = Math.atan2(towardPlayer.x, towardPlayer.z);
   setCharacterPreviewLocation(
-    scene, previewPosition.x, spawnPosition.y, previewPosition.z, 0.78, menuYaw
+    scene, previewPosition.x, spawnPosition.y, previewPosition.z, 0.78, characterYaw
   );
   for (const row of startRows) row.userData.refresh();
 }
