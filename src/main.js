@@ -45,7 +45,6 @@ const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Blac
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
   if (savedAppearance) {
-    delete savedAppearance.gender;
     Object.assign(appearance, savedAppearance);
   }
 } catch {}
@@ -781,16 +780,35 @@ function showVRIntro() {
   vrStartReady = false;
   const xrCamera = renderer.xr.getCamera(camera);
   xrCamera.updateMatrixWorld(true);
-  const introPosition = new THREE.Vector3();
-  const introDirection = new THREE.Vector3();
-  const introRotation = new THREE.Quaternion();
-  xrCamera.getWorldPosition(introPosition);
-  xrCamera.getWorldDirection(introDirection);
-  xrCamera.getWorldQuaternion(introRotation);
-  vrStart.position.copy(introPosition)
-    .addScaledVector(introDirection, 1.75);
-  vrStart.position.y -= 0.55;
-  vrStart.quaternion.copy(introRotation);
+
+  // Read the headset's initial position and horizontal facing direction only.
+  // Ignore pitch and roll so looking up/down or tilting the head cannot tilt
+  // the menu. Once placed, vrStart stays in the world and never follows the HMD.
+  const headPosition = new THREE.Vector3();
+  const flatForward = new THREE.Vector3();
+  const fallbackForward = new THREE.Vector3(0, 0, -1);
+  xrCamera.getWorldPosition(headPosition);
+  xrCamera.getWorldDirection(flatForward);
+  flatForward.y = 0;
+
+  if (flatForward.lengthSq() < 0.0001) {
+    player.getWorldDirection(fallbackForward);
+    fallbackForward.y = 0;
+    flatForward.copy(fallbackForward);
+  }
+  flatForward.normalize();
+
+  const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
+  const playerWorldPosition = new THREE.Vector3();
+  player.getWorldPosition(playerWorldPosition);
+
+  vrStart.position.set(
+    headPosition.x + flatForward.x * 1.75,
+    playerWorldPosition.y + camera.position.y - 0.40,
+    headPosition.z + flatForward.z * 1.75
+  );
+  // Zero pitch and roll: the panel's vertical edges stay perfectly vertical.
+  vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
