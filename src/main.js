@@ -236,9 +236,10 @@ vrMenuPanel.renderOrder = 1000;
 // In-headset character setup: a head-facing 3D panel, selectable with the right controller.
 const vrStart = new THREE.Group();
 vrStart.visible = false;
-camera.add(vrStart);
-vrStart.position.set(0, 0, -2.15);
-vrStart.scale.set(0.00135, 0.00135, 0.00135);
+scene.add(vrStart);
+// Large world-space intro screen: its pose is set once when VR starts,
+// so it stays in the room instead of following the headset.
+vrStart.scale.set(0.0048, 0.0048, 0.0048);
 const vrStartCanvas = document.createElement("canvas");
 vrStartCanvas.width = 1024;
 vrStartCanvas.height = 768;
@@ -305,7 +306,18 @@ function showVRIntro() {
   vrSessionIntroActive = true;
   startScreen.classList.add("hidden");
   vrStartReady = false;
- 
+
+  // Place the intro screen in front of the player's starting view exactly once.
+  // Because vrStart is attached to the scene, head movement won't carry it along.
+  camera.updateWorldMatrix(true, false);
+  const introPosition = new THREE.Vector3();
+  const introDirection = new THREE.Vector3();
+  const introRotation = new THREE.Quaternion();
+  camera.getWorldPosition(introPosition);
+  camera.getWorldDirection(introDirection);
+  camera.getWorldQuaternion(introRotation);
+  vrStart.position.copy(introPosition).addScaledVector(introDirection, 1.9);
+  vrStart.quaternion.copy(introRotation);
   vrStart.visible = true;
   vrStartWipVisible = true;
   drawVRStart();
