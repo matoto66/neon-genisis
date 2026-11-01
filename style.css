@@ -70,13 +70,24 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
 #game-ui.menu-open .panel[hidden] { display: none !important; }
 
 
-/* VR-first start screen */
-#start-screen { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:28px 18px; overflow:auto; background:radial-gradient(ellipse at 50% 18%,rgba(35,94,125,.42),transparent 48%),linear-gradient(145deg,rgba(4,8,20,.94),rgba(8,11,24,.98)); text-align:center; }
-.start-brand h1 { font-size:clamp(34px,7vw,68px); letter-spacing:.13em; text-shadow:0 0 28px rgba(95,245,232,.28); }
+/* 3D main-menu showcase. The menu world remains visible behind this transparent UI. */
+#start-screen {
+  position:fixed; inset:0; z-index:20; display:block; overflow:auto;
+  padding:0; text-align:left;
+  background:linear-gradient(90deg,rgba(4,8,19,.78) 0%,rgba(4,8,19,.56) 34%,rgba(4,8,19,.06) 70%,rgba(4,8,19,.18) 100%);
+}
+.start-brand { position:absolute; top:5vh; left:5vw; max-width:440px; }
+.start-brand h1 { font-size:clamp(34px,5.2vw,66px); letter-spacing:.13em; text-shadow:0 0 28px rgba(95,245,232,.36); }
 .start-brand .subtitle { letter-spacing:.2em; font-size:12px; }
 #wip-label { transition:opacity 1.5s ease; }
 #wip-label.faded { opacity:0; }
-.start-card { width:min(560px,94vw); padding:24px; text-align:left; border:1px solid rgba(95,245,232,.48); border-radius:14px; background:rgba(7,13,29,.94); box-shadow:0 0 40px rgba(34,210,220,.12); }
+.start-card {
+  position:absolute; top:23vh; left:5vw; width:min(410px,42vw);
+  max-height:70vh; overflow:auto; padding:22px;
+  text-align:left; border:1px solid rgba(95,245,232,.48); border-radius:14px;
+  background:rgba(7,13,29,.88); box-shadow:0 0 40px rgba(34,210,220,.16);
+  backdrop-filter:blur(12px);
+}
 .start-card h2 { margin:0 0 8px; font-size:22px; letter-spacing:.08em; }
 .start-copy,.calibration-note p { color:#aab6cf; font-size:12px; line-height:1.5; }
 .customize-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:18px 0; }
@@ -86,8 +97,19 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
 .calibration-note strong { color:#5ff5e8; font-size:10px; letter-spacing:.14em; }
 .calibration-note p { margin:6px 0 0; }
 #start-status { color:#5ff5e8; font-size:11px; }
-#start-actions { display:flex; justify-content:center; margin-top:8px; }
-#start-actions #VRButton { position:static !important; inset:auto !important; width:100%; min-width:190px; padding:14px 24px; border:1px solid #5ff5e8; border-radius:8px; background:#12656a; color:white; font-weight:900; letter-spacing:.12em; }
-.start-footer { color:#9baac4; font-size:9px; letter-spacing:.12em; }
+#start-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-start; margin-top:10px; }
+#play-button, #start-actions #VRButton {
+  position:static !important; inset:auto !important; min-width:145px; padding:14px 22px;
+  border:1px solid #5ff5e8; border-radius:8px; background:#12656a; color:white;
+  font-weight:900; letter-spacing:.12em; cursor:pointer;
+}
+#play-button { background:linear-gradient(110deg,#0b7778,#164b6c); box-shadow:0 0 22px rgba(44,240,222,.22); }
+#play-button:hover, #start-actions #VRButton:hover { filter:brightness(1.18); }
+.start-footer { position:absolute; right:22px; bottom:18px; color:#c4cee1; font-size:9px; letter-spacing:.12em; text-shadow:0 1px 8px #000; }
 #start-screen.hidden { display:none; }
-@media(max-width:520px) { #start-screen { justify-content:flex-start; } .customize-grid { grid-template-columns:1fr 1fr; } .start-card { padding:18px; } }
+@media(max-width:760px) {
+  #start-screen { background:linear-gradient(180deg,rgba(4,8,19,.74),rgba(4,8,19,.55)); }
+  .start-brand { top:3vh; left:5vw; right:5vw; }
+  .start-card { top:21vh; left:5vw; width:min(430px,90vw); max-height:74vh; }
+  .start-footer { display:none; }
+}
