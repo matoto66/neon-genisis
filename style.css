@@ -51,3 +51,20 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
   .ui-button { font-size: 9px; }
   .panel { top: auto; bottom: 60px; right: 10px; max-height: min(70vh, 560px); }
 }
+
+/* In-game menu: hidden during play, shown as a centered floating DOM overlay in VR. */
+#game-ui.menu-closed { display: none !important; visibility: hidden !important; }
+#game-ui.menu-open { display: block !important; visibility: visible !important; pointer-events: none; }
+#game-ui.menu-open .topbar {
+  top: 50%; left: 50%; right: auto; bottom: auto;
+  transform: translate(-50%, -50%);
+  flex-wrap: wrap; justify-content: center;
+  width: min(94vw, 560px); gap: 10px;
+}
+#game-ui.menu-open .credits, #game-ui.menu-open .ui-button { pointer-events: auto; }
+#game-ui.menu-open .panel {
+  top: calc(50% + 42px); left: 50%; right: auto; bottom: auto;
+  transform: translateX(-50%);
+  width: min(92vw, 430px); max-height: min(65vh, 620px);
+}
+#game-ui.menu-open .panel[hidden] { display: none !important; }
