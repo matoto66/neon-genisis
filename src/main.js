@@ -58,8 +58,14 @@ for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"]
 setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
 renderer.xr.addEventListener("sessionstart", () => {
   startScreen.classList.add("hidden");
+  vrStartReady = false;
+  heightCalibrated = false;
+  vrStart.visible = true;
+  drawVRStart();
 });
 renderer.xr.addEventListener("sessionend", () => {
+  vrStart.visible = false;
+  vrStartReady = false;
   startScreen.classList.remove("hidden");
 });
 
@@ -239,6 +245,100 @@ vrMenu.add(vrMenuPanel);
 vrMenuPanel.position.z = 0;
 vrMenuPanel.renderOrder = 1000;
 
+// In-headset character setup: a head-facing 3D panel, selectable with the right controller.
+const vrStart = new THREE.Group();
+vrStart.visible = false;
+camera.add(vrStart);
+vrStart.position.set(0, 0, -2.15);
+vrStart.scale.set(0.00135, 0.00135, 0.00135);
+const vrStartCanvas = document.createElement("canvas");
+vrStartCanvas.width = 1024;
+vrStartCanvas.height = 768;
+const vrStartContext = vrStartCanvas.getContext("2d");
+const vrStartTexture = new THREE.CanvasTexture(vrStartCanvas);
+vrStartTexture.colorSpace = THREE.SRGBColorSpace;
+const vrStartPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(1024, 768),
+  new THREE.MeshBasicMaterial({ map: vrStartTexture, side: THREE.DoubleSide, depthTest: false })
+);
+vrStart.add(vrStartPanel);
+vrStartPanel.renderOrder = 1100;
+let vrStartReady = false;
+let heightCalibrated = false;
+const appearanceChoices = {
+  hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
+  hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
+  jacketColour: ["Black", "White", "Cyan", "Purple", "Red"],
+  heightCm: [150, 155, 160, 165, 170, 175, 180, 185, 190, 195, 200]
+};
+function cycleAppearance(key) {
+  const choices = appearanceChoices[key];
+  const index = choices.indexOf(appearance[key]);
+  appearance[key] = choices[(index + 1) % choices.length];
+  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour", heightCm: "player-height" };
+  document.getElementById(fieldIds[key]).value = String(appearance[key]);
+  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+  drawVRStart();
+}
+function drawVRStart() {
+  const c = vrStartContext;
+  c.clearRect(0, 0, 1024, 768);
+  c.fillStyle = "rgba(5,10,25,0.98)";
+  c.fillRect(0,0,1024,768);
+  c.strokeStyle = "#5ff5e8"; c.lineWidth = 5; c.strokeRect(5,5,1014,758);
+  c.fillStyle = "#5ff5e8"; c.font = "bold 24px Arial"; c.fillText("A WORK IN PROGRESS", 60, 58);
+  c.fillStyle = "#ffffff"; c.font = "bold 58px Arial"; c.fillText("NEON GENESIS", 60, 130);
+  c.fillStyle = "#c8d6ec"; c.font = "22px Arial"; c.fillText("CREATE YOUR CHARACTER", 62, 184);
+  const rows = [
+    ["HAIR STYLE", appearance.hairStyle, "hairStyle"],
+    ["HAIR COLOUR", appearance.hairColour, "hairColour"],
+    ["JACKET COLOUR", appearance.jacketColour, "jacketColour"],
+    ["HEIGHT", appearance.heightCm + " CM", "heightCm"]
+  ];
+  rows.forEach((row,i) => {
+    const y = 235 + i * 91;
+    c.fillStyle = "#13233b"; c.fillRect(60,y-39,904,70);
+    c.fillStyle = "#aab6cf"; c.font = "bold 19px Arial"; c.fillText(row[0], 88,y-8);
+    c.fillStyle = "#ffffff"; c.font = "bold 25px Arial"; c.fillText(String(row[1]), 440,y-8);
+    c.fillStyle = "#174c5c"; c.fillRect(830,y-28,104,48);
+    c.fillStyle = "#5ff5e8"; c.font = "bold 19px Arial"; c.fillText("CHANGE", 844,y+3);
+  });
+  c.fillStyle = "#aab6cf"; c.font = "18px Arial";
+  c.fillText("HEIGHT CALIBRATION: Stand upright on a flat floor, then confirm below.", 62, 614);
+  c.fillStyle = heightCalibrated ? "#5ff5e8" : "#ffcf70";
+  c.font = "bold 18px Arial";
+  c.fillText(heightCalibrated ? "HEIGHT SET — READY TO ENTER" : "HEIGHT NOT YET CONFIRMED", 62, 653);
+  c.fillStyle = "#12656a"; c.fillRect(340,680,344,62);
+  c.strokeStyle = "#5ff5e8"; c.strokeRect(340,680,344,62);
+  c.fillStyle = "#ffffff"; c.font = "bold 27px Arial"; c.fillText("CALIBRATE & PLAY", 385,721);
+  vrStartTexture.needsUpdate = true;
+}
+function activateVRStartAtController(controller) {
+  if (!vrStart.visible) return false;
+  vrMenuRaycaster.setFromXRController(controller);
+  const hit = vrMenuRaycaster.intersectObject(vrStartPanel, false)[0];
+  if (!hit?.uv) return true;
+  const x = hit.uv.x * 1024;
+  const y = (1 - hit.uv.y) * 768;
+  const rowKeys = ["hairStyle","hairColour","jacketColour","heightCm"];
+  rowKeys.forEach((key,i) => {
+    const rowY = 235 + i * 91;
+    if (y >= rowY-39 && y <= rowY+31 && x >= 800) cycleAppearance(key);
+  });
+  if (y >= 680 && y <= 742 && x >= 340 && x <= 684) {
+    // local-floor supplies the real floor reference; this confirms the selected
+    // avatar height without overriding the headset's tracked physical position.
+    heightCalibrated = true;
+    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+    vrStart.visible = false;
+    vrStartReady = true;
+    drawVRMenu();
+    startStatus.textContent = "In the city. Press Y to open or close the menu.";
+  }
+  if (vrStart.visible) drawVRStart();
+  return true;
+}
+
 const vrMenuRaycaster = new THREE.Raycaster();
 const vrMenuPointer = new THREE.Vector3();
 const vrControllerRays = [];
@@ -272,7 +372,8 @@ for (let i = 0; i < 2; i++) {
   });
   controller.addEventListener("select", () => {
     if (controller.userData.handedness === "right") {
-      activateVRMenuAtController(controller);
+      if (vrStart.visible) activateVRStartAtController(controller);
+      else activateVRMenuAtController(controller);
     }
   });
   // Keep XR controllers in the same moving/turning space as the player camera.
@@ -402,7 +503,7 @@ function activateVRMenuAtController(controller) {
   drawVRMenu();
 }
 function updateVRMenuPointer() {
-  if (!renderer.xr.isPresenting || !vrMenu.visible) {
+  if (!renderer.xr.isPresenting || (!vrMenu.visible && !vrStart.visible)) {
     vrCursor.visible = false;
     return;
   }
@@ -417,7 +518,9 @@ function updateVRMenuPointer() {
   }
   rightItem.rayLine.visible = true;
   vrMenuRaycaster.setFromXRController(rightItem.controller);
-  const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
+  const targetPanel = vrStart.visible ? vrStartPanel : (vrMenu.visible ? vrMenuPanel : null);
+  if (!targetPanel) { vrCursor.visible = false; return; }
+  const hit = vrMenuRaycaster.intersectObject(targetPanel, false)[0];
   rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
   if (hit) {
     // Pull the cursor slightly toward the controller so it renders in front of the menu.
