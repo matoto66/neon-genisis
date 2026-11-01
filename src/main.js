@@ -641,13 +641,24 @@ const terminalButton = new THREE.MeshStandardMaterial({
 });
 
 function makeTerminalLabel(width, height, painter) {
+  // Draw at twice the pixel resolution while keeping the same physical mesh size.
+  const logicalWidth = 1024;
+  const logicalHeight = Math.max(128, Math.round(logicalWidth * height / width));
+  const resolutionScale = 2;
   const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = Math.max(128, Math.round(1024 * height / width));
+  canvas.width = logicalWidth * resolutionScale;
+  canvas.height = logicalHeight * resolutionScale;
   const ctx = canvas.getContext("2d");
+  ctx.scale(resolutionScale, resolutionScale);
+  ctx.logicalWidth = logicalWidth;
+  ctx.logicalHeight = logicalHeight;
   painter(ctx);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const material = new THREE.MeshBasicMaterial({
     map: texture, transparent: true, side: THREE.DoubleSide, depthWrite: false
   });
@@ -681,7 +692,8 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
   }
   group.userData.refresh = () => {
     const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    ctx.clearRect(0, 0, ctx.logicalWidth, ctx.logicalHeight);
     labelPainter(ctx);
     texture.needsUpdate = true;
   };
@@ -692,11 +704,11 @@ const titleCard = addTerminalCard({
   x: 0, y: 0.48, width: 1.72, height: 0.22,
   labelPainter: ctx => {
     ctx.fillStyle = "#55f5e8";
-    ctx.font = "bold 54px Arial";
-    ctx.fillText("NEON GENESIS", 34, ctx.canvas.height * 0.48);
+    ctx.font = "bold 64px Arial";
+    ctx.fillText("NEON GENESIS", 34, ctx.logicalHeight * 0.48);
     ctx.fillStyle = "#b9c8d8";
-    ctx.font = "bold 24px Arial";
-    ctx.fillText("CHARACTER SETUP", 38, ctx.canvas.height * 0.80);
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("CHARACTER SETUP", 38, ctx.logicalHeight * 0.80);
   }
 });
 
@@ -712,17 +724,17 @@ rowInfo.forEach((info, index) => {
     x: positions[index], y: 0.02, width: 0.53, height: 0.28,
     action: () => cycleAppearance(info.key),
     labelPainter: ctx => {
-      const center = ctx.canvas.width / 2;
-      const h = ctx.canvas.height;
+      const center = ctx.logicalWidth / 2;
+      const h = ctx.logicalHeight;
       ctx.textAlign = "center";
-      ctx.fillStyle = "#8fa7bb";
-      ctx.font = "bold 38px Arial";
+      ctx.fillStyle = "#9db4c9";
+      ctx.font = "bold 46px Arial";
       ctx.fillText(info.label, center, h * 0.28);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 54px Arial";
+      ctx.font = "bold 64px Arial";
       ctx.fillText(String(appearance[info.key]).toUpperCase(), center, h * 0.57);
       ctx.fillStyle = "#ffcf70";
-      ctx.font = "bold 25px Arial";
+      ctx.font = "bold 30px Arial";
       ctx.fillText("TAP TO CHANGE", center, h * 0.84);
       ctx.textAlign = "left";
     }
@@ -737,9 +749,9 @@ const confirmCard = addTerminalCard({
   action: () => startCity(),
   labelPainter: ctx => {
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 48px Arial";
+    ctx.font = "bold 58px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("PLAY", 512, ctx.canvas.height * 0.62);
+    ctx.fillText("PLAY", 512, ctx.logicalHeight * 0.62);
     ctx.textAlign = "left";
   }
 });
