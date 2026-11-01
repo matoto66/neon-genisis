@@ -10,6 +10,7 @@ const player = new THREE.Group();
 scene.add(player);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
+camera.rotation.order = "YXZ";
 camera.position.set(0, 1.65, 0);
 player.add(camera);
 player.position.set(0, 0, 7);
@@ -93,7 +94,102 @@ const marker = new THREE.Mesh(
 marker.position.set(0, 0.08, 1);
 scene.add(marker);
 
-// Desktop controls: WASD or arrow keys. VR: use the left controller thumbstick.
+// Starter character: three points to distribute between the three attributes.
+const defaultCharacter = { strength: 0, health: 0, compatibility: 0 };
+let character = { ...defaultCharacter };
+let credits = 500;
+
+try {
+  const saved = JSON.parse(localStorage.getItem("neon-genesis-save") || "null");
+  if (saved?.character) {
+    const candidate = saved.character;
+    const values = [candidate.strength, candidate.health, candidate.compatibility];
+    if (values.every((value) => Number.isInteger(value) && value >= 0 && value <= 3) &&
+        values.reduce((sum, value) => sum + value, 0) <= 3) {
+      character = { ...candidate };
+    }
+  }
+  if (Number.isInteger(saved?.credits) && saved.credits >= 0) credits = saved.credits;
+} catch {
+  // If local storage is unavailable, the game still starts with its default character.
+}
+
+function saveGame() {
+  try {
+    localStorage.setItem("neon-genesis-save", JSON.stringify({ character, credits }));
+  } catch {
+    // Saving is optional; the current session remains playable.
+  }
+}
+
+const pointsLeft = () => 3 - character.strength - character.health - character.compatibility;
+const gradeNames = ["BASIC", "STANDARD", "ADVANCED", "ELITE"];
+
+function updateCharacterUI() {
+  document.querySelector("#points-left").textContent = pointsLeft();
+  document.querySelector("#strength-value").textContent = character.strength;
+  document.querySelector("#health-value").textContent = character.health;
+  document.querySelector("#compatibility-value").textContent = character.compatibility;
+  document.querySelector("#max-health").textContent = 100 + character.health * 25;
+  document.querySelector("#cyber-grade").textContent = gradeNames[character.compatibility];
+  document.querySelector("#credits").textContent = "$" + credits.toLocaleString();
+  document.querySelector("#shop-credits").textContent = "$" + credits.toLocaleString();
+
+  document.querySelectorAll("[data-stat][data-change]").forEach((button) => {
+    const stat = button.dataset.stat;
+    const change = Number(button.dataset.change);
+    button.disabled = change > 0 ? pointsLeft() <= 0 : character[stat] <= 0;
+  });
+}
+
+document.querySelectorAll("[data-stat][data-change]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const stat = button.dataset.stat;
+    const change = Number(button.dataset.change);
+    if (change > 0 && pointsLeft() > 0 && character[stat] < 3) character[stat] += 1;
+    if (change < 0 && character[stat] > 0) character[stat] -= 1;
+    saveGame();
+    updateCharacterUI();
+  });
+});
+
+const characterPanel = document.querySelector("#character-panel");
+const shopPanel = document.querySelector("#shop-panel");
+
+function showPanel(panelToShow) {
+  const wasOpen = !panelToShow.hidden;
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  if (!wasOpen) panelToShow.hidden = false;
+}
+
+document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
+document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
+document.querySelectorAll("[data-close]").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.getElementById(button.dataset.close).hidden = true;
+  });
+});
+
+updateCharacterUI();
+
+// Desktop mouse-look: click the 3D view to capture the mouse; press Esc to release it.
+let pitch = 0;
+const maxPitch = Math.PI / 2 - 0.08;
+renderer.domElement.addEventListener("click", () => {
+  if (!renderer.xr.isPresenting && document.pointerLockElement !== renderer.domElement) {
+    renderer.domElement.requestPointerLock?.();
+  }
+});
+document.addEventListener("mousemove", (event) => {
+  if (document.pointerLockElement !== renderer.domElement || renderer.xr.isPresenting) return;
+  const sensitivity = 0.0022;
+  player.rotation.y -= event.movementX * sensitivity;
+  pitch -= event.movementY * sensitivity;
+  pitch = THREE.MathUtils.clamp(pitch, -maxPitch, maxPitch);
+  camera.rotation.x = pitch;
+});
+
 const keys = {};
 window.addEventListener("keydown", (event) => {
   keys[event.code] = true;
@@ -104,6 +200,9 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => {
   keys[event.code] = false;
 });
+window.addEventListener("blur", () => {
+  for (const key of Object.keys(keys)) keys[key] = false;
+});
 
 const clock = new THREE.Clock();
 const forward = new THREE.Vector3();
@@ -111,7 +210,6 @@ const right = new THREE.Vector3();
 const movement = new THREE.Vector3();
 const up = new THREE.Vector3(0, 1, 0);
 const cameraDirection = new THREE.Vector3();
-const playerSpeed = 3.2;
 
 function getLeftStick() {
   const session = renderer.xr.getSession();
@@ -137,8 +235,6 @@ function movePlayer(delta) {
   } else {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
-    const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
-    if (keys.ArrowRight || keys.ArrowLeft) player.rotation.y -= turn * delta * 1.8;
   }
 
   camera.getWorldDirection(cameraDirection);
@@ -148,12 +244,13 @@ function movePlayer(delta) {
   movement.set(0, 0, 0);
   movement.addScaledVector(forward, -stickY);
   movement.addScaledVector(right, stickX);
-
   if (movement.lengthSq() > 1) movement.normalize();
-  player.position.addScaledVector(movement, playerSpeed * delta);
+
+  const speed = 3.2 + character.strength * 0.18;
+  player.position.addScaledVector(movement, speed * delta);
 }
 
-status.textContent = "City loaded. WASD to move, or enter VR and use the left thumbstick.";
+status.textContent = "City loaded. Click the city to look around; use WASD to move. Open Character to assign your 3 starting points.";
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
