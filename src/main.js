@@ -41,14 +41,16 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { bodyType: "Male", hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
+const appearance = { bodyType: "Male", hatStyle: "Baseball Cap", hatColour: "Black", jacketColour: "Black" };
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
   if (savedAppearance) {
     Object.assign(appearance, savedAppearance);
   }
 } catch {}
-for (const [id, key] of [["body-type","bodyType"],["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
+delete appearance.hairStyle;
+delete appearance.hairColour;
+for (const [id, key] of [["body-type","bodyType"],["hat-style","hatStyle"],["hat-colour","hatColour"],["jacket-colour","jacketColour"]]) {
   const field = document.getElementById(id);
   field.value = String(appearance[key]);
   field.addEventListener("change", () => {
@@ -626,8 +628,8 @@ function startCity() {
 
 const appearanceChoices = {
   bodyType: ["Male", "Female"],
-  hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
-  hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
+  hatStyle: ["Baseball Cap", "Beanie", "Bucket Hat", "Tech Helmet"],
+  hatColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"],
   jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
 };
 
@@ -678,10 +680,10 @@ function updateCharacterPreview() {
     Black: 0x202735, White: 0xcbd4df, Yellow: 0xc49a25,
     Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
   }[appearance.jacketColour] || 0x202735;
-  const hairHex = {
-    Dark: 0x171b25, Brown: 0x63402f, Blonde: 0xd7b76c,
-    White: 0xdce2ed, "Neon blue": 0x168ed1, "Neon pink": 0xd92e87
-  }[appearance.hairColour] || 0x171b25;
+  const hatHex = {
+    Black: 0x202735, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.hatColour] || 0x202735;
 
   const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.48, roughness: 0.48 });
   const jacketEdge = new THREE.MeshStandardMaterial({ color: 0x26384a, metalness: 0.76, roughness: 0.32 });
@@ -689,7 +691,11 @@ function updateCharacterPreview() {
   const bootMaterial = new THREE.MeshStandardMaterial({ color: 0x090e19, metalness: 0.72, roughness: 0.34 });
   const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x121b2a, metalness: 0.65, roughness: 0.42 });
   const maskMaterial = new THREE.MeshStandardMaterial({ color: 0x080f1c, metalness: 0.82, roughness: 0.24 });
-  const hairMaterial = new THREE.MeshStandardMaterial({ color: hairHex, metalness: 0.18, roughness: 0.68 });
+  const hatMaterial = new THREE.MeshStandardMaterial({ color: hatHex, metalness: 0.48, roughness: 0.38 });
+  const hatTrimMaterial = new THREE.MeshStandardMaterial({
+    color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.65,
+    metalness: 0.62, roughness: 0.3
+  });
   const cyanMaterial = new THREE.MeshStandardMaterial({
     color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.8,
     metalness: 0.6, roughness: 0.28
@@ -753,28 +759,51 @@ function updateCharacterPreview() {
   add(new THREE.BoxGeometry(0.245, 0.026, 0.018), cyanMaterial, 0, 1.69, 0.21);
   add(new THREE.BoxGeometry(0.34, 0.055, 0.08), jacketEdge, 0, 1.48, 0.02);
 
-  // Hair sits over the head; the long style hangs behind the mask and collar.
-  const hairCapLength = appearance.hairStyle === "Buzz cut" ? 0.42 : 0.72;
-  const hairCap = add(
-    new THREE.SphereGeometry(0.198, 18, 12, 0, Math.PI * 2, 0, Math.PI * hairCapLength),
-    hairMaterial, 0, 1.76, 0
-  );
-  hairCap.scale.set(1.04, 0.78, 1.02);
-
-  if (appearance.hairStyle === "Wavy") {
-    for (let i = 0; i < 5; i++) {
-      const angle = (i / 5) * Math.PI * 2;
-      add(new THREE.SphereGeometry(0.075, 10, 8), hairMaterial,
-        Math.cos(angle) * 0.12, 1.84 + (i % 2) * 0.025, Math.sin(angle) * 0.12);
-    }
-  } else if (appearance.hairStyle === "Long") {
-    add(new THREE.BoxGeometry(0.31, 0.48, 0.20), hairMaterial, 0, 1.49, -0.12);
+  // Headwear replaces the hair options. Each style has a distinct silhouette.
+  if (appearance.hatStyle === "Baseball Cap") {
+    const crown = add(
+      new THREE.SphereGeometry(0.205, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      hatMaterial, 0, 1.76, -0.015
+    );
+    crown.scale.set(1.02, 0.88, 1.02);
+    add(new THREE.CylinderGeometry(0.202, 0.202, 0.025, 24),
+      hatMaterial, 0, 1.775, -0.01);
+    const bill = add(new THREE.SphereGeometry(0.19, 20, 10),
+      hatMaterial, 0, 1.775, 0.145);
+    bill.scale.set(1.02, 0.075, 0.78);
+    add(new THREE.BoxGeometry(0.025, 0.018, 0.13),
+      hatTrimMaterial, 0, 1.80, -0.01);
+  } else if (appearance.hatStyle === "Beanie") {
+    add(new THREE.CylinderGeometry(0.185, 0.205, 0.20, 24, 1),
+      hatMaterial, 0, 1.82, 0);
+    const top = add(new THREE.SphereGeometry(0.185, 20, 12),
+      hatMaterial, 0, 1.91, 0);
+    top.scale.set(1, 0.38, 1);
+    add(new THREE.CylinderGeometry(0.205, 0.205, 0.055, 24),
+      hatMaterial, 0, 1.735, 0);
+    add(new THREE.BoxGeometry(0.12, 0.045, 0.018),
+      hatTrimMaterial, 0, 1.735, 0.205);
+  } else if (appearance.hatStyle === "Bucket Hat") {
+    add(new THREE.CylinderGeometry(0.16, 0.18, 0.16, 24),
+      hatMaterial, 0, 1.83, 0);
+    add(new THREE.CylinderGeometry(0.19, 0.255, 0.035, 32),
+      hatMaterial, 0, 1.75, 0);
+    add(new THREE.CylinderGeometry(0.165, 0.165, 0.018, 24),
+      hatTrimMaterial, 0, 1.765, 0);
+  } else if (appearance.hatStyle === "Tech Helmet") {
+    const shell = add(
+      new THREE.SphereGeometry(0.215, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+      hatMaterial, 0, 1.755, -0.005
+    );
+    shell.scale.set(1.04, 0.92, 1.04);
+    add(new THREE.BoxGeometry(0.37, 0.075, 0.07),
+      hatMaterial, 0, 1.72, 0.16);
+    add(new THREE.BoxGeometry(0.30, 0.025, 0.025),
+      hatTrimMaterial, 0, 1.70, 0.205);
     for (const side of [-1, 1]) {
-      add(new THREE.CapsuleGeometry(0.055, 0.30, 4, 8),
-        hairMaterial, side * 0.16, 1.57, -0.02);
+      add(new THREE.BoxGeometry(0.045, 0.12, 0.10),
+        hatTrimMaterial, side * 0.19, 1.68, 0.015);
     }
-  } else if (appearance.hairStyle === "Short") {
-    add(new THREE.BoxGeometry(0.31, 0.16, 0.22), hairMaterial, 0, 1.70, -0.07);
   }
 
   // Small shoulder pads and a compact back module complete the first-pass look.
@@ -882,8 +911,8 @@ const titleCard = addTerminalCard({
 const startRows = [];
 const rowInfo = [
   { key: "bodyType", label: "BODY TYPE" },
-  { key: "hairStyle", label: "HAIR STYLE" },
-  { key: "hairColour", label: "HAIR COLOUR" },
+  { key: "hatStyle", label: "HAT STYLE" },
+  { key: "hatColour", label: "HAT COLOR" },
   { key: "jacketColour", label: "JACKET COLOUR" }
 ];
 rowInfo.forEach((info, index) => {
@@ -941,7 +970,7 @@ function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
   appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { bodyType: "body-type", hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
+  const fieldIds = { bodyType: "body-type", hatStyle: "hat-style", hatColour: "hat-colour", jacketColour: "jacket-colour" };
   const field = document.getElementById(fieldIds[key]);
   if (field) field.value = String(appearance[key]);
   updateCharacterPreview();
