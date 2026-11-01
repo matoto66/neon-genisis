@@ -790,27 +790,31 @@ function showVRIntro() {
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
   vrStartReady = false;
-  // Anchor the menu to the player's fixed spawn transform, not the headset.
-  // That means the height and facing direction are identical whether the user
-  // enters VR looking straight ahead, down, up, or with their head tilted.
-  const playerWorldPosition = new THREE.Vector3();
-  const flatForward = new THREE.Vector3();
-  player.getWorldPosition(playerWorldPosition);
-  player.getWorldDirection(flatForward);
-  flatForward.y = 0;
+  // Place the ENTIRE character-selection rectangle from the fixed player
+  // spawn transform. Do not read headset position, pitch, roll, or yaw here.
+  const spawnPosition = new THREE.Vector3();
+  const spawnRotation = new THREE.Quaternion();
+  player.getWorldPosition(spawnPosition);
+  player.getWorldQuaternion(spawnRotation);
 
-  // The player root sits at floor level. Place the center of the panel at a
-  // fixed 1.2m world height and 1.75m ahead of the spawn, independent of HMD pose.
+  // Use the player's horizontal forward (-Z), not Object3D.getWorldDirection
+  // which points along +Z for a normal Group. This stays level at any head pose.
+  const flatForward = new THREE.Vector3(0, 0, -1).applyQuaternion(spawnRotation);
+  flatForward.y = 0;
   if (flatForward.lengthSq() < 0.0001) flatForward.set(0, 0, -1);
   flatForward.normalize();
 
   const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
+  const MENU_HEIGHT_ABOVE_FLOOR = 1.20;
+  const MENU_DISTANCE_FROM_SPAWN = 1.75;
+
+  // One world-space position and yaw for the root rectangle. Every card,
+  // border, rail and PLAY button is a child of vrStart and shares this plane.
   vrStart.position.set(
-    playerWorldPosition.x + flatForward.x * 1.75,
-    playerWorldPosition.y + 1.20,
-    playerWorldPosition.z + flatForward.z * 1.75
+    spawnPosition.x + flatForward.x * MENU_DISTANCE_FROM_SPAWN,
+    spawnPosition.y + MENU_HEIGHT_ABOVE_FLOOR,
+    spawnPosition.z + flatForward.z * MENU_DISTANCE_FROM_SPAWN
   );
-  // Yaw only: pitch and roll are always zero, and the menu remains world-locked.
   vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
   vrStart.visible = true;
