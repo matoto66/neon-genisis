@@ -1023,7 +1023,7 @@ function showVRIntro() {
   // Local +Z is the menu's front, so a small +Z offset brings the model
   // slightly toward the player while keeping it beside the right edge.
   vrStart.updateMatrixWorld(true);
-  const avatarLocalX = 1.38;
+  const avatarLocalX = 1.18;
   const avatarLocalZ = 0.24;
   const towardPlayerLocal = new THREE.Vector3(
     -avatarLocalX, 0, MENU_DISTANCE_FROM_SPAWN - avatarLocalZ
