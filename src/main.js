@@ -494,7 +494,7 @@ function getLeftYButton() {
     source.handedness === "left" && source.gamepad
   );
   // Quest Touch: Y is the left controller's secondary face button.
-  return !!leftSource?.gamepad?.buttons[4]?.pressed;
+  return !!leftSource?.gamepad?.buttons[5]?.pressed;
 }
 
 function movePlayer(delta) {
