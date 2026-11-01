@@ -4,7 +4,7 @@ import { VRButton } from "three/addons/webxr/VRButton.js";
 const status = document.querySelector("#status");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x080b18);
-scene.fog = new THREE.Fog(0x080b18, 18, 90);
+scene.fog = new THREE.Fog(0x080b18, 28, 145);
 
 const player = new THREE.Group();
 scene.add(player);
@@ -57,9 +57,9 @@ for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"]
 }
 setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
 
-scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 2));
+scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 1.35));
 const moonLight = new THREE.DirectionalLight(0x8cbcff, 1.4);
-moonLight.position.set(-5, 12, 8);
+moonLight.position.set(-5, 24, 8);
 scene.add(moonLight);
 
 const floor = new THREE.Mesh(
@@ -74,36 +74,103 @@ const grid = new THREE.GridHelper(180, 90, 0x245c78, 0x1a2940);
 grid.position.y = 0.005;
 scene.add(grid);
 
-function makeBuilding(x, z, width, height, depth, color, signColor) {
+// Procedural city blocks: varied towers, lit windows on every side, and a
+// broad street corridor so the player is surrounded by the city at spawn.
+function makeBuilding(x, z, width, height, depth, color, signColor, seed = 1) {
   const building = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0.35 })
+    new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.48 })
   );
   building.position.set(x, height / 2, z);
   scene.add(building);
+
+  const windowMatA = new THREE.MeshBasicMaterial({ color: 0x43c9d2, side: THREE.DoubleSide });
+  const windowMatB = new THREE.MeshBasicMaterial({ color: 0x9b67e8, side: THREE.DoubleSide });
+  const darkWindow = new THREE.MeshBasicMaterial({ color: 0x101a2a, side: THREE.DoubleSide });
+  let n = seed;
+  const random = () => { n = (n * 1664525 + 1013904223) >>> 0; return n / 4294967296; };
+  const addWindows = (count, spacing, makePosition, rotationY = 0) => {
+    for (let row = 1.3; row < height - 1; row += 1.65) {
+      for (let col = 0; col < count; col++) {
+        const r = random();
+        const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.86), r < 0.22 ? darkWindow : (r < 0.68 ? windowMatA : windowMatB));
+        const p = makePosition(col, spacing, row);
+        pane.position.set(p.x, p.y, p.z);
+        pane.rotation.y = rotationY;
+        scene.add(pane);
+      }
+    }
+  };
+  const frontCount = Math.max(2, Math.floor(width / 1.15));
+  const sideCount = Math.max(2, Math.floor(depth / 1.15));
+  addWindows(frontCount, 1.15, (col, spacing, y) => ({
+    x: x - (frontCount - 1) * spacing / 2 + col * spacing,
+    y, z: z + depth / 2 + 0.018
+  }));
+  addWindows(frontCount, 1.15, (col, spacing, y) => ({
+    x: x + (frontCount - 1) * spacing / 2 - col * spacing,
+    y, z: z - depth / 2 - 0.018
+  }, Math.PI);
+  addWindows(sideCount, 1.15, (col, spacing, y) => ({
+    x: x + width / 2 + 0.018,
+    y, z: z + (sideCount - 1) * spacing / 2 - col * spacing
+  }, Math.PI / 2);
+  addWindows(sideCount, 1.15, (col, spacing, y) => ({
+    x: x - width / 2 - 0.018,
+    y, z: z - (sideCount - 1) * spacing / 2 + col * spacing
+  }, -Math.PI / 2);
+
+  // Small illuminated facade sign, mounted on the street-facing side.
   const sign = new THREE.Mesh(
-    new THREE.BoxGeometry(width * 0.72, 0.12, 0.08),
+    new THREE.BoxGeometry(Math.min(width * 0.72, 4.8), 0.16, 0.1),
     new THREE.MeshBasicMaterial({ color: signColor })
   );
-  sign.position.set(x, Math.min(height - 1, height * 0.72), z + depth / 2 + 0.06);
+  sign.position.set(x, Math.min(height - 1, height * 0.68), z + depth / 2 + 0.08);
   scene.add(sign);
-  for (let y = 1.2; y < height - 0.7; y += 1.5) {
-    for (let wx = -width / 2 + 0.65; wx < width / 2 - 0.3; wx += 1.15) {
-      const windowMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.48, 0.72),
-        new THREE.MeshBasicMaterial({ color: Math.random() > 0.35 ? 0x35b9c8 : 0x8a4fff })
-      );
-      windowMesh.position.set(x + wx, y, z + depth / 2 + 0.012);
-      scene.add(windowMesh);
-    }
+}
+
+let citySeed = 73;
+const cityRandom = () => { citySeed = (citySeed * 16807) % 2147483647; return (citySeed - 1) / 2147483646; };
+const towerColors = [0x17243a, 0x202039, 0x182b36, 0x292039, 0x1b293d];
+const neonColors = [0x28e6dc, 0xb24cff, 0xff4fa3, 0x4c9dff];
+for (let ring = 0; ring < 4; ring++) {
+  const radius = 17 + ring * 13;
+  const count = 12 + ring * 4;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + (ring % 2) * 0.13;
+    const x = Math.sin(angle) * radius + (cityRandom() - 0.5) * 5;
+    const z = Math.cos(angle) * radius + (cityRandom() - 0.5) * 5;
+    const width = 5 + cityRandom() * 5;
+    const depth = 5 + cityRandom() * 5;
+    const height = 12 + cityRandom() * (ring === 0 ? 15 : 35);
+    makeBuilding(x, z, width, height, depth,
+      towerColors[Math.floor(cityRandom() * towerColors.length)],
+      neonColors[Math.floor(cityRandom() * neonColors.length)],
+      100 + ring * 31 + i);
   }
 }
 
-makeBuilding(-7, -8, 7, 13, 6, 0x18233a, 0x28e6dc);
-makeBuilding(7, -10, 8, 17, 7, 0x211a39, 0xb24cff);
-makeBuilding(-10, 5, 5, 10, 5, 0x172b3a, 0x28e6dc);
-makeBuilding(10, 4, 6, 12, 5, 0x291b35, 0xff4fa3);
-makeBuilding(0, -23, 13, 22, 7, 0x151c34, 0x28e6dc);
+// Street lamps and road markings add scale and depth to the streets.
+const lampMat = new THREE.MeshStandardMaterial({ color: 0x26364a, metalness: 0.8, roughness: 0.35 });
+for (let z = -52; z <= 48; z += 13) {
+  for (const x of [-5.8, 5.8]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 4.6, 8), lampMat);
+    pole.position.set(x, 2.3, z);
+    scene.add(pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.07, 0.07), lampMat);
+    arm.position.set(x + (x < 0 ? 0.35 : -0.35), 4.45, z);
+    scene.add(arm);
+    const glow = new THREE.PointLight(x < 0 ? 0x38dce8 : 0xb35bff, 2.2, 11);
+    glow.position.set(x + (x < 0 ? 0.65 : -0.65), 4.25, z);
+    scene.add(glow);
+  }
+}
+const roadLineMat = new THREE.MeshBasicMaterial({ color: 0x2b6573 });
+for (const x of [-1.5, 1.5]) {
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.012, 115), roadLineMat);
+  line.position.set(x, 0.012, -5);
+  scene.add(line);
+}
 
 const neonRing = new THREE.Mesh(
   new THREE.TorusGeometry(2.2, 0.045, 12, 96),
@@ -239,7 +306,7 @@ vrStart.visible = false;
 scene.add(vrStart);
 // Large world-space intro screen: its pose is set once when VR starts,
 // so it stays in the room instead of following the headset.
-vrStart.scale.set(0.0048, 0.0048, 0.0048);
+vrStart.scale.set(0.0026, 0.0026, 0.0026);
 const vrStartCanvas = document.createElement("canvas");
 vrStartCanvas.width = 1024;
 vrStartCanvas.height = 768;
@@ -272,9 +339,12 @@ function cycleAppearance(key) {
 function drawVRStart() {
   const c = vrStartContext;
   c.clearRect(0, 0, 1024, 768);
-  c.fillStyle = "rgba(5,10,25,0.98)";
-  c.fillRect(0,0,1024,768);
-  c.strokeStyle = "#5ff5e8"; c.lineWidth = 5; c.strokeRect(5,5,1014,758);
+  // Keep the world visible around a compact, floating world-space panel.
+  c.fillStyle = "rgba(4,9,22,0.88)";
+  c.beginPath(); c.roundRect(48, 36, 928, 696, 24); c.fill();
+  c.strokeStyle = "#5ff5e8"; c.lineWidth = 4; c.stroke();
+  c.fillStyle = "rgba(95,245,232,0.07)";
+  c.fillRect(48, 36, 928, 8);
   if (vrStartWipVisible) { c.fillStyle = "#5ff5e8"; c.font = "bold 24px Arial"; c.fillText("A WORK IN PROGRESS", 60, 58); }
   c.fillStyle = "#ffffff"; c.font = "bold 58px Arial"; c.fillText("NEON GENESIS", 60, 130);
   c.fillStyle = "#c8d6ec"; c.font = "22px Arial"; c.fillText("CREATE YOUR CHARACTER", 62, 184);
@@ -316,7 +386,7 @@ function showVRIntro() {
   camera.getWorldPosition(introPosition);
   camera.getWorldDirection(introDirection);
   camera.getWorldQuaternion(introRotation);
-  vrStart.position.copy(introPosition).addScaledVector(introDirection, 1.9);
+  vrStart.position.copy(introPosition).addScaledVector(introDirection, 3.1);
   vrStart.quaternion.copy(introRotation);
   vrStart.visible = true;
   vrStartWipVisible = true;
