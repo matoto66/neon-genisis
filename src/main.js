@@ -56,20 +56,6 @@ for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"]
   });
 }
 setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
-renderer.xr.addEventListener("sessionstart", () => {
-  startScreen.classList.add("hidden");
-  vrStartReady = false;
-  heightCalibrated = false;
-  vrStart.visible = true;
-  vrStartWipVisible = true;
-  drawVRStart();
-  setTimeout(() => { vrStartWipVisible = false; if (vrStart.visible) drawVRStart(); }, 20000);
-});
-renderer.xr.addEventListener("sessionend", () => {
-  vrStart.visible = false;
-  vrStartReady = false;
-  startScreen.classList.remove("hidden");
-});
 
 scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 2));
 const moonLight = new THREE.DirectionalLight(0x8cbcff, 1.4);
@@ -316,6 +302,31 @@ function drawVRStart() {
   c.fillStyle = "#ffffff"; c.font = "bold 27px Arial"; c.fillText("CALIBRATE & PLAY", 385,721);
   vrStartTexture.needsUpdate = true;
 }
+
+// Start the headset intro only after the VR panel and its drawing code exist.
+let vrSessionIntroActive = false;
+function showVRIntro() {
+  if (vrSessionIntroActive) return;
+  vrSessionIntroActive = true;
+  startScreen.classList.add("hidden");
+  vrStartReady = false;
+  heightCalibrated = false;
+  vrStart.visible = true;
+  vrStartWipVisible = true;
+  drawVRStart();
+  setTimeout(() => {
+    vrStartWipVisible = false;
+    if (vrStart.visible) drawVRStart();
+  }, 20000);
+}
+renderer.xr.addEventListener("sessionstart", showVRIntro);
+renderer.xr.addEventListener("sessionend", () => {
+  vrSessionIntroActive = false;
+  vrStart.visible = false;
+  vrStartReady = false;
+  startScreen.classList.remove("hidden");
+});
+
 function activateVRStartAtController(controller) {
   if (!vrStart.visible) return false;
   vrMenuRaycaster.setFromXRController(controller);
@@ -667,6 +678,8 @@ window.addEventListener("resize", () => {
 });
 renderer.setAnimationLoop(time => {
   const delta = Math.min(clock.getDelta(), 0.05);
+  // Fallback in case the browser misses the XR sessionstart event.
+  if (renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady) showVRIntro();
   movePlayer(delta);
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
