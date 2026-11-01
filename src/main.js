@@ -265,12 +265,19 @@ function getRightStickAndMenuButton() {
   if (!session) return { x: 0, y: 0, menu: false };
   for (const source of session.inputSources) {
     if (source.handedness !== "right" || !source.gamepad) continue;
-    const axes = source.gamepad.axes;
+    const pad = source.gamepad;
+    const axes = pad.axes;
+    // xr-standard usually places the right thumbstick in axes 2/3.
     const x = axes.length >= 4 ? axes[2] : axes[0];
     const y = axes.length >= 4 ? axes[3] : axes[1];
-    // Standard WebXR controller mapping: B is button 5 on the right controller.
-    const menu = !!source.gamepad.buttons[5]?.pressed;
-    return { x: Math.abs(x || 0) > 0.15 ? x : 0, y: Math.abs(y || 0) > 0.15 ? y : 0, menu };
+    // Controller layouts vary between browser versions. Check the standard B
+    // position first, with the alternate final face-button slot as a fallback.
+    const menu = !!(pad.buttons[5]?.pressed || pad.buttons[4]?.pressed);
+    return {
+      x: Math.abs(x || 0) > 0.15 ? x : 0,
+      y: Math.abs(y || 0) > 0.15 ? y : 0,
+      menu
+    };
   }
   return { x: 0, y: 0, menu: false };
 }
