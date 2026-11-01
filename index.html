@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=ui-fix-2" />
+    <link rel="stylesheet" href="./style.css?v=vr-start-menu-1" />
     <script type="importmap">
       {
         "imports": {
@@ -16,12 +16,35 @@
     </script>
   </head>
   <body>
-    <main id="overlay">
-      <p class="eyebrow">A WORK IN PROGRESS</p>
-      <h1>NEON GENESIS</h1>
-      <p class="subtitle">A cyberpunk world is taking shape.</p>
-      <p id="status">Loading the city...</p>
-      <p class="hint">Desktop: click and drag the city to look around, then use WASD. VR: look with your headset and move with the left thumbstick.</p>
+    <main id="start-screen">
+      <div class="start-brand">
+        <p class="eyebrow" id="wip-label">A WORK IN PROGRESS</p>
+        <h1>NEON GENESIS</h1>
+        <p class="subtitle">YOUR CITY. YOUR STORY.</p>
+      </div>
+      <section class="start-card">
+        <p class="eyebrow">NEW RUN</p>
+        <h2>CREATE YOUR CHARACTER</h2>
+        <p class="start-copy">Choose your look before entering the city. Your appearance choices are saved on this device.</p>
+        <div class="customize-grid">
+          <label>HAIR STYLE
+            <select id="hair-style"><option value="Short">Short</option><option value="Wavy">Wavy</option><option value="Long">Long</option><option value="Buzz cut">Buzz cut</option></select>
+          </label>
+          <label>HAIR COLOUR
+            <select id="hair-colour"><option value="Dark">Dark</option><option value="Brown">Brown</option><option value="Blonde">Blonde</option><option value="White">White</option><option value="Neon blue">Neon blue</option><option value="Neon pink">Neon pink</option></select>
+          </label>
+          <label>JACKET COLOUR
+            <select id="jacket-colour"><option value="Black">Black</option><option value="White">White</option><option value="Cyan">Cyan</option><option value="Purple">Purple</option><option value="Red">Red</option></select>
+          </label>
+          <label>HEIGHT
+            <select id="player-height"><option value="150">150 cm</option><option value="155">155 cm</option><option value="160">160 cm</option><option value="165">165 cm</option><option value="170" selected>170 cm</option><option value="175">175 cm</option><option value="180">180 cm</option><option value="185">185 cm</option><option value="190">190 cm</option><option value="195">195 cm</option><option value="200">200 cm</option></select>
+          </label>
+        </div>
+        <div class="calibration-note"><strong>HEIGHT CALIBRATION</strong><p>Stand upright on a flat floor, set your height above, and keep a natural standing posture when you enter VR. We’ll use this setting for your character scale.</p></div>
+        <p id="start-status">City systems are ready.</p>
+        <div id="start-actions"></div>
+      </section>
+      <p class="start-footer">VR FIRST · LEFT JOYSTICK TO MOVE · USE YOUR BODY TO LOOK AND MOVE NATURALLY</p>
     </main>
     <section id="game-ui" class="menu-closed" aria-label="Character and game menu">
       <div class="topbar">
@@ -62,6 +85,6 @@
         <p class="shop-balance">AVAILABLE CREDITS <strong id="shop-credits">$500</strong></p>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=hand-menu-y-button-1"></script>
+    <script type="module" src="./src/main.js?v=vr-start-menu-1"></script>
   </body>
 </html>
