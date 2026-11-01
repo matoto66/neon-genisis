@@ -70,9 +70,8 @@ floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
 scene.add(floor);
 
-const grid = new THREE.GridHelper(180, 90, 0x245c78, 0x1a2940);
-grid.position.y = 0.005;
-scene.add(grid);
+// The old editor-style ground grid is intentionally removed; the street
+// surface, sidewalks and road markings now define the city floor.
 
 // Procedural city blocks: varied towers, lit windows on every side, and a
 // broad street corridor so the player is surrounded by the city at spawn.
@@ -440,11 +439,11 @@ const titleCard = addTerminalCard({
   x: 0, y: 0.43, width: 0.98, height: 0.16,
   labelPainter: ctx => {
     ctx.fillStyle = "#55f5e8";
-    ctx.font = "bold 46px Arial";
-    ctx.fillText("NEON GENESIS", 34, 88);
+    ctx.font = "bold 62px Arial";
+    ctx.fillText("NEON GENESIS", 34, 92);
     ctx.fillStyle = "#b9c8d8";
-    ctx.font = "20px Arial";
-    ctx.fillText("CITY ACCESS TERMINAL  /  NEW RUN", 36, 145);
+    ctx.font = "bold 28px Arial";
+    ctx.fillText("CITY ACCESS TERMINAL  /  NEW RUN", 36, 158);
   }
 });
 
@@ -460,14 +459,14 @@ rowInfo.forEach((info, index) => {
     action: () => cycleAppearance(info.key),
     labelPainter: ctx => {
       ctx.fillStyle = "#8fa7bb";
-      ctx.font = "bold 22px Arial";
-      ctx.fillText(info.label, 30, 82);
+      ctx.font = "bold 48px Arial";
+      ctx.fillText(info.label, 30, 94);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 34px Arial";
-      ctx.fillText(String(appearance[info.key]).toUpperCase(), 365, 86);
+      ctx.font = "bold 58px Arial";
+      ctx.fillText(String(appearance[info.key]).toUpperCase(), 365, 96);
       ctx.fillStyle = "#ffcf70";
-      ctx.font = "bold 19px Arial";
-      ctx.fillText("CHANGE  ›", 790, 84);
+      ctx.font = "bold 42px Arial";
+      ctx.fillText("CHANGE  ›", 790, 94);
     }
   });
   startRows.push(row);
@@ -485,7 +484,7 @@ const confirmCard = addTerminalCard({
   },
   labelPainter: ctx => {
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 34px Arial";
+    ctx.font = "bold 54px Arial";
     ctx.textAlign = "center";
     ctx.fillText("CONFIRM & PLAY", 512, 150);
     ctx.textAlign = "left";
