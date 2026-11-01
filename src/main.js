@@ -29,13 +29,39 @@ const vrButton = VRButton.createButton(renderer, {
   domOverlay: { root: gameUI }
 });
 vrButton.textContent = "ENTER VR";
-document.body.appendChild(vrButton);
+document.querySelector("#start-actions").appendChild(vrButton);
+vrButton.id = "VRButton";
+vrButton.textContent = "ENTER THE CITY";
 
 // Release any desktop pointer lock before the browser starts an immersive session.
 // Capture phase runs before the VRButton's own click handler.
 vrButton.addEventListener("click", () => {
   if (document.pointerLockElement) document.exitPointerLock?.();
 }, true);
+
+const startScreen = document.querySelector("#start-screen");
+const startStatus = document.querySelector("#start-status");
+const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black", heightCm: 170 };
+try {
+  const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
+  if (savedAppearance) Object.assign(appearance, savedAppearance);
+} catch {}
+for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"],["player-height","heightCm"]]) {
+  const field = document.getElementById(id);
+  field.value = String(appearance[key]);
+  field.addEventListener("change", () => {
+    appearance[key] = key === "heightCm" ? Number(field.value) : field.value;
+    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+    startStatus.textContent = "Appearance saved.";
+  });
+}
+setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
+renderer.xr.addEventListener("sessionstart", () => {
+  startScreen.classList.add("hidden");
+});
+renderer.xr.addEventListener("sessionend", () => {
+  startScreen.classList.remove("hidden");
+});
 
 scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 2));
 const moonLight = new THREE.DirectionalLight(0x8cbcff, 1.4);
@@ -333,7 +359,7 @@ function drawVRMenu() {
   }
   ctx.fillStyle = "#ff789d";
   ctx.font = "bold 22px Arial";
-  ctx.fillText("B  /  CLOSE MENU", 770, 720);
+  ctx.fillText("Y  /  CLOSE MENU", 770, 720);
   vrMenuTexture.needsUpdate = true;
 }
 
@@ -394,7 +420,9 @@ function updateVRMenuPointer() {
   const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
   rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
   if (hit) {
-    vrCursor.position.copy(hit.point);
+    // Pull the cursor slightly toward the controller so it renders in front of the menu.
+    vrCursor.position.copy(hit.point).addScaledVector(vrMenuRaycaster.ray.direction, -0.025);
+    vrCursor.renderOrder = 2000;
     vrCursor.visible = true;
   } else {
     vrCursor.visible = false;
@@ -525,7 +553,7 @@ function movePlayer(delta) {
   player.position.addScaledVector(movement, (3.2 + character.strength * 0.18) * delta);
 }
 
-status.textContent = "City loaded. Press E to open the menu. Use WASD and mouse to move and look.";
+startStatus.textContent = "City systems are ready. Press Y to open or close the in-game menu.";
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
