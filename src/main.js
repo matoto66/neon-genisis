@@ -249,7 +249,8 @@ for (let i = 0; i < 2; i++) {
       activateVRMenuAtController(controller);
     }
   });
-  scene.add(controller);
+  // Keep XR controllers in the same moving/turning space as the player camera.
+  player.add(controller);
   vrControllerRays.push({ controller, rayLine });
 }
 
