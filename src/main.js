@@ -76,56 +76,70 @@ scene.add(grid);
 
 // Procedural city blocks: varied towers, lit windows on every side, and a
 // broad street corridor so the player is surrounded by the city at spawn.
+// Efficient city construction: window panes are batched into a few instanced
+// meshes so the Quest does not have to draw thousands of separate objects.
+const windowBatches = { cyan: [], purple: [], dark: [] };
+const windowGeometry = new THREE.PlaneGeometry(0.58, 0.86);
+const windowDummy = new THREE.Object3D();
+function queueWindow(kind, x, y, z, rotationY) {
+  windowDummy.position.set(x, y, z);
+  windowDummy.rotation.set(0, rotationY, 0);
+  windowDummy.updateMatrix();
+  windowBatches[kind].push(windowDummy.matrix.clone());
+}
+
 function makeBuilding(x, z, width, height, depth, color, signColor, seed = 1) {
   const building = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.48 })
+    new THREE.MeshStandardMaterial({ color, roughness: 0.86, metalness: 0.42 })
   );
   building.position.set(x, height / 2, z);
   scene.add(building);
 
-  const windowMatA = new THREE.MeshBasicMaterial({ color: 0x43c9d2, side: THREE.DoubleSide });
-  const windowMatB = new THREE.MeshBasicMaterial({ color: 0x9b67e8, side: THREE.DoubleSide });
-  const darkWindow = new THREE.MeshBasicMaterial({ color: 0x101a2a, side: THREE.DoubleSide });
-  let n = seed;
+  // Roof lip and narrow facade ribs give the towers more architectural depth.
+  const roofLip = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.22, 0.18, depth + 0.22),
+    new THREE.MeshStandardMaterial({ color: 0x30384a, roughness: 0.58, metalness: 0.7 })
+  );
+  roofLip.position.set(x, height + 0.08, z);
+  scene.add(roofLip);
+
+  let n = seed >>> 0;
   const random = () => { n = (n * 1664525 + 1013904223) >>> 0; return n / 4294967296; };
-  const addWindows = (count, spacing, makePosition, rotationY = 0) => {
-    for (let row = 1.3; row < height - 1; row += 1.65) {
+  const addFacadeWindows = (count, spacing, positionFor, rotationY) => {
+    for (let row = 1.35; row < height - 1; row += 1.75) {
       for (let col = 0; col < count; col++) {
-        const r = random();
-        const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.86), r < 0.22 ? darkWindow : (r < 0.68 ? windowMatA : windowMatB));
-        const p = makePosition(col, spacing, row);
-        pane.position.set(p.x, p.y, p.z);
-        pane.rotation.y = rotationY;
-        scene.add(pane);
+        const roll = random();
+        const kind = roll < 0.26 ? "dark" : (roll < 0.68 ? "cyan" : "purple");
+        const p = positionFor(col, spacing, row);
+        queueWindow(kind, p.x, p.y, p.z, rotationY);
       }
     }
   };
   const frontCount = Math.max(2, Math.floor(width / 1.15));
   const sideCount = Math.max(2, Math.floor(depth / 1.15));
-  addWindows(frontCount, 1.15, (col, spacing, y) => ({
+  addFacadeWindows(frontCount, 1.15, (col, spacing, y) => ({
     x: x - (frontCount - 1) * spacing / 2 + col * spacing,
-    y, z: z + depth / 2 + 0.018
-  }));
-  addWindows(frontCount, 1.15, (col, spacing, y) => ({
+    y, z: z + depth / 2 + 0.025
+  }), 0);
+  addFacadeWindows(frontCount, 1.15, (col, spacing, y) => ({
     x: x + (frontCount - 1) * spacing / 2 - col * spacing,
-    y, z: z - depth / 2 - 0.018
-  }, Math.PI);
-  addWindows(sideCount, 1.15, (col, spacing, y) => ({
-    x: x + width / 2 + 0.018,
+    y, z: z - depth / 2 - 0.025
+  }), Math.PI);
+  addFacadeWindows(sideCount, 1.15, (col, spacing, y) => ({
+    x: x + width / 2 + 0.025,
     y, z: z + (sideCount - 1) * spacing / 2 - col * spacing
-  }, Math.PI / 2);
-  addWindows(sideCount, 1.15, (col, spacing, y) => ({
-    x: x - width / 2 - 0.018,
+  }), Math.PI / 2);
+  addFacadeWindows(sideCount, 1.15, (col, spacing, y) => ({
+    x: x - width / 2 - 0.025,
     y, z: z - (sideCount - 1) * spacing / 2 + col * spacing
-  }, -Math.PI / 2);
+  }), -Math.PI / 2);
 
-  // Small illuminated facade sign, mounted on the street-facing side.
   const sign = new THREE.Mesh(
-    new THREE.BoxGeometry(Math.min(width * 0.72, 4.8), 0.16, 0.1),
+    new THREE.BoxGeometry(Math.min(width * 0.72, 4.8), 0.2, 0.12),
     new THREE.MeshBasicMaterial({ color: signColor })
   );
-  sign.position.set(x, Math.min(height - 1, height * 0.68), z + depth / 2 + 0.08);
+  sign.position.set(x, Math.min(height - 1, height * 0.68), z + depth / 2 + 0.09);
   scene.add(sign);
 }
 
@@ -133,45 +147,92 @@ let citySeed = 73;
 const cityRandom = () => { citySeed = (citySeed * 16807) % 2147483647; return (citySeed - 1) / 2147483646; };
 const towerColors = [0x17243a, 0x202039, 0x182b36, 0x292039, 0x1b293d];
 const neonColors = [0x28e6dc, 0xb24cff, 0xff4fa3, 0x4c9dff];
-for (let ring = 0; ring < 4; ring++) {
-  const radius = 17 + ring * 13;
-  const count = 12 + ring * 4;
+
+// A street corridor gives the starting view a clear sense of scale and depth.
+for (let side of [-1, 1]) {
+  for (let i = 0; i < 5; i++) {
+    const z = -25 + i * 12;
+    const width = 7 + cityRandom() * 3;
+    const depth = 8 + cityRandom() * 3;
+    const height = 13 + cityRandom() * 18;
+    makeBuilding(side * (10.5 + cityRandom() * 1.5), z, width, height, depth,
+      towerColors[Math.floor(cityRandom() * towerColors.length)],
+      neonColors[Math.floor(cityRandom() * neonColors.length)],
+      300 + side * 100 + i);
+  }
+}
+
+// Distant skyline wraps around the player instead of leaving empty black space.
+for (let ring = 0; ring < 3; ring++) {
+  const radius = 36 + ring * 22;
+  const count = 16 + ring * 8;
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (ring % 2) * 0.13;
-    const x = Math.sin(angle) * radius + (cityRandom() - 0.5) * 5;
-    const z = Math.cos(angle) * radius + (cityRandom() - 0.5) * 5;
-    const width = 5 + cityRandom() * 5;
-    const depth = 5 + cityRandom() * 5;
-    const height = 12 + cityRandom() * (ring === 0 ? 15 : 35);
+    const angle = (i / count) * Math.PI * 2 + (ring % 2) * 0.11;
+    const x = Math.sin(angle) * radius + (cityRandom() - 0.5) * 7;
+    const z = Math.cos(angle) * radius + (cityRandom() - 0.5) * 7;
+    const width = 7 + cityRandom() * 6;
+    const depth = 7 + cityRandom() * 6;
+    const height = 18 + cityRandom() * (ring === 0 ? 24 : 42);
     makeBuilding(x, z, width, height, depth,
       towerColors[Math.floor(cityRandom() * towerColors.length)],
       neonColors[Math.floor(cityRandom() * neonColors.length)],
-      100 + ring * 31 + i);
+      500 + ring * 37 + i);
   }
 }
 
-// Street lamps and road markings add scale and depth to the streets.
+// One draw call per window color, rather than one draw call per window.
+const windowMaterials = {
+  cyan: new THREE.MeshBasicMaterial({ color: 0x43c9d2, side: THREE.DoubleSide }),
+  purple: new THREE.MeshBasicMaterial({ color: 0x9b67e8, side: THREE.DoubleSide }),
+  dark: new THREE.MeshBasicMaterial({ color: 0x101a2a, side: THREE.DoubleSide })
+};
+for (const kind of Object.keys(windowBatches)) {
+  const matrices = windowBatches[kind];
+  const instances = new THREE.InstancedMesh(windowGeometry, windowMaterials[kind], matrices.length);
+  matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix));
+  instances.instanceMatrix.needsUpdate = true;
+  scene.add(instances);
+}
+
+// Wet-looking asphalt, raised sidewalks, curb strips and lane markings.
+const road = new THREE.Mesh(
+  new THREE.PlaneGeometry(15, 125),
+  new THREE.MeshStandardMaterial({ color: 0x090f1b, roughness: 0.28, metalness: 0.34 })
+);
+road.rotation.x = -Math.PI / 2;
+road.position.set(0, 0.006, -8);
+scene.add(road);
+const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0x252d3b, roughness: 0.92, metalness: 0.12 });
+for (const x of [-9.3, 9.3]) {
+  const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.18, 125), sidewalkMat);
+  sidewalk.position.set(x, 0.07, -8);
+  scene.add(sidewalk);
+  const curb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 125), new THREE.MeshStandardMaterial({ color: 0x667080, roughness: 0.82 }));
+  curb.position.set(x + (x < 0 ? 1.55 : -1.55), 0.12, -8);
+  scene.add(curb);
+}
+const laneMat = new THREE.MeshBasicMaterial({ color: 0xb1a76c });
+for (let z = -66; z < 55; z += 8) {
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.014, 3.8), laneMat);
+  dash.position.set(0, 0.018, z);
+  scene.add(dash);
+}
+
+// Street lamps with restrained colored pools of light.
 const lampMat = new THREE.MeshStandardMaterial({ color: 0x26364a, metalness: 0.8, roughness: 0.35 });
-for (let z = -52; z <= 48; z += 13) {
-  for (const x of [-5.8, 5.8]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 4.6, 8), lampMat);
-    pole.position.set(x, 2.3, z);
+for (let z = -54; z <= 42; z += 16) {
+  for (const x of [-8.1, 8.1]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 4.8, 8), lampMat);
+    pole.position.set(x, 2.4, z);
     scene.add(pole);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.07, 0.07), lampMat);
-    arm.position.set(x + (x < 0 ? 0.35 : -0.35), 4.45, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 0.07), lampMat);
+    arm.position.set(x + (x < 0 ? 0.35 : -0.35), 4.65, z);
     scene.add(arm);
-    const glow = new THREE.PointLight(x < 0 ? 0x38dce8 : 0xb35bff, 2.2, 11);
-    glow.position.set(x + (x < 0 ? 0.65 : -0.65), 4.25, z);
+    const glow = new THREE.PointLight(x < 0 ? 0x38dce8 : 0xb35bff, 2.4, 13);
+    glow.position.set(x + (x < 0 ? 0.65 : -0.65), 4.35, z);
     scene.add(glow);
   }
 }
-const roadLineMat = new THREE.MeshBasicMaterial({ color: 0x2b6573 });
-for (const x of [-1.5, 1.5]) {
-  const line = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.012, 115), roadLineMat);
-  line.position.set(x, 0.012, -5);
-  scene.add(line);
-}
-
 const neonRing = new THREE.Mesh(
   new THREE.TorusGeometry(2.2, 0.045, 12, 96),
   new THREE.MeshBasicMaterial({ color: 0x38f5df })
@@ -300,33 +361,150 @@ vrMenu.add(vrMenuPanel);
 vrMenuPanel.position.z = 0;
 vrMenuPanel.renderOrder = 1000;
 
-// In-headset character setup: a head-facing 3D panel, selectable with the right controller.
+// World-anchored VR character terminal. Each option is its own 3D card,
+// inspired by diegetic spatial menus rather than one large flat splash screen.
 const vrStart = new THREE.Group();
 vrStart.visible = false;
 scene.add(vrStart);
-// Large world-space intro screen: its pose is set once when VR starts,
-// so it stays in the room instead of following the headset.
-vrStart.scale.set(0.0026, 0.0026, 0.0026);
-const vrStartCanvas = document.createElement("canvas");
-vrStartCanvas.width = 1024;
-vrStartCanvas.height = 768;
-const vrStartContext = vrStartCanvas.getContext("2d");
-const vrStartTexture = new THREE.CanvasTexture(vrStartCanvas);
-vrStartTexture.colorSpace = THREE.SRGBColorSpace;
-const vrStartPanel = new THREE.Mesh(
-  new THREE.PlaneGeometry(1024, 768),
-  new THREE.MeshBasicMaterial({ map: vrStartTexture, side: THREE.DoubleSide, depthTest: false })
-);
-vrStart.add(vrStartPanel);
-vrStartPanel.renderOrder = 1100;
+const vrStartTargets = [];
 let vrStartReady = false;
- 
-let vrStartWipVisible = true;
+let vrStartHovered = null;
+
 const appearanceChoices = {
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
   jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
 };
+
+const terminalMetal = new THREE.MeshStandardMaterial({
+  color: 0x111d2b, metalness: 0.82, roughness: 0.34
+});
+const terminalGlow = new THREE.MeshStandardMaterial({
+  color: 0x183c45, emissive: 0x0c6970, emissiveIntensity: 1.1,
+  metalness: 0.55, roughness: 0.28
+});
+const terminalButton = new THREE.MeshStandardMaterial({
+  color: 0x12313a, emissive: 0x087b7b, emissiveIntensity: 1.5,
+  metalness: 0.48, roughness: 0.3
+});
+
+function makeTerminalLabel(width, height, painter) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  painter(ctx);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({
+    map: texture, transparent: true, side: THREE.DoubleSide, depthWrite: false
+  });
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  label.position.z = 0.032;
+  label.renderOrder = 1200;
+  return { label, texture, canvas };
+}
+
+function addTerminalCard({ x, y, width, height, action, labelPainter, button = false }) {
+  const group = new THREE.Group();
+  group.position.set(x, y, 0);
+  vrStart.add(group);
+  const backing = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, 0.055),
+    button ? terminalButton.clone() : terminalMetal.clone()
+  );
+  group.add(backing);
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.025, 0.012, 0.018),
+    terminalGlow
+  );
+  edge.position.set(0, height / 2 - 0.006, 0.034);
+  group.add(edge);
+  const { label, texture, canvas } = makeTerminalLabel(width * 0.96, height * 0.88, labelPainter);
+  group.add(label);
+  if (action) {
+    backing.userData.action = action;
+    backing.userData.baseEmissive = button ? 0x087b7b : 0x0c252c;
+    vrStartTargets.push(backing);
+  }
+  group.userData.refresh = () => {
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    labelPainter(ctx);
+    texture.needsUpdate = true;
+  };
+  return group;
+}
+
+const titleCard = addTerminalCard({
+  x: 0, y: 0.43, width: 0.98, height: 0.16,
+  labelPainter: ctx => {
+    ctx.fillStyle = "#55f5e8";
+    ctx.font = "bold 46px Arial";
+    ctx.fillText("NEON GENESIS", 34, 88);
+    ctx.fillStyle = "#b9c8d8";
+    ctx.font = "20px Arial";
+    ctx.fillText("CITY ACCESS TERMINAL  /  NEW RUN", 36, 145);
+  }
+});
+
+const startRows = [];
+const rowInfo = [
+  { key: "hairStyle", label: "HAIR STYLE" },
+  { key: "hairColour", label: "HAIR COLOUR" },
+  { key: "jacketColour", label: "JACKET COLOUR" }
+];
+rowInfo.forEach((info, index) => {
+  const row = addTerminalCard({
+    x: 0, y: 0.19 - index * 0.205, width: 0.98, height: 0.16,
+    action: () => cycleAppearance(info.key),
+    labelPainter: ctx => {
+      ctx.fillStyle = "#8fa7bb";
+      ctx.font = "bold 22px Arial";
+      ctx.fillText(info.label, 30, 82);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 34px Arial";
+      ctx.fillText(String(appearance[info.key]).toUpperCase(), 365, 86);
+      ctx.fillStyle = "#ffcf70";
+      ctx.font = "bold 19px Arial";
+      ctx.fillText("CHANGE  ›", 790, 84);
+    }
+  });
+  startRows.push(row);
+});
+
+const confirmCard = addTerminalCard({
+  x: 0, y: -0.55, width: 0.58, height: 0.16, button: true,
+  action: () => {
+    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+    vrStart.visible = false;
+    vrStartReady = true;
+    vrStartHovered = null;
+    drawVRMenu();
+    startStatus.textContent = "In the city. Press Y to open or close the menu.";
+  },
+  labelPainter: ctx => {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 34px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("CONFIRM & PLAY", 512, 150);
+    ctx.textAlign = "left";
+  }
+});
+
+// Side rails and a small base make the menu read like a physical terminal.
+for (const x of [-0.53, 0.53]) {
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.12, 0.035), terminalGlow);
+  rail.position.set(x, -0.05, -0.006);
+  vrStart.add(rail);
+}
+const base = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.025, 0.12), terminalMetal);
+base.position.set(0, -0.69, -0.015);
+vrStart.add(base);
+const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
+terminalLight.position.set(0, 0.08, 0.25);
+vrStart.add(terminalLight);
+
 function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
@@ -334,51 +512,16 @@ function cycleAppearance(key) {
   const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
   document.getElementById(fieldIds[key]).value = String(appearance[key]);
   try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
-  drawVRStart();
-}
-function drawVRStart() {
-  const c = vrStartContext;
-  c.clearRect(0, 0, 1024, 768);
-  // Keep the world visible around a compact, floating world-space panel.
-  c.fillStyle = "rgba(4,9,22,0.88)";
-  c.beginPath(); c.roundRect(48, 36, 928, 696, 24); c.fill();
-  c.strokeStyle = "#5ff5e8"; c.lineWidth = 4; c.stroke();
-  c.fillStyle = "rgba(95,245,232,0.07)";
-  c.fillRect(48, 36, 928, 8);
-  if (vrStartWipVisible) { c.fillStyle = "#5ff5e8"; c.font = "bold 24px Arial"; c.fillText("A WORK IN PROGRESS", 60, 58); }
-  c.fillStyle = "#ffffff"; c.font = "bold 58px Arial"; c.fillText("NEON GENESIS", 60, 130);
-  c.fillStyle = "#c8d6ec"; c.font = "22px Arial"; c.fillText("CREATE YOUR CHARACTER", 62, 184);
-  const rows = [
-    ["HAIR STYLE", appearance.hairStyle, "hairStyle"],
-    ["HAIR COLOUR", appearance.hairColour, "hairColour"],
-    ["JACKET COLOUR", appearance.jacketColour, "jacketColour"]
-  ];
-  rows.forEach((row,i) => {
-    const y = 270 + i * 112;
-    c.fillStyle = "#13233b"; c.fillRect(60,y-39,904,70);
-    c.fillStyle = "#aab6cf"; c.font = "bold 19px Arial"; c.fillText(row[0], 88,y-8);
-    c.fillStyle = "#ffffff"; c.font = "bold 25px Arial"; c.fillText(String(row[1]), 440,y-8);
-    c.fillStyle = "#174c5c"; c.fillRect(830,y-28,104,48);
-    c.fillStyle = "#5ff5e8"; c.font = "bold 19px Arial"; c.fillText("CHANGE", 844,y+3);
-  });
-  c.fillStyle = "#aab6cf"; c.font = "18px Arial";
-  c.fillText("Your look is saved when you confirm.", 62, 625);
-  c.fillStyle = "#12656a"; c.fillRect(340,660,344,68);
-  c.strokeStyle = "#5ff5e8"; c.strokeRect(340,660,344,68);
-  c.fillStyle = "#ffffff"; c.font = "bold 27px Arial"; c.fillText("CONFIRM & PLAY", 390,704);
-  vrStartTexture.needsUpdate = true;
+  const rowIndex = rowInfo.findIndex(item => item.key === key);
+  startRows[rowIndex]?.userData.refresh();
 }
 
-// Start the headset intro only after the VR panel and its drawing code exist.
 let vrSessionIntroActive = false;
 function showVRIntro() {
   if (vrSessionIntroActive) return;
   vrSessionIntroActive = true;
   startScreen.classList.add("hidden");
   vrStartReady = false;
-
-  // Place the intro screen in front of the player's starting view exactly once.
-  // Because vrStart is attached to the scene, head movement won't carry it along.
   camera.updateWorldMatrix(true, false);
   const introPosition = new THREE.Vector3();
   const introDirection = new THREE.Vector3();
@@ -386,47 +529,28 @@ function showVRIntro() {
   camera.getWorldPosition(introPosition);
   camera.getWorldDirection(introDirection);
   camera.getWorldQuaternion(introRotation);
-  vrStart.position.copy(introPosition).addScaledVector(introDirection, 3.1);
+  vrStart.position.copy(introPosition).addScaledVector(introDirection, 1.65);
+  vrStart.position.y -= 0.14;
   vrStart.quaternion.copy(introRotation);
   vrStart.visible = true;
-  vrStartWipVisible = true;
-  drawVRStart();
-  setTimeout(() => {
-    vrStartWipVisible = false;
-    if (vrStart.visible) drawVRStart();
-  }, 20000);
+  for (const row of startRows) row.userData.refresh();
 }
 renderer.xr.addEventListener("sessionstart", showVRIntro);
 renderer.xr.addEventListener("sessionend", () => {
   vrSessionIntroActive = false;
   vrStart.visible = false;
   vrStartReady = false;
+  vrStartHovered = null;
   startScreen.classList.remove("hidden");
 });
 
 function activateVRStartAtController(controller) {
   if (!vrStart.visible) return false;
   vrMenuRaycaster.setFromXRController(controller);
-  const hit = vrMenuRaycaster.intersectObject(vrStartPanel, false)[0];
-  if (!hit?.uv) return true;
-  const x = hit.uv.x * 1024;
-  const y = (1 - hit.uv.y) * 768;
-  const rowKeys = ["hairStyle","hairColour","jacketColour"];
-  rowKeys.forEach((key,i) => {
-    const rowY = 270 + i * 112;
-    if (y >= rowY-39 && y <= rowY+31 && x >= 800) cycleAppearance(key);
-  });
-  if (y >= 660 && y <= 728 && x >= 340 && x <= 684) {
-    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
-    vrStart.visible = false;
-    vrStartReady = true;
-    drawVRMenu();
-    startStatus.textContent = "In the city. Press Y to open or close the menu.";
-  }
-  if (vrStart.visible) drawVRStart();
+  const hit = vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0];
+  if (hit?.object?.userData?.action) hit.object.userData.action();
   return true;
 }
-
 const vrMenuRaycaster = new THREE.Raycaster();
 const vrMenuPointer = new THREE.Vector3();
 const vrControllerRays = [];
@@ -606,12 +730,25 @@ function updateVRMenuPointer() {
   }
   rightItem.rayLine.visible = true;
   vrMenuRaycaster.setFromXRController(rightItem.controller);
-  const targetPanel = vrStart.visible ? vrStartPanel : (vrMenu.visible ? vrMenuPanel : null);
-  if (!targetPanel) { vrCursor.visible = false; return; }
-  const hit = vrMenuRaycaster.intersectObject(targetPanel, false)[0];
+  const startHit = vrStart.visible
+    ? vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0]
+    : null;
+  const menuHit = !vrStart.visible && vrMenu.visible
+    ? vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0]
+    : null;
+  const hit = startHit || menuHit;
+  const hovered = startHit?.object || null;
+  if (vrStartHovered && vrStartHovered !== hovered) {
+    vrStartHovered.material.emissive.setHex(vrStartHovered.userData.baseEmissive);
+    vrStartHovered.material.emissiveIntensity = 1.1;
+  }
+  if (hovered && hovered !== vrStartHovered) {
+    hovered.material.emissive.setHex(0x16a8a3);
+    hovered.material.emissiveIntensity = 1.8;
+  }
+  vrStartHovered = hovered;
   rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
   if (hit) {
-    // Pull the cursor slightly toward the controller so it renders in front of the menu.
     vrCursor.position.copy(hit.point).addScaledVector(vrMenuRaycaster.ray.direction, -0.025);
     vrCursor.renderOrder = 2000;
     vrCursor.visible = true;
