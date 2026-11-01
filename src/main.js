@@ -61,7 +61,9 @@ renderer.xr.addEventListener("sessionstart", () => {
   vrStartReady = false;
   heightCalibrated = false;
   vrStart.visible = true;
+  vrStartWipVisible = true;
   drawVRStart();
+  setTimeout(() => { vrStartWipVisible = false; if (vrStart.visible) drawVRStart(); }, 20000);
 });
 renderer.xr.addEventListener("sessionend", () => {
   vrStart.visible = false;
@@ -265,6 +267,7 @@ vrStart.add(vrStartPanel);
 vrStartPanel.renderOrder = 1100;
 let vrStartReady = false;
 let heightCalibrated = false;
+let vrStartWipVisible = true;
 const appearanceChoices = {
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
@@ -286,7 +289,7 @@ function drawVRStart() {
   c.fillStyle = "rgba(5,10,25,0.98)";
   c.fillRect(0,0,1024,768);
   c.strokeStyle = "#5ff5e8"; c.lineWidth = 5; c.strokeRect(5,5,1014,758);
-  c.fillStyle = "#5ff5e8"; c.font = "bold 24px Arial"; c.fillText("A WORK IN PROGRESS", 60, 58);
+  if (vrStartWipVisible) { c.fillStyle = "#5ff5e8"; c.font = "bold 24px Arial"; c.fillText("A WORK IN PROGRESS", 60, 58); }
   c.fillStyle = "#ffffff"; c.font = "bold 58px Arial"; c.fillText("NEON GENESIS", 60, 130);
   c.fillStyle = "#c8d6ec"; c.font = "22px Arial"; c.fillText("CREATE YOUR CHARACTER", 62, 184);
   const rows = [
