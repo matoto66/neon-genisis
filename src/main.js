@@ -41,12 +41,15 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { gender: "Male", hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
+const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
-  if (savedAppearance) Object.assign(appearance, savedAppearance);
+  if (savedAppearance) {
+    delete savedAppearance.gender;
+    Object.assign(appearance, savedAppearance);
+  }
 } catch {}
-for (const [id, key] of [["gender-select","gender"],["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
+for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
   const field = document.getElementById(id);
   field.value = String(appearance[key]);
   field.addEventListener("change", () => {
@@ -312,48 +315,125 @@ for (let i = 0; i < 17; i++) {
 // These are fictional, non-functional sci-fi display props: bold shapes,
 // glowing energy details and no realistic firing or mechanical systems.
 function createCyberpunkDisplayProp(primaryHex, glowHex, length, variant) {
+  // Stylized, non-functional energy display props with layered armor and light channels.
   const prop = new THREE.Group();
-  const shell = new THREE.MeshStandardMaterial({
-    color: primaryHex, metalness: 0.84, roughness: 0.28
+  prop.scale.setScalar(length / 2.65);
+
+  const shell = new THREE.MeshStandardMaterial({ color: primaryHex, metalness: 0.88, roughness: 0.24 });
+  const armor = new THREE.MeshStandardMaterial({
+    color: variant === 1 ? 0x35475b : 0x46334f, metalness: 0.78, roughness: 0.3
   });
-  const dark = new THREE.MeshStandardMaterial({
-    color: 0x101725, metalness: 0.9, roughness: 0.25
-  });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0b1220, metalness: 0.9, roughness: 0.22 });
+  const inset = new THREE.MeshStandardMaterial({ color: 0x18263a, metalness: 0.82, roughness: 0.32 });
   const glow = new THREE.MeshStandardMaterial({
-    color: glowHex, emissive: glowHex, emissiveIntensity: 1.8,
-    metalness: 0.45, roughness: 0.24
+    color: glowHex, emissive: glowHex, emissiveIntensity: 1.65, metalness: 0.42, roughness: 0.2
   });
-  const addPart = (geometry, material, x, y, z, rz = 0) => {
-    const part = new THREE.Mesh(geometry, material);
-    part.position.set(x, y, z);
-    part.rotation.z = rz;
-    prop.add(part);
-    return part;
+  const trim = new THREE.MeshStandardMaterial({ color: 0x9aabc0, metalness: 0.9, roughness: 0.22 });
+
+  const addBox = (w, h, d, x, y, z, material, rz = 0) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    mesh.rotation.z = rz;
+    prop.add(mesh);
+    return mesh;
   };
 
-  addPart(new THREE.BoxGeometry(length * 0.62, 0.24, 0.38), shell, 0, 0, 0);
-  addPart(new THREE.BoxGeometry(length * 0.24, 0.31, 0.44), dark, -length * 0.28, 0, 0);
-  addPart(new THREE.BoxGeometry(length * 0.33, 0.13, 0.25), shell, length * 0.43, 0.015, 0);
-  addPart(new THREE.BoxGeometry(length * 0.48, 0.045, 0.43), glow, 0.02, 0.15, 0);
-  addPart(new THREE.BoxGeometry(length * 0.2, 0.055, 0.46), glow, -length * 0.27, -0.17, 0);
+  // Faceted, bevelled main shell instead of a stack of plain rectangles.
+  const hullShape = new THREE.Shape();
+  hullShape.moveTo(-1.28, -0.16);
+  hullShape.lineTo(-1.13, -0.28);
+  hullShape.lineTo(-0.77, -0.25);
+  hullShape.lineTo(-0.55, -0.15);
+  hullShape.lineTo(-0.32, -0.29);
+  hullShape.lineTo(0.02, -0.27);
+  hullShape.lineTo(0.18, -0.16);
+  hullShape.lineTo(0.96, -0.14);
+  hullShape.lineTo(1.23, -0.06);
+  hullShape.lineTo(1.29, 0.05);
+  hullShape.lineTo(1.08, 0.14);
+  hullShape.lineTo(0.32, 0.17);
+  hullShape.lineTo(0.12, 0.29);
+  hullShape.lineTo(-0.57, 0.27);
+  hullShape.lineTo(-0.78, 0.17);
+  hullShape.lineTo(-1.17, 0.19);
+  hullShape.closePath();
+  const hullGeometry = new THREE.ExtrudeGeometry(hullShape, {
+    depth: 0.42, bevelEnabled: true, bevelSegments: 3,
+    steps: 1, bevelSize: 0.045, bevelThickness: 0.04, curveSegments: 5
+  });
+  hullGeometry.translate(0, 0, -0.21);
+  prop.add(new THREE.Mesh(hullGeometry, shell));
 
-  // A glowing fictional energy aperture gives each prop a strong front profile.
-  const aperture = addPart(
-    new THREE.CylinderGeometry(0.105 + variant * 0.012, 0.15, 0.24, 8),
-    glow, length * 0.58, 0.015, 0
+  // Raised top spine and faceted side armor add depth and metallic highlights.
+  addBox(1.34, 0.075, 0.48, -0.02, 0.245, 0, armor, -0.015);
+  addBox(0.62, 0.055, 0.52, -0.34, 0.31, 0, dark, 0.02);
+  addBox(0.58, 0.055, 0.42, 0.40, 0.215, 0, trim, -0.015);
+  addBox(0.48, 0.035, 0.44, 0.39, 0.255, 0, glow, -0.015);
+
+  const sidePlateShape = new THREE.Shape();
+  sidePlateShape.moveTo(-0.88, -0.075);
+  sidePlateShape.lineTo(-0.68, -0.15);
+  sidePlateShape.lineTo(0.66, -0.12);
+  sidePlateShape.lineTo(0.88, -0.015);
+  sidePlateShape.lineTo(0.70, 0.105);
+  sidePlateShape.lineTo(-0.65, 0.11);
+  sidePlateShape.lineTo(-0.88, 0.035);
+  sidePlateShape.closePath();
+  const plateGeometry = new THREE.ExtrudeGeometry(sidePlateShape, {
+    depth: 0.035, bevelEnabled: true, bevelSegments: 2,
+    steps: 1, bevelSize: 0.018, bevelThickness: 0.012
+  });
+  plateGeometry.translate(0, 0, -0.0175);
+  const plateMaterial = armor.clone();
+  plateMaterial.side = THREE.DoubleSide;
+  for (const side of [-1, 1]) {
+    const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+    plate.position.set(0, 0, side * 0.225);
+    prop.add(plate);
+
+    // Recessed energy channel, inset panels and tiny status lights.
+    addBox(1.18, 0.035, 0.025, 0, 0.018, side * 0.253, glow);
+    addBox(0.54, 0.026, 0.028, -0.40, -0.085, side * 0.254, inset);
+    addBox(0.34, 0.025, 0.03, 0.43, -0.075, side * 0.254, dark);
+    for (let i = 0; i < 4; i++) {
+      addBox(0.105, 0.018, 0.028, -0.52 + i * 0.13, -0.12, side * 0.258, trim, -0.08);
+    }
+    const statusLight = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), glow);
+    statusLight.position.set(0.72, 0.055, side * 0.265);
+    prop.add(statusLight);
+  }
+
+  // A luminous energy aperture, intentionally not a functional barrel.
+  const emitterHousing = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.19, 0.22, 12), dark);
+  emitterHousing.rotation.z = -Math.PI / 2;
+  emitterHousing.position.set(1.25, 0.005, 0);
+  prop.add(emitterHousing);
+  const emitterRing = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.035, 10, 24), glow);
+  emitterRing.rotation.y = Math.PI / 2;
+  emitterRing.position.set(1.38, 0.005, 0);
+  prop.add(emitterRing);
+  const emitterCore = new THREE.Mesh(
+    new THREE.CircleGeometry(0.105, 20),
+    new THREE.MeshBasicMaterial({ color: glowHex })
   );
-  aperture.rotation.z = -Math.PI / 2;
-  addPart(new THREE.BoxGeometry(0.22, 0.36, 0.2), dark, -length * 0.08, -0.27, 0, 0.16);
-  addPart(new THREE.BoxGeometry(0.38, 0.07, 0.5), shell, -length * 0.43, 0.18, 0);
-  addPart(new THREE.BoxGeometry(0.18, 0.09, 0.52), glow, length * 0.15, 0.21, 0);
-  addPart(new THREE.BoxGeometry(0.12, 0.38, 0.44), shell, length * 0.02, 0.02, 0, 0.08);
+  emitterCore.position.set(1.391, 0.005, 0);
+  emitterCore.rotation.y = Math.PI / 2;
+  prop.add(emitterCore);
 
-  if (variant === 1) {
-    addPart(new THREE.BoxGeometry(0.62, 0.08, 0.12), glow, -0.02, 0.27, 0.22);
-    addPart(new THREE.BoxGeometry(0.42, 0.08, 0.12), glow, -0.02, 0.27, -0.22);
-  } else {
-    addPart(new THREE.BoxGeometry(0.34, 0.1, 0.14), glow, 0.1, -0.2, 0.25);
-    addPart(new THREE.BoxGeometry(0.34, 0.1, 0.14), glow, 0.1, -0.2, -0.25);
+  // Underside shell and layered fins finish the rear silhouette.
+  addBox(0.34, 0.36, 0.34, -0.47, -0.31, 0, dark, 0.12);
+  addBox(0.42, 0.075, 0.42, -0.55, -0.43, 0, armor, 0.12);
+  addBox(0.27, 0.08, 0.49, -0.90, 0.22, 0, dark, -0.08);
+  addBox(0.22, 0.045, 0.53, -0.96, 0.27, 0, glow, -0.08);
+  addBox(0.24, 0.07, 0.46, 0.02, 0.37, 0, trim, 0.02);
+
+  // Decorative fasteners: purely cosmetic surface details.
+  for (const side of [-1, 1]) {
+    for (const x of [-0.72, 0.72]) {
+      const fastener = new THREE.Mesh(new THREE.SphereGeometry(0.026, 8, 6), trim);
+      fastener.position.set(x, 0.02, side * 0.27);
+      prop.add(fastener);
+    }
   }
   return prop;
 }
@@ -565,7 +645,7 @@ const terminalButton = new THREE.MeshStandardMaterial({
 function makeTerminalLabel(width, height, painter) {
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
-  canvas.height = 256;
+  canvas.height = Math.max(128, Math.round(1024 * height / width));
   const ctx = canvas.getContext("2d");
   painter(ctx);
   const texture = new THREE.CanvasTexture(canvas);
@@ -611,38 +691,42 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
 }
 
 const titleCard = addTerminalCard({
-  x: 0, y: 0.51, width: 0.98, height: 0.16,
+  x: 0, y: 0.48, width: 1.72, height: 0.22,
   labelPainter: ctx => {
     ctx.fillStyle = "#55f5e8";
-    ctx.font = "bold 62px Arial";
-    ctx.fillText("NEON GENESIS", 34, 92);
+    ctx.font = "bold 54px Arial";
+    ctx.fillText("NEON GENESIS", 34, ctx.canvas.height * 0.48);
     ctx.fillStyle = "#b9c8d8";
-    ctx.font = "bold 28px Arial";
-    ctx.fillText("CITY ACCESS TERMINAL  /  NEW RUN", 36, 158);
+    ctx.font = "bold 24px Arial";
+    ctx.fillText("CHARACTER SETUP", 38, ctx.canvas.height * 0.80);
   }
 });
 
 const startRows = [];
 const rowInfo = [
-  { key: "gender", label: "GENDER" },
   { key: "hairStyle", label: "HAIR STYLE" },
   { key: "hairColour", label: "HAIR COLOUR" },
   { key: "jacketColour", label: "JACKET COLOUR" }
 ];
 rowInfo.forEach((info, index) => {
+  const positions = [-0.59, 0, 0.59];
   const row = addTerminalCard({
-    x: 0, y: 0.27 - index * 0.205, width: 0.98, height: 0.16,
+    x: positions[index], y: 0.02, width: 0.53, height: 0.28,
     action: () => cycleAppearance(info.key),
     labelPainter: ctx => {
+      const center = ctx.canvas.width / 2;
+      const h = ctx.canvas.height;
+      ctx.textAlign = "center";
       ctx.fillStyle = "#8fa7bb";
-      ctx.font = "bold 48px Arial";
-      ctx.fillText(info.label, 30, 94);
+      ctx.font = "bold 38px Arial";
+      ctx.fillText(info.label, center, h * 0.28);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 58px Arial";
-      ctx.fillText(String(appearance[info.key]).toUpperCase(), 365, 96);
+      ctx.font = "bold 54px Arial";
+      ctx.fillText(String(appearance[info.key]).toUpperCase(), center, h * 0.57);
       ctx.fillStyle = "#ffcf70";
-      ctx.font = "bold 42px Arial";
-      ctx.fillText("CHANGE  ›", 790, 94);
+      ctx.font = "bold 25px Arial";
+      ctx.fillText("TAP TO CHANGE", center, h * 0.84);
+      ctx.textAlign = "left";
     }
   });
   startRows.push(row);
@@ -651,25 +735,25 @@ rowInfo.forEach((info, index) => {
 document.querySelector("#play-button").addEventListener("click", startCity);
 
 const confirmCard = addTerminalCard({
-  x: 0, y: -0.62, width: 0.58, height: 0.16, button: true,
+  x: 0, y: -0.34, width: 0.62, height: 0.17, button: true,
   action: () => startCity(),
   labelPainter: ctx => {
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 54px Arial";
+    ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("PLAY", 512, 150);
+    ctx.fillText("PLAY", 512, ctx.canvas.height * 0.62);
     ctx.textAlign = "left";
   }
 });
 
 // Side rails and a small base make the menu read like a physical terminal.
-for (const x of [-0.53, 0.53]) {
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.4, 0.035), terminalGlow);
-  rail.position.set(x, -0.06, -0.006);
+for (const x of [-0.91, 0.91]) {
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.16, 0.035), terminalGlow);
+  rail.position.set(x, 0.02, -0.006);
   vrStart.add(rail);
 }
-const base = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.025, 0.12), terminalMetal);
-base.position.set(0, -0.76, -0.015);
+const base = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.025, 0.12), terminalMetal);
+base.position.set(0, -0.52, -0.015);
 vrStart.add(base);
 const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
 terminalLight.position.set(0, 0.08, 0.25);
@@ -679,8 +763,9 @@ function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
   appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { gender: "gender-select", hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
-  document.getElementById(fieldIds[key]).value = String(appearance[key]);
+  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
+  const field = document.getElementById(fieldIds[key]);
+  if (field) field.value = String(appearance[key]);
   try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
   const rowIndex = rowInfo.findIndex(item => item.key === key);
   startRows[rowIndex]?.userData.refresh();
@@ -695,22 +780,26 @@ function showVRIntro() {
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
   vrStartReady = false;
-  camera.updateWorldMatrix(true, false);
+  const xrCamera = renderer.xr.getCamera(camera);
+  xrCamera.updateMatrixWorld(true);
   const introPosition = new THREE.Vector3();
   const introDirection = new THREE.Vector3();
   const introRotation = new THREE.Quaternion();
-  camera.getWorldPosition(introPosition);
-  camera.getWorldDirection(introDirection);
-  camera.getWorldQuaternion(introRotation);
+  xrCamera.getWorldPosition(introPosition);
+  xrCamera.getWorldDirection(introDirection);
+  xrCamera.getWorldQuaternion(introRotation);
   vrStart.position.copy(introPosition)
-    .addScaledVector(introDirection, 0.72);
-  vrStart.position.y -= 0.60;
+    .addScaledVector(introDirection, 1.75);
+  vrStart.position.y -= 0.55;
   vrStart.quaternion.copy(introRotation);
-  vrStart.scale.setScalar(0.72);
+  vrStart.scale.setScalar(1);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
 }
-renderer.xr.addEventListener("sessionstart", showVRIntro);
+renderer.xr.addEventListener("sessionstart", () => {
+  // Wait for the first XR frame so the headset's tracked transform is available.
+  vrSessionIntroActive = false;
+});
 renderer.xr.addEventListener("sessionend", () => {
   vrSessionIntroActive = false;
   vrStart.visible = false;
