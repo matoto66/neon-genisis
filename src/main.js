@@ -41,16 +41,16 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black", heightCm: 170 };
+const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
   if (savedAppearance) Object.assign(appearance, savedAppearance);
 } catch {}
-for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"],["player-height","heightCm"]]) {
+for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
   const field = document.getElementById(id);
   field.value = String(appearance[key]);
   field.addEventListener("change", () => {
-    appearance[key] = key === "heightCm" ? Number(field.value) : field.value;
+    appearance[key] = field.value;
     try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
     startStatus.textContent = "Appearance saved.";
   });
@@ -252,19 +252,18 @@ const vrStartPanel = new THREE.Mesh(
 vrStart.add(vrStartPanel);
 vrStartPanel.renderOrder = 1100;
 let vrStartReady = false;
-let heightCalibrated = false;
+ 
 let vrStartWipVisible = true;
 const appearanceChoices = {
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
-  jacketColour: ["Black", "White", "Cyan", "Purple", "Red"],
-  heightCm: [150, 155, 160, 165, 170, 175, 180, 185, 190, 195, 200]
+  jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
 };
 function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
   appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour", heightCm: "player-height" };
+  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
   document.getElementById(fieldIds[key]).value = String(appearance[key]);
   try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
   drawVRStart();
@@ -281,11 +280,10 @@ function drawVRStart() {
   const rows = [
     ["HAIR STYLE", appearance.hairStyle, "hairStyle"],
     ["HAIR COLOUR", appearance.hairColour, "hairColour"],
-    ["JACKET COLOUR", appearance.jacketColour, "jacketColour"],
-    ["HEIGHT", appearance.heightCm + " CM", "heightCm"]
+    ["JACKET COLOUR", appearance.jacketColour, "jacketColour"]
   ];
   rows.forEach((row,i) => {
-    const y = 235 + i * 91;
+    const y = 270 + i * 112;
     c.fillStyle = "#13233b"; c.fillRect(60,y-39,904,70);
     c.fillStyle = "#aab6cf"; c.font = "bold 19px Arial"; c.fillText(row[0], 88,y-8);
     c.fillStyle = "#ffffff"; c.font = "bold 25px Arial"; c.fillText(String(row[1]), 440,y-8);
@@ -293,13 +291,10 @@ function drawVRStart() {
     c.fillStyle = "#5ff5e8"; c.font = "bold 19px Arial"; c.fillText("CHANGE", 844,y+3);
   });
   c.fillStyle = "#aab6cf"; c.font = "18px Arial";
-  c.fillText("HEIGHT CALIBRATION: Stand upright on a flat floor, then confirm below.", 62, 614);
-  c.fillStyle = heightCalibrated ? "#5ff5e8" : "#ffcf70";
-  c.font = "bold 18px Arial";
-  c.fillText(heightCalibrated ? "HEIGHT SET — READY TO ENTER" : "HEIGHT NOT YET CONFIRMED", 62, 653);
-  c.fillStyle = "#12656a"; c.fillRect(340,680,344,62);
-  c.strokeStyle = "#5ff5e8"; c.strokeRect(340,680,344,62);
-  c.fillStyle = "#ffffff"; c.font = "bold 27px Arial"; c.fillText("CALIBRATE & PLAY", 385,721);
+  c.fillText("Your look is saved when you confirm.", 62, 625);
+  c.fillStyle = "#12656a"; c.fillRect(340,660,344,68);
+  c.strokeStyle = "#5ff5e8"; c.strokeRect(340,660,344,68);
+  c.fillStyle = "#ffffff"; c.font = "bold 27px Arial"; c.fillText("CONFIRM & PLAY", 390,704);
   vrStartTexture.needsUpdate = true;
 }
 
@@ -310,7 +305,7 @@ function showVRIntro() {
   vrSessionIntroActive = true;
   startScreen.classList.add("hidden");
   vrStartReady = false;
-  heightCalibrated = false;
+ 
   vrStart.visible = true;
   vrStartWipVisible = true;
   drawVRStart();
@@ -334,15 +329,12 @@ function activateVRStartAtController(controller) {
   if (!hit?.uv) return true;
   const x = hit.uv.x * 1024;
   const y = (1 - hit.uv.y) * 768;
-  const rowKeys = ["hairStyle","hairColour","jacketColour","heightCm"];
+  const rowKeys = ["hairStyle","hairColour","jacketColour"];
   rowKeys.forEach((key,i) => {
-    const rowY = 235 + i * 91;
+    const rowY = 270 + i * 112;
     if (y >= rowY-39 && y <= rowY+31 && x >= 800) cycleAppearance(key);
   });
-  if (y >= 680 && y <= 742 && x >= 340 && x <= 684) {
-    // local-floor supplies the real floor reference; this confirms the selected
-    // avatar height without overriding the headset's tracked physical position.
-    heightCalibrated = true;
+  if (y >= 660 && y <= 728 && x >= 340 && x <= 684) {
     try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
     vrStart.visible = false;
     vrStartReady = true;
