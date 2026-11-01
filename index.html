@@ -21,8 +21,51 @@
       <h1>NEON GENESIS</h1>
       <p class="subtitle">A cyberpunk world is taking shape.</p>
       <p id="status">Loading the city...</p>
-      <p class="hint">On a Meta Quest, open this page in the Quest Browser and select ENTER VR.</p>
+      <p class="hint">Desktop: click the city to look around, then use WASD. Press Esc to unlock the mouse. VR: use your headset to look and the left thumbstick to move.</p>
     </main>
+
+    <section id="game-ui" aria-label="Character and game menu">
+      <div class="topbar">
+        <div class="credits"><span class="small-label">CREDITS</span><strong id="credits">$500</strong></div>
+        <button id="character-toggle" class="ui-button">CHARACTER</button>
+        <button id="shop-toggle" class="ui-button accent">CYBERWARE SHOP</button>
+      </div>
+
+      <section id="character-panel" class="panel" hidden>
+        <button class="close-button" data-close="character-panel" aria-label="Close">×</button>
+        <p class="eyebrow">YOUR PROFILE</p>
+        <h2>CHARACTER</h2>
+        <p class="panel-note">You have 3 starting attribute points. Spend them across the three stats.</p>
+        <div class="points-line">UNSPENT POINTS <strong id="points-left">3</strong></div>
+        <div class="stat-row">
+          <div><strong>STRENGTH</strong><p>Improves physical ability and carrying capacity.</p></div>
+          <div class="stat-control"><button data-stat="strength" data-change="-1" aria-label="Lower strength">−</button><strong id="strength-value">0</strong><button data-stat="strength" data-change="1" aria-label="Raise strength">+</button></div>
+        </div>
+        <div class="stat-row">
+          <div><strong>HEALTH</strong><p>Raises your maximum health by 25 per point.</p></div>
+          <div class="stat-control"><button data-stat="health" data-change="-1" aria-label="Lower health">−</button><strong id="health-value">0</strong><button data-stat="health" data-change="1" aria-label="Raise health">+</button></div>
+        </div>
+        <div class="stat-row">
+          <div><strong>CYBERWARE COMPATIBILITY</strong><p>Higher compatibility supports more and better cyberware.</p></div>
+          <div class="stat-control"><button data-stat="compatibility" data-change="-1" aria-label="Lower compatibility">−</button><strong id="compatibility-value">0</strong><button data-stat="compatibility" data-change="1" aria-label="Raise compatibility">+</button></div>
+        </div>
+        <div class="profile-summary">
+          <div><span class="small-label">MAX HEALTH</span><strong id="max-health">100</strong></div>
+          <div><span class="small-label">CYBERWARE GRADE</span><strong id="cyber-grade">BASIC</strong></div>
+        </div>
+        <p class="save-note" id="save-note">Your choices save automatically on this device.</p>
+      </section>
+
+      <section id="shop-panel" class="panel shop-panel" hidden>
+        <button class="close-button" data-close="shop-panel" aria-label="Close">×</button>
+        <p class="eyebrow">NIGHT MARKET</p>
+        <h2>CYBERWARE SHOP</h2>
+        <p class="panel-note">Your credits are ready. We're still deciding which implants and upgrades belong in the first shop.</p>
+        <div class="shop-placeholder"><span class="shop-symbol">✦</span><strong>STOCK INCOMING</strong><p>Cyberware, prices and compatibility requirements will be added next.</p></div>
+        <p class="shop-balance">AVAILABLE CREDITS <strong id="shop-credits">$500</strong></p>
+      </section>
+    </section>
+
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>
