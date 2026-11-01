@@ -649,6 +649,12 @@ const previewBaseRing = new THREE.Mesh(
 previewBaseRing.rotation.x = Math.PI / 2;
 previewBaseRing.position.y = 0.125;
 characterPreview.add(previewBaseRing);
+const previewKeyLight = new THREE.PointLight(0x79f5ed, 2.4, 4.5);
+previewKeyLight.position.set(-0.8, 2.1, 1.25);
+characterPreview.add(previewKeyLight);
+const previewRimLight = new THREE.PointLight(0xa54dff, 1.8, 3.5);
+previewRimLight.position.set(0.9, 1.55, -0.8);
+characterPreview.add(previewRimLight);
 
 let avatarModel = null;
 function updateCharacterPreview() {
@@ -779,11 +785,12 @@ function updateCharacterPreview() {
   add(new THREE.BoxGeometry(0.28, 0.34, 0.14), darkFabric, 0, 1.12, -0.20);
 }
 
-function setCharacterPreviewLocation(parent, x, y, z) {
+function setCharacterPreviewLocation(parent, x, y, z, scale = 1) {
   parent.add(characterPreview);
   characterPreview.position.set(x, y, z);
   characterPreview.rotation.set(0, 0, 0);
-  characterPreview.scale.setScalar(1);
+  characterPreview.scale.setScalar(scale);
+  characterPreview.visible = true;
 }
 updateCharacterPreview();
 
@@ -967,7 +974,8 @@ function showVRIntro() {
 
   const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
   const MENU_HEIGHT_ABOVE_FLOOR = 1.20;
-  const MENU_DISTANCE_FROM_SPAWN = 1.75;
+  // A little extra distance gives the side-by-side character and editor room in the Quest view.
+  const MENU_DISTANCE_FROM_SPAWN = 2.10;
 
   // One world-space position and yaw for the root rectangle. Every card,
   // border, rail and PLAY button is a child of vrStart and shares this plane.
@@ -978,7 +986,7 @@ function showVRIntro() {
   );
   vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
-  setCharacterPreviewLocation(vrStart, 1.42, -1.20, 0.02);
+  setCharacterPreviewLocation(vrStart, 0.98, -1.20, 0.02, 0.58);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
 }
@@ -994,7 +1002,7 @@ renderer.xr.addEventListener("sessionend", () => {
   isInCity = false;
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
-  setCharacterPreviewLocation(mainMenuWorld, 3.15, 0, 2.4);
+  setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9);
   startScreen.classList.remove("hidden");
 });
 
