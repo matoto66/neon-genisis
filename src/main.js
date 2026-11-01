@@ -1018,25 +1018,19 @@ function showVRIntro() {
   vrStart.scale.setScalar(1);
   vrStart.visible = true;
 
-  // Keep the avatar out of the terminal's mesh hierarchy. It is a separate
-  // scene object, positioned beside and slightly in front of the terminal so
-  // the terminal backing and side rails cannot cover the character.
-  const previewRight = new THREE.Vector3(1, 0, 0).applyAxisAngle(up, menuYaw);
-  // Anchor the preview to the terminal itself, not to the player's side.
-  // This puts the character just beyond the terminal's right edge, at the
-  // same forward distance so it reads as part of the character-creator setup.
-  const previewPosition = vrStart.position.clone()
-    .addScaledVector(previewRight, 1.48);
-  // The avatar's front is its local +Z axis. Aim that axis diagonally toward
-  // the player's standing position so the character looks toward the user.
-  const towardPlayer = spawnPosition.clone()
-    .addScaledVector(flatForward, 0.35)
-    .sub(previewPosition);
-  towardPlayer.y = 0;
-  towardPlayer.normalize();
-  const characterYaw = Math.atan2(towardPlayer.x, towardPlayer.z);
+  // Parent the avatar to the starting menu so it always stays beside it,
+  // never beside the player's moving body or room-scale headset position.
+  // Local +Z is the menu's front, so a small +Z offset brings the model
+  // slightly toward the player while keeping it beside the right edge.
+  vrStart.updateMatrixWorld(true);
+  const avatarLocalX = 1.38;
+  const avatarLocalZ = 0.24;
+  const towardPlayerLocal = new THREE.Vector3(
+    -avatarLocalX, 0, MENU_DISTANCE_FROM_SPAWN - avatarLocalZ
+  ).normalize();
+  const characterYaw = Math.atan2(towardPlayerLocal.x, towardPlayerLocal.z);
   setCharacterPreviewLocation(
-    scene, previewPosition.x, spawnPosition.y, previewPosition.z, 0.78, characterYaw
+    vrStart, avatarLocalX, -MENU_HEIGHT_ABOVE_FLOOR, avatarLocalZ, 0.78, characterYaw
   );
   for (const row of startRows) row.userData.refresh();
 }
