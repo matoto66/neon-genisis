@@ -41,12 +41,12 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
+const appearance = { gender: "Male", hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
   if (savedAppearance) Object.assign(appearance, savedAppearance);
 } catch {}
-for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
+for (const [id, key] of [["gender-select","gender"],["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
   const field = document.getElementById(id);
   field.value = String(appearance[key]);
   field.addEventListener("change", () => {
@@ -544,6 +544,7 @@ function startCity() {
 }
 
 const appearanceChoices = {
+  gender: ["Male", "Female"],
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
   jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
@@ -610,7 +611,7 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
 }
 
 const titleCard = addTerminalCard({
-  x: 0, y: 0.43, width: 0.98, height: 0.16,
+  x: 0, y: 0.51, width: 0.98, height: 0.16,
   labelPainter: ctx => {
     ctx.fillStyle = "#55f5e8";
     ctx.font = "bold 62px Arial";
@@ -623,13 +624,14 @@ const titleCard = addTerminalCard({
 
 const startRows = [];
 const rowInfo = [
+  { key: "gender", label: "GENDER" },
   { key: "hairStyle", label: "HAIR STYLE" },
   { key: "hairColour", label: "HAIR COLOUR" },
   { key: "jacketColour", label: "JACKET COLOUR" }
 ];
 rowInfo.forEach((info, index) => {
   const row = addTerminalCard({
-    x: 0, y: 0.19 - index * 0.205, width: 0.98, height: 0.16,
+    x: 0, y: 0.27 - index * 0.205, width: 0.98, height: 0.16,
     action: () => cycleAppearance(info.key),
     labelPainter: ctx => {
       ctx.fillStyle = "#8fa7bb";
@@ -649,7 +651,7 @@ rowInfo.forEach((info, index) => {
 document.querySelector("#play-button").addEventListener("click", startCity);
 
 const confirmCard = addTerminalCard({
-  x: 0, y: -0.55, width: 0.58, height: 0.16, button: true,
+  x: 0, y: -0.62, width: 0.58, height: 0.16, button: true,
   action: () => startCity(),
   labelPainter: ctx => {
     ctx.fillStyle = "#ffffff";
@@ -662,12 +664,12 @@ const confirmCard = addTerminalCard({
 
 // Side rails and a small base make the menu read like a physical terminal.
 for (const x of [-0.53, 0.53]) {
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.12, 0.035), terminalGlow);
-  rail.position.set(x, -0.05, -0.006);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.4, 0.035), terminalGlow);
+  rail.position.set(x, -0.06, -0.006);
   vrStart.add(rail);
 }
 const base = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.025, 0.12), terminalMetal);
-base.position.set(0, -0.69, -0.015);
+base.position.set(0, -0.76, -0.015);
 vrStart.add(base);
 const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
 terminalLight.position.set(0, 0.08, 0.25);
@@ -677,7 +679,7 @@ function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
   appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
+  const fieldIds = { gender: "gender-select", hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
   document.getElementById(fieldIds[key]).value = String(appearance[key]);
   try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
   const rowIndex = rowInfo.findIndex(item => item.key === key);
@@ -700,12 +702,11 @@ function showVRIntro() {
   camera.getWorldPosition(introPosition);
   camera.getWorldDirection(introDirection);
   camera.getWorldQuaternion(introRotation);
-  const introRight = new THREE.Vector3(1, 0, 0).applyQuaternion(introRotation);
   vrStart.position.copy(introPosition)
-    .addScaledVector(introDirection, 1.72)
-    .addScaledVector(introRight, -0.82);
-  vrStart.position.y -= 0.12;
+    .addScaledVector(introDirection, 0.72);
+  vrStart.position.y -= 0.60;
   vrStart.quaternion.copy(introRotation);
+  vrStart.scale.setScalar(0.72);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
 }
