@@ -22,7 +22,12 @@ renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-const vrButton = VRButton.createButton(renderer);
+const gameUI = document.querySelector("#game-ui");
+const vrButton = VRButton.createButton(renderer, {
+  requiredFeatures: ["local-floor", "dom-overlay"],
+  optionalFeatures: ["bounded-floor"],
+  domOverlay: { root: gameUI }
+});
 vrButton.textContent = "ENTER VR";
 document.body.appendChild(vrButton);
 
@@ -145,6 +150,32 @@ function showPanel(panel) {
   shopPanel.hidden = true;
   if (!wasOpen) panel.hidden = false;
 }
+
+function openGameMenu() {
+  gameUI.classList.remove("menu-closed");
+  gameUI.classList.add("menu-open");
+  if (!renderer.xr.isPresenting && document.pointerLockElement === renderer.domElement) {
+    document.exitPointerLock?.();
+  }
+}
+function closeGameMenu() {
+  gameUI.classList.remove("menu-open");
+  gameUI.classList.add("menu-closed");
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  if (!renderer.xr.isPresenting) renderer.domElement.requestPointerLock?.();
+}
+function toggleGameMenu() {
+  if (gameUI.classList.contains("menu-open")) closeGameMenu();
+  else openGameMenu();
+}
+document.addEventListener("keydown", event => {
+  if (event.code === "KeyE" && !renderer.xr.isPresenting) {
+    event.preventDefault();
+    toggleGameMenu();
+  }
+  if (event.code === "Escape" && gameUI.classList.contains("menu-open")) closeGameMenu();
+});
 document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
 document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
 document.querySelectorAll("[data-close]").forEach(button => {
@@ -200,6 +231,7 @@ window.addEventListener("keydown", event => {
 window.addEventListener("keyup", event => { keys[event.code] = false; });
 window.addEventListener("blur", () => { for (const key of Object.keys(keys)) keys[key] = false; });
 
+let previousMenuButton = false;
 const clock = new THREE.Clock();
 const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
@@ -219,13 +251,33 @@ function getLeftStick() {
   return { x: 0, y: 0 };
 }
 
+function getRightStickAndMenuButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return { x: 0, y: 0, menu: false };
+  for (const source of session.inputSources) {
+    if (source.handedness !== "right" || !source.gamepad) continue;
+    const axes = source.gamepad.axes;
+    const x = axes.length >= 4 ? axes[2] : axes[0];
+    const y = axes.length >= 4 ? axes[3] : axes[1];
+    // Standard WebXR controller mapping: B is button 5 on the right controller.
+    const menu = !!source.gamepad.buttons[5]?.pressed;
+    return { x: Math.abs(x || 0) > 0.15 ? x : 0, y: Math.abs(y || 0) > 0.15 ? y : 0, menu };
+  }
+  return { x: 0, y: 0, menu: false };
+}
+
 function movePlayer(delta) {
   let stickX = 0;
   let stickY = 0;
   if (renderer.xr.isPresenting) {
     const stick = getLeftStick();
+    const look = getRightStickAndMenuButton();
     stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
+    if (look.menu && !previousMenuButton) toggleGameMenu();
+    previousMenuButton = look.menu;
+    // Smooth horizontal turning; headset tracking still controls natural up/down looking.
+    player.rotation.y -= look.x * 2.2 * delta;
   } else {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
@@ -240,7 +292,7 @@ function movePlayer(delta) {
   player.position.addScaledVector(movement, (3.2 + character.strength * 0.18) * delta);
 }
 
-status.textContent = "City loaded. Click and drag to look around, or click once to lock the mouse. Use WASD to move.";
+status.textContent = "City loaded. Press E to open the menu. Use WASD and mouse to move and look.";
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
