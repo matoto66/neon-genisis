@@ -685,22 +685,28 @@ function updateCharacterPreview() {
     Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
   }[appearance.hatColour] || 0x202735;
 
-  const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.48, roughness: 0.48 });
-  const jacketEdge = new THREE.MeshStandardMaterial({ color: 0x26384a, metalness: 0.76, roughness: 0.32 });
-  const darkFabric = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.25, roughness: 0.82 });
-  const bootMaterial = new THREE.MeshStandardMaterial({ color: 0x090e19, metalness: 0.72, roughness: 0.34 });
-  const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x121b2a, metalness: 0.65, roughness: 0.42 });
+  const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.38, roughness: 0.58 });
+  const jacketDark = new THREE.MeshStandardMaterial({ color: 0x172232, metalness: 0.26, roughness: 0.72 });
+  const jacketEdge = new THREE.MeshStandardMaterial({ color: 0x34485b, metalness: 0.68, roughness: 0.34 });
+  const pantsMaterial = new THREE.MeshStandardMaterial({ color: 0x141d2b, metalness: 0.22, roughness: 0.82 });
+  const bootMaterial = new THREE.MeshStandardMaterial({ color: 0x090e19, metalness: 0.58, roughness: 0.42 });
+  const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x101a27, metalness: 0.48, roughness: 0.5 });
+  const headMaterial = new THREE.MeshStandardMaterial({ color: 0x344253, metalness: 0.32, roughness: 0.58 });
   const maskMaterial = new THREE.MeshStandardMaterial({ color: 0x080f1c, metalness: 0.82, roughness: 0.24 });
-  const hatMaterial = new THREE.MeshStandardMaterial({ color: hatHex, metalness: 0.48, roughness: 0.38 });
+  const visorMaterial = new THREE.MeshStandardMaterial({
+    color: 0x142d3d, emissive: 0x087b91, emissiveIntensity: 0.65,
+    metalness: 0.72, roughness: 0.2
+  });
+  const hatMaterial = new THREE.MeshStandardMaterial({ color: hatHex, metalness: 0.42, roughness: 0.48 });
   const hatTrimMaterial = new THREE.MeshStandardMaterial({
     color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.65,
     metalness: 0.62, roughness: 0.3
   });
   const cyanMaterial = new THREE.MeshStandardMaterial({
-    color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.8,
-    metalness: 0.6, roughness: 0.28
+    color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.72,
+    metalness: 0.58, roughness: 0.3
   });
-  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x8496a8, metalness: 0.88, roughness: 0.25 });
+  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x8496a8, metalness: 0.82, roughness: 0.3 });
 
   const add = (geometry, material, x, y, z, parent = avatarModel) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -708,111 +714,211 @@ function updateCharacterPreview() {
     parent.add(mesh);
     return mesh;
   };
+  const addSegment = (startPoint, endPoint, startRadius, endRadius, material) => {
+    const startVector = new THREE.Vector3(...startPoint);
+    const endVector = new THREE.Vector3(...endPoint);
+    const direction = endVector.clone().sub(startVector);
+    const length = direction.length();
+    const midpoint = startVector.clone().add(endVector).multiplyScalar(0.5);
+    const mesh = add(
+      new THREE.CylinderGeometry(endRadius, startRadius, length, 14, 1),
+      material, midpoint.x, midpoint.y, midpoint.z
+    );
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+    return mesh;
+  };
+
+  // The two body types use slightly different, natural proportions rather
+  // than simply stretching one identical block-shaped model.
   const bodyScale = bodyType === "Female"
-    ? { shoulder: 0.52, hip: 0.46, torso: 0.92 }
-    : { shoulder: 0.62, hip: 0.40, torso: 1.02 };
+    ? { shoulder: 0.59, hip: 0.53, waist: 0.205, legGap: 0.17, arm: 0.092 }
+    : { shoulder: 0.66, hip: 0.47, waist: 0.218, legGap: 0.155, arm: 0.102 };
 
-  // Legs, layered knee guards and boots.
+  // Pants and pelvis form one continuous lower-body silhouette.
+  const pelvis = add(new THREE.SphereGeometry(0.245, 24, 18), pantsMaterial, 0, 0.91, 0);
+  pelvis.scale.set(bodyScale.hip, 0.58, 0.79);
+  const belt = add(new THREE.CylinderGeometry(0.225, 0.235, 0.055, 28), jacketDark, 0, 0.99, 0);
+  belt.scale.z = 0.82;
+  const beltFront = add(new THREE.BoxGeometry(0.105, 0.075, 0.025), silverMaterial, 0, 0.99, 0.205);
+
+  // A shaped jacket profile gives the waist, chest and shoulders a smoother
+  // human silhouette than a single capsule.
+  const torsoProfile = bodyType === "Female"
+    ? [
+        new THREE.Vector2(0.18, 0.89), new THREE.Vector2(0.225, 0.94),
+        new THREE.Vector2(0.215, 1.02), new THREE.Vector2(0.225, 1.10),
+        new THREE.Vector2(0.265, 1.25), new THREE.Vector2(0.285, 1.36),
+        new THREE.Vector2(0.245, 1.43), new THREE.Vector2(0.125, 1.49)
+      ]
+    : [
+        new THREE.Vector2(0.18, 0.89), new THREE.Vector2(0.225, 0.94),
+        new THREE.Vector2(0.228, 1.02), new THREE.Vector2(0.245, 1.10),
+        new THREE.Vector2(0.285, 1.25), new THREE.Vector2(0.315, 1.36),
+        new THREE.Vector2(0.265, 1.43), new THREE.Vector2(0.125, 1.49)
+      ];
+  const torso = add(new THREE.LatheGeometry(torsoProfile, 28), jacket, 0, 0, 0);
+  torso.scale.set(1, 1, 0.79);
+
+  // Jacket collar, front closure, panel seams and hem.
+  add(new THREE.CylinderGeometry(0.135, 0.16, 0.075, 24), jacketDark, 0, 1.455, 0);
+  add(new THREE.BoxGeometry(0.035, 0.39, 0.018), silverMaterial, 0, 1.20, 0.232);
+  add(new THREE.BoxGeometry(0.018, 0.34, 0.012), cyanMaterial, 0.035, 1.20, 0.233);
   for (const side of [-1, 1]) {
-    const legX = side * bodyScale.hip * 0.5;
-    const leg = add(new THREE.CapsuleGeometry(0.105, 0.56, 4, 10), darkFabric, legX, 0.48, 0);
-    leg.scale.x = bodyType === "Female" ? 0.98 : 1.02;
-    add(new THREE.BoxGeometry(0.22, 0.12, 0.34), bootMaterial, legX, 0.17, 0.065);
-    add(new THREE.BoxGeometry(0.16, 0.22, 0.075), jacketEdge, legX, 0.49, 0.105);
-    add(new THREE.BoxGeometry(0.17, 0.055, 0.08), silverMaterial, legX, 0.62, 0.115);
+    const chestPanel = add(new THREE.BoxGeometry(0.105, 0.19, 0.018),
+      jacketEdge, side * 0.155, 1.285, 0.204);
+    chestPanel.rotation.z = side * -0.08;
+    add(new THREE.BoxGeometry(0.025, 0.14, 0.012),
+      silverMaterial, side * 0.19, 1.18, 0.20);
+  }
+  add(new THREE.BoxGeometry(0.40, 0.045, 0.035), jacketDark, 0, 0.94, 0.175);
+  add(new THREE.BoxGeometry(0.075, 0.075, 0.025), cyanMaterial, 0, 1.02, 0.216);
+
+  // Thighs, knees, lower legs and boots are built as separate soft forms,
+  // with protective knee plates and ankle cuffs to define each joint.
+  for (const side of [-1, 1]) {
+    const legX = side * bodyScale.legGap;
+    const upperLeg = add(new THREE.CapsuleGeometry(0.105, 0.31, 5, 14),
+      pantsMaterial, legX, 0.645, 0);
+    upperLeg.scale.x = bodyType === "Female" ? 1.02 : 1.0;
+    const knee = add(new THREE.SphereGeometry(0.092, 16, 12),
+      pantsMaterial, legX, 0.405, 0.018);
+    knee.scale.set(0.94, 1.05, 0.94);
+    const kneePlate = add(new THREE.SphereGeometry(0.092, 16, 12),
+      jacketEdge, legX, 0.405, 0.085);
+    kneePlate.scale.set(0.94, 0.72, 0.42);
+    add(new THREE.BoxGeometry(0.095, 0.018, 0.012),
+      cyanMaterial, legX, 0.408, 0.122);
+
+    const lowerLeg = add(new THREE.CapsuleGeometry(0.074, 0.25, 5, 14),
+      pantsMaterial, legX, 0.245, 0);
+    lowerLeg.scale.set(1.03, 1, 1.03);
+    add(new THREE.CylinderGeometry(0.083, 0.09, 0.045, 18),
+      jacketDark, legX, 0.145, 0);
+    const boot = add(new THREE.CapsuleGeometry(0.085, 0.19, 5, 12),
+      bootMaterial, legX, 0.12, 0.075);
+    boot.rotation.x = Math.PI / 2;
+    boot.scale.set(1.04, 1, 0.82);
+    add(new THREE.BoxGeometry(0.16, 0.028, 0.018),
+      silverMaterial, legX, 0.105, 0.205);
   }
 
-  // Waist and jacket torso.
-  const waist = add(new THREE.SphereGeometry(0.22, 16, 12), darkFabric, 0, 0.88, 0);
-  waist.scale.set(bodyScale.hip, 0.72, 0.72);
-  const torso = add(new THREE.CapsuleGeometry(0.235, 0.55, 5, 12), jacket, 0, 1.17, 0);
-  torso.scale.set(bodyScale.torso, 1, 0.86);
-  const shoulderBar = add(new THREE.CapsuleGeometry(0.115, bodyScale.shoulder, 4, 10),
-    jacketEdge, 0, 1.43, 0);
-  shoulderBar.rotation.z = Math.PI / 2;
-  add(new THREE.BoxGeometry(0.22, 0.32, 0.055), jacketEdge, 0, 1.18, 0.205);
-  add(new THREE.BoxGeometry(0.035, 0.42, 0.035), cyanMaterial, 0, 1.17, 0.24);
-  add(new THREE.BoxGeometry(0.12, 0.08, 0.045), silverMaterial, 0, 1.39, 0.22);
-
-  // Arms are segmented so sleeves, gloves and cuffs read clearly from a distance.
+  // Sleeves taper from shoulder to wrist. Rounded joint pieces hide the
+  // joins and make the arms read as arms instead of straight box shapes.
   for (const side of [-1, 1]) {
-    const shoulderX = side * bodyScale.shoulder * 0.67;
-    const upperArm = add(new THREE.CapsuleGeometry(0.105, 0.34, 4, 10),
-      jacket, shoulderX, 1.17, 0);
-    upperArm.rotation.z = side * -0.12;
-    const forearm = add(new THREE.CapsuleGeometry(0.09, 0.30, 4, 10),
-      jacket, side * (bodyScale.shoulder * 0.80), 0.82, 0.015);
-    forearm.rotation.z = side * -0.06;
-    add(new THREE.BoxGeometry(0.205, 0.075, 0.19),
-      jacketEdge, side * (bodyScale.shoulder * 0.81), 0.70, 0.02);
-    add(new THREE.SphereGeometry(0.092, 12, 10),
-      gloveMaterial, side * (bodyScale.shoulder * 0.82), 0.58, 0.035);
-    add(new THREE.BoxGeometry(0.08, 0.035, 0.09),
-      cyanMaterial, side * (bodyScale.shoulder * 0.82), 0.58, 0.105);
+    const shoulderX = side * bodyScale.shoulder * 0.48;
+    const elbowX = side * (bodyScale.shoulder * 0.56);
+    const wristX = side * (bodyScale.shoulder * 0.60);
+    add(new THREE.SphereGeometry(bodyScale.arm * 1.18, 18, 14),
+      jacket, shoulderX, 1.365, 0);
+    addSegment(
+      [shoulderX, 1.35, 0], [elbowX, 1.055, 0.025],
+      bodyScale.arm * 1.15, bodyScale.arm, jacket
+    );
+    add(new THREE.SphereGeometry(bodyScale.arm, 16, 12),
+      jacket, elbowX, 1.055, 0.025);
+    addSegment(
+      [elbowX, 1.055, 0.025], [wristX, 0.765, 0.07],
+      bodyScale.arm, bodyScale.arm * 0.78, jacket
+    );
+    add(new THREE.CylinderGeometry(0.086, 0.092, 0.065, 18),
+      jacketEdge, wristX, 0.755, 0.07);
+    const hand = add(new THREE.SphereGeometry(0.078, 16, 12),
+      gloveMaterial, wristX, 0.665, 0.09);
+    hand.scale.set(0.78, 1.16, 0.78);
+    add(new THREE.BoxGeometry(0.09, 0.045, 0.025),
+      jacketEdge, wristX, 0.69, 0.145);
+    add(new THREE.BoxGeometry(0.045, 0.025, 0.012),
+      cyanMaterial, wristX, 0.68, 0.16);
+    const shoulderPad = add(new THREE.SphereGeometry(0.145, 18, 14),
+      jacketEdge, shoulderX, 1.39, -0.005);
+    shoulderPad.scale.set(1.12, 0.62, 0.9);
+    add(new THREE.BoxGeometry(0.13, 0.025, 0.018),
+      silverMaterial, shoulderX, 1.415, 0.12);
   }
 
-  // Neck, covered head and an angular face mask so no face is exposed.
-  add(new THREE.CylinderGeometry(0.085, 0.095, 0.15, 12),
-    darkFabric, 0, 1.49, 0);
-  add(new THREE.SphereGeometry(0.19, 18, 14), maskMaterial, 0, 1.68, 0);
-  add(new THREE.BoxGeometry(0.30, 0.16, 0.075), maskMaterial, 0, 1.62, 0.165);
-  add(new THREE.BoxGeometry(0.245, 0.026, 0.018), cyanMaterial, 0, 1.69, 0.21);
-  add(new THREE.BoxGeometry(0.34, 0.055, 0.08), jacketEdge, 0, 1.48, 0.02);
+  // Neck and a more shaped head: a rounded cranium, jaw section, side
+  // hardware and a curved cyber visor rather than one featureless ball.
+  add(new THREE.CylinderGeometry(0.075, 0.09, 0.17, 18),
+    headMaterial, 0, 1.525, 0);
+  const head = add(new THREE.SphereGeometry(0.177, 24, 18),
+    headMaterial, 0, 1.735, 0);
+  head.scale.set(0.91, 1.12, 0.92);
+  const jaw = add(new THREE.SphereGeometry(0.135, 20, 14),
+    maskMaterial, 0, 1.635, 0.055);
+  jaw.scale.set(1.0, 0.62, 0.84);
+  const visor = add(new THREE.SphereGeometry(0.142, 24, 14),
+    visorMaterial, 0, 1.765, 0.103);
+  visor.scale.set(1.04, 0.36, 0.40);
+  add(new THREE.BoxGeometry(0.19, 0.018, 0.018),
+    cyanMaterial, 0, 1.765, 0.158);
+  for (const side of [-1, 1]) {
+    const ear = add(new THREE.SphereGeometry(0.048, 14, 10),
+      jacketEdge, side * 0.158, 1.72, -0.005);
+    ear.scale.set(0.52, 1.15, 0.78);
+    add(new THREE.BoxGeometry(0.025, 0.10, 0.075),
+      cyanMaterial, side * 0.168, 1.72, 0.015);
+    add(new THREE.BoxGeometry(0.075, 0.035, 0.045),
+      maskMaterial, side * 0.095, 1.625, 0.135);
+  }
+  add(new THREE.BoxGeometry(0.34, 0.055, 0.08),
+    jacketEdge, 0, 1.49, 0.02);
 
-  // Headwear replaces the hair options. Each style has a distinct silhouette.
+  // The selected headwear is kept consistent between desktop and VR.
   if (appearance.hatStyle === "Baseball Cap") {
     const crown = add(
       new THREE.SphereGeometry(0.205, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-      hatMaterial, 0, 1.76, -0.015
+      hatMaterial, 0, 1.80, -0.015
     );
     crown.scale.set(1.02, 0.88, 1.02);
     add(new THREE.CylinderGeometry(0.202, 0.202, 0.025, 24),
-      hatMaterial, 0, 1.775, -0.01);
+      hatMaterial, 0, 1.805, -0.01);
     const bill = add(new THREE.SphereGeometry(0.19, 20, 10),
-      hatMaterial, 0, 1.775, 0.145);
+      hatMaterial, 0, 1.805, 0.145);
     bill.scale.set(1.02, 0.075, 0.78);
     add(new THREE.BoxGeometry(0.025, 0.018, 0.13),
-      hatTrimMaterial, 0, 1.80, -0.01);
+      hatTrimMaterial, 0, 1.83, -0.01);
   } else if (appearance.hatStyle === "Beanie") {
     add(new THREE.CylinderGeometry(0.185, 0.205, 0.20, 24, 1),
-      hatMaterial, 0, 1.82, 0);
+      hatMaterial, 0, 1.84, 0);
     const top = add(new THREE.SphereGeometry(0.185, 20, 12),
-      hatMaterial, 0, 1.91, 0);
+      hatMaterial, 0, 1.93, 0);
     top.scale.set(1, 0.38, 1);
     add(new THREE.CylinderGeometry(0.205, 0.205, 0.055, 24),
-      hatMaterial, 0, 1.735, 0);
+      hatMaterial, 0, 1.755, 0);
     add(new THREE.BoxGeometry(0.12, 0.045, 0.018),
-      hatTrimMaterial, 0, 1.735, 0.205);
+      hatTrimMaterial, 0, 1.755, 0.205);
   } else if (appearance.hatStyle === "Bucket Hat") {
     add(new THREE.CylinderGeometry(0.16, 0.18, 0.16, 24),
-      hatMaterial, 0, 1.83, 0);
+      hatMaterial, 0, 1.85, 0);
     add(new THREE.CylinderGeometry(0.19, 0.255, 0.035, 32),
-      hatMaterial, 0, 1.75, 0);
+      hatMaterial, 0, 1.77, 0);
     add(new THREE.CylinderGeometry(0.165, 0.165, 0.018, 24),
-      hatTrimMaterial, 0, 1.765, 0);
+      hatTrimMaterial, 0, 1.785, 0);
   } else if (appearance.hatStyle === "Tech Helmet") {
     const shell = add(
       new THREE.SphereGeometry(0.215, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
-      hatMaterial, 0, 1.755, -0.005
+      hatMaterial, 0, 1.795, -0.005
     );
     shell.scale.set(1.04, 0.92, 1.04);
     add(new THREE.BoxGeometry(0.37, 0.075, 0.07),
-      hatMaterial, 0, 1.72, 0.16);
+      hatMaterial, 0, 1.76, 0.16);
     add(new THREE.BoxGeometry(0.30, 0.025, 0.025),
-      hatTrimMaterial, 0, 1.70, 0.205);
+      hatTrimMaterial, 0, 1.74, 0.205);
     for (const side of [-1, 1]) {
       add(new THREE.BoxGeometry(0.045, 0.12, 0.10),
-        hatTrimMaterial, side * 0.19, 1.68, 0.015);
+        hatTrimMaterial, side * 0.19, 1.72, 0.015);
     }
   }
 
-  // Small shoulder pads and a compact back module complete the first-pass look.
+  // Small seams and a compact rear power pack finish the jacket.
   for (const side of [-1, 1]) {
-    const pad = add(new THREE.SphereGeometry(0.15, 12, 10), jacketEdge,
-      side * (bodyScale.shoulder * 0.5), 1.39, 0);
-    pad.scale.set(1.05, 0.58, 0.9);
+    add(new THREE.BoxGeometry(0.018, 0.24, 0.018),
+      silverMaterial, side * 0.235, 1.16, -0.13);
   }
-  add(new THREE.BoxGeometry(0.28, 0.34, 0.14), darkFabric, 0, 1.12, -0.20);
+  add(new THREE.BoxGeometry(0.30, 0.32, 0.15),
+    jacketDark, 0, 1.16, -0.215);
+  add(new THREE.BoxGeometry(0.20, 0.055, 0.018),
+    cyanMaterial, 0, 1.22, -0.295);
 }
 
 function setCharacterPreviewLocation(parent, x, y, z, scale = 1, yaw = 0) {
