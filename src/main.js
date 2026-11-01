@@ -24,12 +24,18 @@ document.body.appendChild(renderer.domElement);
 
 const gameUI = document.querySelector("#game-ui");
 const vrButton = VRButton.createButton(renderer, {
-  requiredFeatures: ["local-floor", "dom-overlay"],
-  optionalFeatures: ["bounded-floor"],
+  requiredFeatures: ["local-floor"],
+  optionalFeatures: ["bounded-floor", "dom-overlay"],
   domOverlay: { root: gameUI }
 });
 vrButton.textContent = "ENTER VR";
 document.body.appendChild(vrButton);
+
+// Release any desktop pointer lock before the browser starts an immersive session.
+// Capture phase runs before the VRButton's own click handler.
+vrButton.addEventListener("click", () => {
+  if (document.pointerLockElement) document.exitPointerLock?.();
+}, true);
 
 scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 2));
 const moonLight = new THREE.DirectionalLight(0x8cbcff, 1.4);
@@ -195,8 +201,11 @@ function rotateView(dx, dy) {
   pitch = THREE.MathUtils.clamp(pitch - dy * sensitivity, -maxPitch, maxPitch);
   camera.rotation.x = pitch;
 }
+const isQuestBrowser = /OculusBrowser|Quest/i.test(navigator.userAgent);
 renderer.domElement.addEventListener("click", () => {
-  if (!renderer.xr.isPresenting && document.pointerLockElement !== renderer.domElement) {
+  // Quest Browser uses its own hand/controller cursor; do not capture it.
+  if (!isQuestBrowser && !renderer.xr.isPresenting &&
+      document.pointerLockElement !== renderer.domElement) {
     try {
       const request = renderer.domElement.requestPointerLock?.();
       if (request?.catch) request.catch(() => {});
