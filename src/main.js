@@ -31,7 +31,7 @@ const vrButton = VRButton.createButton(renderer, {
 vrButton.textContent = "ENTER VR";
 document.querySelector("#start-actions").appendChild(vrButton);
 vrButton.id = "VRButton";
-vrButton.textContent = "ENTER THE CITY";
+vrButton.textContent = "ENTER VR";
 
 // Release any desktop pointer lock before the browser starts an immersive session.
 // Capture phase runs before the VRButton's own click handler.
@@ -248,6 +248,158 @@ const marker = new THREE.Mesh(
 marker.position.set(0, 0.08, 1);
 scene.add(marker);
 
+// Keep the city as a separate world. The title screen renders a different
+// environment until the player explicitly chooses PLAY.
+const cityWorld = new THREE.Group();
+cityWorld.name = "CITY_WORLD";
+for (const child of [...scene.children]) {
+  if (child !== player) cityWorld.attach(child);
+}
+scene.add(cityWorld);
+cityWorld.visible = false;
+
+// Main-menu showcase world: a dark neon armory stage with a distant skyline.
+const mainMenuWorld = new THREE.Group();
+mainMenuWorld.name = "MAIN_MENU_WORLD";
+scene.add(mainMenuWorld);
+
+mainMenuWorld.add(new THREE.HemisphereLight(0x9ab9ff, 0x100b22, 1.8));
+const menuKeyLight = new THREE.PointLight(0x4cefe4, 32, 20);
+menuKeyLight.position.set(-3, 5, 4);
+mainMenuWorld.add(menuKeyLight);
+const menuRimLight = new THREE.PointLight(0xb34bff, 28, 18);
+menuRimLight.position.set(4, 3, -1);
+mainMenuWorld.add(menuRimLight);
+
+const menuFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(90, 90),
+  new THREE.MeshStandardMaterial({ color: 0x070b18, roughness: 0.72, metalness: 0.32 })
+);
+menuFloor.rotation.x = -Math.PI / 2;
+menuFloor.position.y = -0.035;
+mainMenuWorld.add(menuFloor);
+
+const skylineMaterials = [
+  new THREE.MeshStandardMaterial({ color: 0x10182b, roughness: 0.8, metalness: 0.35 }),
+  new THREE.MeshStandardMaterial({ color: 0x17132a, roughness: 0.8, metalness: 0.4 }),
+  new THREE.MeshStandardMaterial({ color: 0x0d202a, roughness: 0.8, metalness: 0.35 })
+];
+const skylineGlowMaterials = [
+  new THREE.MeshBasicMaterial({ color: 0x24cfc9 }),
+  new THREE.MeshBasicMaterial({ color: 0x9c45e9 }),
+  new THREE.MeshBasicMaterial({ color: 0xff4f9a })
+];
+for (let i = 0; i < 17; i++) {
+  const x = (i - 8) * 3.1;
+  const width = 1.8 + (i % 3) * 0.45;
+  const height = 7 + ((i * 7) % 9);
+  const tower = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, 2.3),
+    skylineMaterials[i % skylineMaterials.length]
+  );
+  tower.position.set(x, height / 2 - 0.1, -10 - (i % 4) * 1.8);
+  mainMenuWorld.add(tower);
+  for (let band = 0; band < 3; band++) {
+    const strip = new THREE.Mesh(
+      new THREE.BoxGeometry(width * 0.82, 0.035, 0.045),
+      skylineGlowMaterials[(i + band) % skylineGlowMaterials.length]
+    );
+    strip.position.set(x, 1.5 + band * 1.25, -8.82 - (i % 4) * 1.8);
+    mainMenuWorld.add(strip);
+  }
+}
+
+// These are fictional, non-functional sci-fi display props: bold shapes,
+// glowing energy details and no realistic firing or mechanical systems.
+function createCyberpunkDisplayProp(primaryHex, glowHex, length, variant) {
+  const prop = new THREE.Group();
+  const shell = new THREE.MeshStandardMaterial({
+    color: primaryHex, metalness: 0.84, roughness: 0.28
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x101725, metalness: 0.9, roughness: 0.25
+  });
+  const glow = new THREE.MeshStandardMaterial({
+    color: glowHex, emissive: glowHex, emissiveIntensity: 1.8,
+    metalness: 0.45, roughness: 0.24
+  });
+  const addPart = (geometry, material, x, y, z, rz = 0) => {
+    const part = new THREE.Mesh(geometry, material);
+    part.position.set(x, y, z);
+    part.rotation.z = rz;
+    prop.add(part);
+    return part;
+  };
+
+  addPart(new THREE.BoxGeometry(length * 0.62, 0.24, 0.38), shell, 0, 0, 0);
+  addPart(new THREE.BoxGeometry(length * 0.24, 0.31, 0.44), dark, -length * 0.28, 0, 0);
+  addPart(new THREE.BoxGeometry(length * 0.33, 0.13, 0.25), shell, length * 0.43, 0.015, 0);
+  addPart(new THREE.BoxGeometry(length * 0.48, 0.045, 0.43), glow, 0.02, 0.15, 0);
+  addPart(new THREE.BoxGeometry(length * 0.2, 0.055, 0.46), glow, -length * 0.27, -0.17, 0);
+
+  // A glowing fictional energy aperture gives each prop a strong front profile.
+  const aperture = addPart(
+    new THREE.CylinderGeometry(0.105 + variant * 0.012, 0.15, 0.24, 8),
+    glow, length * 0.58, 0.015, 0
+  );
+  aperture.rotation.z = -Math.PI / 2;
+  addPart(new THREE.BoxGeometry(0.22, 0.36, 0.2), dark, -length * 0.08, -0.27, 0, 0.16);
+  addPart(new THREE.BoxGeometry(0.38, 0.07, 0.5), shell, -length * 0.43, 0.18, 0);
+  addPart(new THREE.BoxGeometry(0.18, 0.09, 0.52), glow, length * 0.15, 0.21, 0);
+  addPart(new THREE.BoxGeometry(0.12, 0.38, 0.44), shell, length * 0.02, 0.02, 0, 0.08);
+
+  if (variant === 1) {
+    addPart(new THREE.BoxGeometry(0.62, 0.08, 0.12), glow, -0.02, 0.27, 0.22);
+    addPart(new THREE.BoxGeometry(0.42, 0.08, 0.12), glow, -0.02, 0.27, -0.22);
+  } else {
+    addPart(new THREE.BoxGeometry(0.34, 0.1, 0.14), glow, 0.1, -0.2, 0.25);
+    addPart(new THREE.BoxGeometry(0.34, 0.1, 0.14), glow, 0.1, -0.2, -0.25);
+  }
+  return prop;
+}
+
+const menuPlatform = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.9, 2.08, 0.22, 64),
+  new THREE.MeshStandardMaterial({ color: 0x111a2b, metalness: 0.88, roughness: 0.25 })
+);
+menuPlatform.position.set(0, 0.02, 2.4);
+mainMenuWorld.add(menuPlatform);
+
+const platformRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.92, 0.035, 10, 96),
+  new THREE.MeshBasicMaterial({ color: 0x42f4e8 })
+);
+platformRing.rotation.x = Math.PI / 2;
+platformRing.position.set(0, 0.15, 2.4);
+mainMenuWorld.add(platformRing);
+
+const platformRingInner = new THREE.Mesh(
+  new THREE.TorusGeometry(1.52, 0.018, 8, 96),
+  new THREE.MeshBasicMaterial({ color: 0xa64cff })
+);
+platformRingInner.rotation.x = Math.PI / 2;
+platformRingInner.position.set(0, 0.16, 2.4);
+mainMenuWorld.add(platformRingInner);
+
+const crossedProps = new THREE.Group();
+crossedProps.name = "CROSSED_CYBERPUNK_PROPS";
+crossedProps.position.set(0, 1.72, 2.4);
+mainMenuWorld.add(crossedProps);
+
+const displayPropA = createCyberpunkDisplayProp(0x25364c, 0x27e8df, 2.65, 1);
+displayPropA.rotation.z = Math.PI * 0.245;
+displayPropA.position.set(0, 0.025, -0.13);
+crossedProps.add(displayPropA);
+
+const displayPropB = createCyberpunkDisplayProp(0x30233f, 0xff4c9c, 2.4, 2);
+displayPropB.rotation.z = -Math.PI * 0.245;
+displayPropB.position.set(0, -0.015, 0.13);
+crossedProps.add(displayPropB);
+
+const showcaseLight = new THREE.PointLight(0x43dfe6, 8, 7);
+showcaseLight.position.set(0, 2.2, 2.2);
+mainMenuWorld.add(showcaseLight);
+
 // Character save data: 3 points to distribute between the three attributes.
 let character = { strength: 0, health: 0, compatibility: 0 };
 let credits = 500;
@@ -368,6 +520,28 @@ scene.add(vrStart);
 const vrStartTargets = [];
 let vrStartReady = false;
 let vrStartHovered = null;
+let isInCity = false;
+
+function startCity() {
+  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+  isInCity = true;
+  cityWorld.visible = true;
+  mainMenuWorld.visible = false;
+  vrStart.visible = false;
+  vrStartReady = true;
+  vrStartHovered = null;
+  vrMenu.visible = false;
+  vrCursor.visible = false;
+  startScreen.classList.add("hidden");
+  gameUI.classList.add("menu-closed");
+  gameUI.classList.remove("menu-open");
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  player.position.set(0, 0, 7);
+  player.rotation.set(0, 0, 0);
+  camera.rotation.set(0, 0, 0);
+  startStatus.textContent = "City loaded. Welcome to Neon Genesis.";
+}
 
 const appearanceChoices = {
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
@@ -472,21 +646,16 @@ rowInfo.forEach((info, index) => {
   startRows.push(row);
 });
 
+document.querySelector("#play-button").addEventListener("click", startCity);
+
 const confirmCard = addTerminalCard({
   x: 0, y: -0.55, width: 0.58, height: 0.16, button: true,
-  action: () => {
-    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
-    vrStart.visible = false;
-    vrStartReady = true;
-    vrStartHovered = null;
-    drawVRMenu();
-    startStatus.textContent = "In the city. Press Y to open or close the menu.";
-  },
+  action: () => startCity(),
   labelPainter: ctx => {
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 54px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("CONFIRM & PLAY", 512, 150);
+    ctx.fillText("PLAY", 512, 150);
     ctx.textAlign = "left";
   }
 });
@@ -520,6 +689,9 @@ function showVRIntro() {
   if (vrSessionIntroActive) return;
   vrSessionIntroActive = true;
   startScreen.classList.add("hidden");
+  isInCity = false;
+  cityWorld.visible = false;
+  mainMenuWorld.visible = true;
   vrStartReady = false;
   camera.updateWorldMatrix(true, false);
   const introPosition = new THREE.Vector3();
@@ -528,8 +700,11 @@ function showVRIntro() {
   camera.getWorldPosition(introPosition);
   camera.getWorldDirection(introDirection);
   camera.getWorldQuaternion(introRotation);
-  vrStart.position.copy(introPosition).addScaledVector(introDirection, 1.65);
-  vrStart.position.y -= 0.14;
+  const introRight = new THREE.Vector3(1, 0, 0).applyQuaternion(introRotation);
+  vrStart.position.copy(introPosition)
+    .addScaledVector(introDirection, 1.72)
+    .addScaledVector(introRight, -0.82);
+  vrStart.position.y -= 0.12;
   vrStart.quaternion.copy(introRotation);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
@@ -540,6 +715,9 @@ renderer.xr.addEventListener("sessionend", () => {
   vrStart.visible = false;
   vrStartReady = false;
   vrStartHovered = null;
+  isInCity = false;
+  cityWorld.visible = false;
+  mainMenuWorld.visible = true;
   startScreen.classList.remove("hidden");
 });
 
@@ -890,9 +1068,13 @@ renderer.setAnimationLoop(time => {
   const delta = Math.min(clock.getDelta(), 0.05);
   // Fallback in case the browser misses the XR sessionstart event.
   if (renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady) showVRIntro();
-  movePlayer(delta);
+  if (isInCity) movePlayer(delta);
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
   marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
+  crossedProps.rotation.y = time * 0.00022;
+  crossedProps.position.y = 1.72 + Math.sin(time * 0.0012) * 0.045;
+  platformRing.rotation.y = time * 0.00018;
+  platformRingInner.rotation.y = -time * 0.00024;
   renderer.render(scene, camera);
 });
