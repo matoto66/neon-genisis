@@ -41,19 +41,20 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
+const appearance = { bodyType: "Male", hairStyle: "Short", hairColour: "Dark", jacketColour: "Black" };
 try {
   const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
   if (savedAppearance) {
     Object.assign(appearance, savedAppearance);
   }
 } catch {}
-for (const [id, key] of [["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
+for (const [id, key] of [["body-type","bodyType"],["hair-style","hairStyle"],["hair-colour","hairColour"],["jacket-colour","jacketColour"]]) {
   const field = document.getElementById(id);
   field.value = String(appearance[key]);
   field.addEventListener("change", () => {
     appearance[key] = field.value;
     try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+    updateCharacterPreview();
     startStatus.textContent = "Appearance saved.";
   });
 }
@@ -623,10 +624,168 @@ function startCity() {
 }
 
 const appearanceChoices = {
+  bodyType: ["Male", "Female"],
   hairStyle: ["Short", "Wavy", "Long", "Buzz cut"],
   hairColour: ["Dark", "Brown", "Blonde", "White", "Neon blue", "Neon pink"],
   jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
 };
+
+// 3D character preview: the same model is shown on desktop and beside the VR editor.
+const characterPreview = new THREE.Group();
+characterPreview.name = "LIVE_CHARACTER_PREVIEW";
+mainMenuWorld.add(characterPreview);
+characterPreview.position.set(3.15, 0, 2.4);
+
+const previewBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.48, 0.54, 0.12, 40),
+  new THREE.MeshStandardMaterial({ color: 0x111b2c, metalness: 0.88, roughness: 0.25 })
+);
+previewBase.position.y = 0.06;
+characterPreview.add(previewBase);
+const previewBaseRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.49, 0.018, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0x42f4e8 })
+);
+previewBaseRing.rotation.x = Math.PI / 2;
+previewBaseRing.position.y = 0.125;
+characterPreview.add(previewBaseRing);
+
+let avatarModel = null;
+function updateCharacterPreview() {
+  if (avatarModel) {
+    characterPreview.remove(avatarModel);
+    avatarModel.traverse(object => {
+      object.geometry?.dispose();
+      if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+      else object.material?.dispose();
+    });
+  }
+
+  avatarModel = new THREE.Group();
+  avatarModel.name = "PLAYER_AVATAR_PREVIEW";
+  avatarModel.position.y = 0.12;
+  characterPreview.add(avatarModel);
+
+  const bodyType = appearance.bodyType === "Female" ? "Female" : "Male";
+  const jacketHex = {
+    Black: 0x202735, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.jacketColour] || 0x202735;
+  const hairHex = {
+    Dark: 0x171b25, Brown: 0x63402f, Blonde: 0xd7b76c,
+    White: 0xdce2ed, "Neon blue": 0x168ed1, "Neon pink": 0xd92e87
+  }[appearance.hairColour] || 0x171b25;
+
+  const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.48, roughness: 0.48 });
+  const jacketEdge = new THREE.MeshStandardMaterial({ color: 0x26384a, metalness: 0.76, roughness: 0.32 });
+  const darkFabric = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.25, roughness: 0.82 });
+  const bootMaterial = new THREE.MeshStandardMaterial({ color: 0x090e19, metalness: 0.72, roughness: 0.34 });
+  const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x121b2a, metalness: 0.65, roughness: 0.42 });
+  const maskMaterial = new THREE.MeshStandardMaterial({ color: 0x080f1c, metalness: 0.82, roughness: 0.24 });
+  const hairMaterial = new THREE.MeshStandardMaterial({ color: hairHex, metalness: 0.18, roughness: 0.68 });
+  const cyanMaterial = new THREE.MeshStandardMaterial({
+    color: 0x35e8df, emissive: 0x159b9b, emissiveIntensity: 0.8,
+    metalness: 0.6, roughness: 0.28
+  });
+  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x8496a8, metalness: 0.88, roughness: 0.25 });
+
+  const add = (geometry, material, x, y, z, parent = avatarModel) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  };
+  const bodyScale = bodyType === "Female"
+    ? { shoulder: 0.52, hip: 0.46, torso: 0.92 }
+    : { shoulder: 0.62, hip: 0.40, torso: 1.02 };
+
+  // Legs, layered knee guards and boots.
+  for (const side of [-1, 1]) {
+    const legX = side * bodyScale.hip * 0.5;
+    const leg = add(new THREE.CapsuleGeometry(0.105, 0.56, 4, 10), darkFabric, legX, 0.48, 0);
+    leg.scale.x = bodyType === "Female" ? 0.98 : 1.02;
+    add(new THREE.BoxGeometry(0.22, 0.12, 0.34), bootMaterial, legX, 0.17, 0.065);
+    add(new THREE.BoxGeometry(0.16, 0.22, 0.075), jacketEdge, legX, 0.49, 0.105);
+    add(new THREE.BoxGeometry(0.17, 0.055, 0.08), silverMaterial, legX, 0.62, 0.115);
+  }
+
+  // Waist and jacket torso.
+  const waist = add(new THREE.SphereGeometry(0.22, 16, 12), darkFabric, 0, 0.88, 0);
+  waist.scale.set(bodyScale.hip, 0.72, 0.72);
+  const torso = add(new THREE.CapsuleGeometry(0.235, 0.55, 5, 12), jacket, 0, 1.17, 0);
+  torso.scale.set(bodyScale.torso, 1, 0.86);
+  const shoulderBar = add(new THREE.CapsuleGeometry(0.115, bodyScale.shoulder, 4, 10),
+    jacketEdge, 0, 1.43, 0);
+  shoulderBar.rotation.z = Math.PI / 2;
+  add(new THREE.BoxGeometry(0.22, 0.32, 0.055), jacketEdge, 0, 1.18, 0.205);
+  add(new THREE.BoxGeometry(0.035, 0.42, 0.035), cyanMaterial, 0, 1.17, 0.24);
+  add(new THREE.BoxGeometry(0.12, 0.08, 0.045), silverMaterial, 0, 1.39, 0.22);
+
+  // Arms are segmented so sleeves, gloves and cuffs read clearly from a distance.
+  for (const side of [-1, 1]) {
+    const shoulderX = side * bodyScale.shoulder * 0.67;
+    const upperArm = add(new THREE.CapsuleGeometry(0.105, 0.34, 4, 10),
+      jacket, shoulderX, 1.17, 0);
+    upperArm.rotation.z = side * -0.12;
+    const forearm = add(new THREE.CapsuleGeometry(0.09, 0.30, 4, 10),
+      jacket, side * (bodyScale.shoulder * 0.80), 0.82, 0.015);
+    forearm.rotation.z = side * -0.06;
+    add(new THREE.BoxGeometry(0.205, 0.075, 0.19),
+      jacketEdge, side * (bodyScale.shoulder * 0.81), 0.70, 0.02);
+    add(new THREE.SphereGeometry(0.092, 12, 10),
+      gloveMaterial, side * (bodyScale.shoulder * 0.82), 0.58, 0.035);
+    add(new THREE.BoxGeometry(0.08, 0.035, 0.09),
+      cyanMaterial, side * (bodyScale.shoulder * 0.82), 0.58, 0.105);
+  }
+
+  // Neck, covered head and an angular face mask so no face is exposed.
+  add(new THREE.CylinderGeometry(0.085, 0.095, 0.15, 12),
+    darkFabric, 0, 1.49, 0);
+  add(new THREE.SphereGeometry(0.19, 18, 14), maskMaterial, 0, 1.68, 0);
+  add(new THREE.BoxGeometry(0.30, 0.16, 0.075), maskMaterial, 0, 1.62, 0.165);
+  add(new THREE.BoxGeometry(0.245, 0.026, 0.018), cyanMaterial, 0, 1.69, 0.21);
+  add(new THREE.BoxGeometry(0.34, 0.055, 0.08), jacketEdge, 0, 1.48, 0.02);
+
+  // Hair sits over the head; the long style hangs behind the mask and collar.
+  const hairCapLength = appearance.hairStyle === "Buzz cut" ? 0.42 : 0.72;
+  const hairCap = add(
+    new THREE.SphereGeometry(0.198, 18, 12, 0, Math.PI * 2, 0, Math.PI * hairCapLength),
+    hairMaterial, 0, 1.76, 0
+  );
+  hairCap.scale.set(1.04, 0.78, 1.02);
+
+  if (appearance.hairStyle === "Wavy") {
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2;
+      add(new THREE.SphereGeometry(0.075, 10, 8), hairMaterial,
+        Math.cos(angle) * 0.12, 1.84 + (i % 2) * 0.025, Math.sin(angle) * 0.12);
+    }
+  } else if (appearance.hairStyle === "Long") {
+    add(new THREE.BoxGeometry(0.31, 0.48, 0.20), hairMaterial, 0, 1.49, -0.12);
+    for (const side of [-1, 1]) {
+      add(new THREE.CapsuleGeometry(0.055, 0.30, 4, 8),
+        hairMaterial, side * 0.16, 1.57, -0.02);
+    }
+  } else if (appearance.hairStyle === "Short") {
+    add(new THREE.BoxGeometry(0.31, 0.16, 0.22), hairMaterial, 0, 1.70, -0.07);
+  }
+
+  // Small shoulder pads and a compact back module complete the first-pass look.
+  for (const side of [-1, 1]) {
+    const pad = add(new THREE.SphereGeometry(0.15, 12, 10), jacketEdge,
+      side * (bodyScale.shoulder * 0.5), 1.39, 0);
+    pad.scale.set(1.05, 0.58, 0.9);
+  }
+  add(new THREE.BoxGeometry(0.28, 0.34, 0.14), darkFabric, 0, 1.12, -0.20);
+}
+
+function setCharacterPreviewLocation(parent, x, y, z) {
+  parent.add(characterPreview);
+  characterPreview.position.set(x, y, z);
+  characterPreview.rotation.set(0, 0, 0);
+  characterPreview.scale.setScalar(1);
+}
+updateCharacterPreview();
 
 const terminalMetal = new THREE.MeshStandardMaterial({
   color: 0x111d2b, metalness: 0.82, roughness: 0.34
@@ -714,27 +873,28 @@ const titleCard = addTerminalCard({
 
 const startRows = [];
 const rowInfo = [
+  { key: "bodyType", label: "BODY TYPE" },
   { key: "hairStyle", label: "HAIR STYLE" },
   { key: "hairColour", label: "HAIR COLOUR" },
   { key: "jacketColour", label: "JACKET COLOUR" }
 ];
 rowInfo.forEach((info, index) => {
-  const positions = [-0.59, 0, 0.59];
+  const positions = [-0.63, -0.21, 0.21, 0.63];
   const row = addTerminalCard({
-    x: positions[index], y: 0.02, width: 0.53, height: 0.28,
+    x: positions[index], y: 0.02, width: 0.39, height: 0.28,
     action: () => cycleAppearance(info.key),
     labelPainter: ctx => {
       const center = ctx.logicalWidth / 2;
       const h = ctx.logicalHeight;
       ctx.textAlign = "center";
       ctx.fillStyle = "#9db4c9";
-      ctx.font = "bold 46px Arial";
+      ctx.font = "bold 36px Arial";
       ctx.fillText(info.label, center, h * 0.28);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 64px Arial";
+      ctx.font = "bold 48px Arial";
       ctx.fillText(String(appearance[info.key]).toUpperCase(), center, h * 0.57);
       ctx.fillStyle = "#ffcf70";
-      ctx.font = "bold 30px Arial";
+      ctx.font = "bold 22px Arial";
       ctx.fillText("TAP TO CHANGE", center, h * 0.84);
       ctx.textAlign = "left";
     }
@@ -773,9 +933,10 @@ function cycleAppearance(key) {
   const choices = appearanceChoices[key];
   const index = choices.indexOf(appearance[key]);
   appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
+  const fieldIds = { bodyType: "body-type", hairStyle: "hair-style", hairColour: "hair-colour", jacketColour: "jacket-colour" };
   const field = document.getElementById(fieldIds[key]);
   if (field) field.value = String(appearance[key]);
+  updateCharacterPreview();
   try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
   const rowIndex = rowInfo.findIndex(item => item.key === key);
   startRows[rowIndex]?.userData.refresh();
@@ -817,6 +978,7 @@ function showVRIntro() {
   );
   vrStart.rotation.set(0, menuYaw, 0);
   vrStart.scale.setScalar(1);
+  setCharacterPreviewLocation(vrStart, 1.42, -1.20, 0.02);
   vrStart.visible = true;
   for (const row of startRows) row.userData.refresh();
 }
@@ -832,6 +994,7 @@ renderer.xr.addEventListener("sessionend", () => {
   isInCity = false;
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
+  setCharacterPreviewLocation(mainMenuWorld, 3.15, 0, 2.4);
   startScreen.classList.remove("hidden");
 });
 
