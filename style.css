@@ -113,3 +113,59 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
   .start-card { top:21vh; left:5vw; width:min(430px,90vw); max-height:74vh; }
   .start-footer { display:none; }
 }
+
+
+/* Centered horizontal start menu: keep the 3D armory visible above it. */
+.start-brand {
+  top: 3.5vh;
+  left: 50%;
+  right: auto;
+  width: min(760px, 92vw);
+  max-width: none;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.start-brand h1 { font-size: clamp(32px, 4.8vw, 62px); }
+.start-card {
+  top: auto;
+  left: 50%;
+  bottom: 4.5vh;
+  transform: translateX(-50%);
+  width: min(790px, 92vw);
+  max-height: 43vh;
+  padding: 18px 24px;
+  text-align: center;
+}
+.start-card h2 { text-align: center; margin-bottom: 5px; }
+.start-copy { text-align: center; margin: 6px 0 12px; }
+.customize-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 14px 0;
+}
+.customize-grid label { text-align: left; min-width: 0; }
+.customize-grid select { min-width: 0; }
+#start-status { text-align: center; margin: 8px 0; }
+#start-actions { justify-content: center; margin-top: 8px; }
+@media (max-width: 760px) {
+  .start-brand {
+    top: 2vh;
+    left: 50%;
+    right: auto;
+    width: 94vw;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+  .start-brand h1 { font-size: clamp(27px, 7vw, 42px); }
+  .start-card {
+    top: auto;
+    left: 50%;
+    bottom: 2vh;
+    width: 94vw;
+    max-height: 58vh;
+    transform: translateX(-50%);
+    padding: 14px;
+  }
+  .customize-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .customize-grid select { padding: 7px 5px; font-size: 11px; }
+}
