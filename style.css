@@ -68,3 +68,26 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
   width: min(92vw, 430px); max-height: min(65vh, 620px);
 }
 #game-ui.menu-open .panel[hidden] { display: none !important; }
+
+
+/* VR-first start screen */
+#start-screen { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:28px 18px; overflow:auto; background:radial-gradient(ellipse at 50% 18%,rgba(35,94,125,.42),transparent 48%),linear-gradient(145deg,rgba(4,8,20,.94),rgba(8,11,24,.98)); text-align:center; }
+.start-brand h1 { font-size:clamp(34px,7vw,68px); letter-spacing:.13em; text-shadow:0 0 28px rgba(95,245,232,.28); }
+.start-brand .subtitle { letter-spacing:.2em; font-size:12px; }
+#wip-label { transition:opacity 1.5s ease; }
+#wip-label.faded { opacity:0; }
+.start-card { width:min(560px,94vw); padding:24px; text-align:left; border:1px solid rgba(95,245,232,.48); border-radius:14px; background:rgba(7,13,29,.94); box-shadow:0 0 40px rgba(34,210,220,.12); }
+.start-card h2 { margin:0 0 8px; font-size:22px; letter-spacing:.08em; }
+.start-copy,.calibration-note p { color:#aab6cf; font-size:12px; line-height:1.5; }
+.customize-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:18px 0; }
+.customize-grid label { display:flex; flex-direction:column; gap:7px; color:#5ff5e8; font-size:10px; font-weight:800; letter-spacing:.12em; }
+.customize-grid select { width:100%; min-height:42px; padding:8px 10px; border:1px solid rgba(95,245,232,.35); border-radius:7px; background:#111d34; color:#f4f3ff; font:inherit; letter-spacing:normal; }
+.calibration-note { padding:12px 14px; border-left:3px solid #5ff5e8; background:rgba(44,86,111,.22); }
+.calibration-note strong { color:#5ff5e8; font-size:10px; letter-spacing:.14em; }
+.calibration-note p { margin:6px 0 0; }
+#start-status { color:#5ff5e8; font-size:11px; }
+#start-actions { display:flex; justify-content:center; margin-top:8px; }
+#start-actions #VRButton { position:static !important; inset:auto !important; width:100%; min-width:190px; padding:14px 24px; border:1px solid #5ff5e8; border-radius:8px; background:#12656a; color:white; font-weight:900; letter-spacing:.12em; }
+.start-footer { color:#9baac4; font-size:9px; letter-spacing:.12em; }
+#start-screen.hidden { display:none; }
+@media(max-width:520px) { #start-screen { justify-content:flex-start; } .customize-grid { grid-template-columns:1fr 1fr; } .start-card { padding:18px; } }
