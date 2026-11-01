@@ -50,14 +50,12 @@ function makeBuilding(x, z, width, height, depth, color, signColor) {
   );
   building.position.set(x, height / 2, z);
   scene.add(building);
-
   const sign = new THREE.Mesh(
     new THREE.BoxGeometry(width * 0.72, 0.12, 0.08),
     new THREE.MeshBasicMaterial({ color: signColor })
   );
   sign.position.set(x, Math.min(height - 1, height * 0.72), z + depth / 2 + 0.06);
   scene.add(sign);
-
   for (let y = 1.2; y < height - 0.7; y += 1.5) {
     for (let wx = -width / 2 + 0.65; wx < width / 2 - 0.3; wx += 1.15) {
       const windowMesh = new THREE.Mesh(
@@ -82,11 +80,9 @@ const neonRing = new THREE.Mesh(
 );
 neonRing.position.set(0, 3.4, -12);
 scene.add(neonRing);
-
 const signLight = new THREE.PointLight(0x3cebdc, 18, 18);
 signLight.position.set(0, 4, -11);
 scene.add(signLight);
-
 const marker = new THREE.Mesh(
   new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32),
   new THREE.MeshBasicMaterial({ color: 0x3cebdc })
@@ -94,34 +90,23 @@ const marker = new THREE.Mesh(
 marker.position.set(0, 0.08, 1);
 scene.add(marker);
 
-// Starter character: three points to distribute between the three attributes.
-const defaultCharacter = { strength: 0, health: 0, compatibility: 0 };
-let character = { ...defaultCharacter };
+// Character save data: 3 points to distribute between the three attributes.
+let character = { strength: 0, health: 0, compatibility: 0 };
 let credits = 500;
-
 try {
   const saved = JSON.parse(localStorage.getItem("neon-genesis-save") || "null");
   if (saved?.character) {
-    const candidate = saved.character;
-    const values = [candidate.strength, candidate.health, candidate.compatibility];
-    if (values.every((value) => Number.isInteger(value) && value >= 0 && value <= 3) &&
-        values.reduce((sum, value) => sum + value, 0) <= 3) {
-      character = { ...candidate };
-    }
+    const c = saved.character;
+    const values = [c.strength, c.health, c.compatibility];
+    if (values.every(v => Number.isInteger(v) && v >= 0 && v <= 3) &&
+        values.reduce((a, b) => a + b, 0) <= 3) character = { ...c };
   }
   if (Number.isInteger(saved?.credits) && saved.credits >= 0) credits = saved.credits;
-} catch {
-  // If local storage is unavailable, the game still starts with its default character.
-}
+} catch {}
 
 function saveGame() {
-  try {
-    localStorage.setItem("neon-genesis-save", JSON.stringify({ character, credits }));
-  } catch {
-    // Saving is optional; the current session remains playable.
-  }
+  try { localStorage.setItem("neon-genesis-save", JSON.stringify({ character, credits })); } catch {}
 }
-
 const pointsLeft = () => 3 - character.strength - character.health - character.compatibility;
 const gradeNames = ["BASIC", "STANDARD", "ADVANCED", "ELITE"];
 
@@ -134,20 +119,19 @@ function updateCharacterUI() {
   document.querySelector("#cyber-grade").textContent = gradeNames[character.compatibility];
   document.querySelector("#credits").textContent = "$" + credits.toLocaleString();
   document.querySelector("#shop-credits").textContent = "$" + credits.toLocaleString();
-
-  document.querySelectorAll("[data-stat][data-change]").forEach((button) => {
+  document.querySelectorAll("[data-stat][data-change]").forEach(button => {
     const stat = button.dataset.stat;
     const change = Number(button.dataset.change);
     button.disabled = change > 0 ? pointsLeft() <= 0 : character[stat] <= 0;
   });
 }
 
-document.querySelectorAll("[data-stat][data-change]").forEach((button) => {
+document.querySelectorAll("[data-stat][data-change]").forEach(button => {
   button.addEventListener("click", () => {
     const stat = button.dataset.stat;
     const change = Number(button.dataset.change);
-    if (change > 0 && pointsLeft() > 0 && character[stat] < 3) character[stat] += 1;
-    if (change < 0 && character[stat] > 0) character[stat] -= 1;
+    if (change > 0 && pointsLeft() > 0 && character[stat] < 3) character[stat]++;
+    if (change < 0 && character[stat] > 0) character[stat]--;
     saveGame();
     updateCharacterUI();
   });
@@ -155,54 +139,66 @@ document.querySelectorAll("[data-stat][data-change]").forEach((button) => {
 
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
-
-function showPanel(panelToShow) {
-  const wasOpen = !panelToShow.hidden;
+function showPanel(panel) {
+  const wasOpen = !panel.hidden;
   characterPanel.hidden = true;
   shopPanel.hidden = true;
-  if (!wasOpen) panelToShow.hidden = false;
+  if (!wasOpen) panel.hidden = false;
 }
-
 document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
 document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
-document.querySelectorAll("[data-close]").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.getElementById(button.dataset.close).hidden = true;
-  });
+document.querySelectorAll("[data-close]").forEach(button => {
+  button.addEventListener("click", () => { document.getElementById(button.dataset.close).hidden = true; });
 });
-
 updateCharacterUI();
 
-// Desktop mouse-look: click the 3D view to capture the mouse; press Esc to release it.
+// Mouse-look supports pointer lock and click-and-drag fallback.
 let pitch = 0;
+let dragging = false;
+let lastX = 0;
+let lastY = 0;
 const maxPitch = Math.PI / 2 - 0.08;
+function rotateView(dx, dy) {
+  const sensitivity = 0.0022;
+  player.rotation.y -= dx * sensitivity;
+  pitch = THREE.MathUtils.clamp(pitch - dy * sensitivity, -maxPitch, maxPitch);
+  camera.rotation.x = pitch;
+}
 renderer.domElement.addEventListener("click", () => {
   if (!renderer.xr.isPresenting && document.pointerLockElement !== renderer.domElement) {
-    renderer.domElement.requestPointerLock?.();
+    try {
+      const request = renderer.domElement.requestPointerLock?.();
+      if (request?.catch) request.catch(() => {});
+    } catch {}
   }
 });
-document.addEventListener("mousemove", (event) => {
-  if (document.pointerLockElement !== renderer.domElement || renderer.xr.isPresenting) return;
-  const sensitivity = 0.0022;
-  player.rotation.y -= event.movementX * sensitivity;
-  pitch -= event.movementY * sensitivity;
-  pitch = THREE.MathUtils.clamp(pitch, -maxPitch, maxPitch);
-  camera.rotation.x = pitch;
+renderer.domElement.addEventListener("mousedown", event => {
+  if (renderer.xr.isPresenting || event.button !== 0) return;
+  dragging = true;
+  lastX = event.clientX;
+  lastY = event.clientY;
+});
+window.addEventListener("mouseup", () => { dragging = false; });
+document.addEventListener("mousemove", event => {
+  if (renderer.xr.isPresenting) return;
+  if (document.pointerLockElement === renderer.domElement) {
+    rotateView(event.movementX, event.movementY);
+  } else if (dragging) {
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    rotateView(dx, dy);
+  }
 });
 
 const keys = {};
-window.addEventListener("keydown", (event) => {
+window.addEventListener("keydown", event => {
   keys[event.code] = true;
-  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
-    event.preventDefault();
-  }
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
 });
-window.addEventListener("keyup", (event) => {
-  keys[event.code] = false;
-});
-window.addEventListener("blur", () => {
-  for (const key of Object.keys(keys)) keys[key] = false;
-});
+window.addEventListener("keyup", event => { keys[event.code] = false; });
+window.addEventListener("blur", () => { for (const key of Object.keys(keys)) keys[key] = false; });
 
 const clock = new THREE.Clock();
 const forward = new THREE.Vector3();
@@ -214,7 +210,6 @@ const cameraDirection = new THREE.Vector3();
 function getLeftStick() {
   const session = renderer.xr.getSession();
   if (!session) return { x: 0, y: 0 };
-
   for (const source of session.inputSources) {
     if (source.handedness !== "left" || !source.gamepad) continue;
     const axes = source.gamepad.axes;
@@ -227,7 +222,6 @@ function getLeftStick() {
 function movePlayer(delta) {
   let stickX = 0;
   let stickY = 0;
-
   if (renderer.xr.isPresenting) {
     const stick = getLeftStick();
     stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
@@ -236,29 +230,23 @@ function movePlayer(delta) {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
   }
-
   camera.getWorldDirection(cameraDirection);
   forward.set(cameraDirection.x, 0, cameraDirection.z).normalize();
   right.crossVectors(forward, up).normalize();
-
   movement.set(0, 0, 0);
   movement.addScaledVector(forward, -stickY);
   movement.addScaledVector(right, stickX);
   if (movement.lengthSq() > 1) movement.normalize();
-
-  const speed = 3.2 + character.strength * 0.18;
-  player.position.addScaledVector(movement, speed * delta);
+  player.position.addScaledVector(movement, (3.2 + character.strength * 0.18) * delta);
 }
 
-status.textContent = "City loaded. Click the city to look around; use WASD to move. Open Character to assign your 3 starting points.";
-
+status.textContent = "City loaded. Click and drag to look around, or click once to lock the mouse. Use WASD to move.";
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-renderer.setAnimationLoop((time) => {
+renderer.setAnimationLoop(time => {
   const delta = Math.min(clock.getDelta(), 0.05);
   movePlayer(delta);
   neonRing.rotation.z = time * 0.00025;
