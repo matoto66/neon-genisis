@@ -189,6 +189,177 @@ document.querySelectorAll("[data-close]").forEach(button => {
 });
 updateCharacterUI();
 
+// A true 3D menu for immersive VR. The normal HTML menu remains for desktop,
+// because browser DOM overlays are not consistently displayed in Quest VR.
+const vrMenu = new THREE.Group();
+vrMenu.visible = false;
+camera.add(vrMenu);
+vrMenu.position.set(0, 0, -1.35);
+vrMenu.scale.set(0.00135, 0.00135, 0.00135);
+
+const vrMenuCanvas = document.createElement("canvas");
+vrMenuCanvas.width = 1024;
+vrMenuCanvas.height = 768;
+const vrMenuContext = vrMenuCanvas.getContext("2d");
+const vrMenuTexture = new THREE.CanvasTexture(vrMenuCanvas);
+vrMenuTexture.colorSpace = THREE.SRGBColorSpace;
+const vrMenuMaterial = new THREE.MeshBasicMaterial({
+  map: vrMenuTexture, transparent: true, side: THREE.DoubleSide, depthTest: false
+});
+const vrMenuPanel = new THREE.Mesh(new THREE.PlaneGeometry(1024, 768), vrMenuMaterial);
+vrMenu.add(vrMenuPanel);
+vrMenuPanel.position.z = 0;
+vrMenuPanel.renderOrder = 1000;
+
+const vrMenuRaycaster = new THREE.Raycaster();
+const vrMenuPointer = new THREE.Vector3();
+const vrControllerRays = [];
+for (let i = 0; i < 2; i++) {
+  const controller = renderer.xr.getController(i);
+  const rayLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3)]),
+    new THREE.LineBasicMaterial({ color: 0x5ff5e8 })
+  );
+  rayLine.visible = false;
+  controller.add(rayLine);
+  controller.addEventListener("select", () => activateVRMenuAtController(controller));
+  scene.add(controller);
+  vrControllerRays.push({ controller, rayLine });
+}
+
+let vrMenuPage = "character";
+function drawVRMenu() {
+  const ctx = vrMenuContext;
+  ctx.clearRect(0, 0, 1024, 768);
+  ctx.fillStyle = "rgba(5, 10, 25, 0.97)";
+  ctx.fillRect(0, 0, 1024, 768);
+  ctx.strokeStyle = "#5ff5e8";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(5, 5, 1014, 758);
+  ctx.fillStyle = "#5ff5e8";
+  ctx.font = "bold 28px Arial";
+  ctx.fillText("NEON GENESIS  /  NIGHT MARKET", 54, 58);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 25px Arial";
+  ctx.fillText("CREDITS  $" + credits.toLocaleString(), 690, 58);
+  ctx.fillStyle = "#14243d";
+  ctx.fillRect(50, 92, 440, 66);
+  ctx.fillRect(534, 92, 440, 66);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 25px Arial";
+  ctx.fillText("CHARACTER", 175, 134);
+  ctx.fillText("CYBERWARE SHOP", 650, 134);
+  ctx.strokeStyle = vrMenuPage === "character" ? "#5ff5e8" : "#33445f";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(50, 92, 440, 66);
+  ctx.strokeStyle = vrMenuPage === "shop" ? "#5ff5e8" : "#33445f";
+  ctx.strokeRect(534, 92, 440, 66);
+
+  if (vrMenuPage === "character") {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 38px Arial";
+    ctx.fillText("YOUR CHARACTER", 60, 225);
+    ctx.fillStyle = "#aab6cf";
+    ctx.font = "24px Arial";
+    ctx.fillText("Unspent attribute points: " + pointsLeft(), 60, 272);
+    const rows = [
+      ["STRENGTH", "Improves movement speed", "strength"],
+      ["HEALTH", "Adds 25 maximum health per point", "health"],
+      ["CYBERWARE COMPATIBILITY", "Unlocks higher cyberware grades", "compatibility"]
+    ];
+    rows.forEach((row, i) => {
+      const y = 315 + i * 132;
+      ctx.fillStyle = "#13233b";
+      ctx.fillRect(55, y - 38, 914, 112);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 27px Arial";
+      ctx.fillText(row[0], 80, y);
+      ctx.fillStyle = "#aab6cf";
+      ctx.font = "20px Arial";
+      ctx.fillText(row[1], 80, y + 34);
+      ctx.fillStyle = "#5ff5e8";
+      ctx.font = "bold 34px Arial";
+      ctx.fillText(String(character[row[2]]), 720, y + 15);
+      ctx.fillStyle = "#20465a";
+      ctx.fillRect(790, y - 25, 70, 62);
+      ctx.fillRect(880, y - 25, 70, 62);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 38px Arial";
+      ctx.fillText("−", 811, y + 18);
+      ctx.fillText("+", 902, y + 18);
+    });
+    ctx.fillStyle = "#5ff5e8";
+    ctx.font = "bold 23px Arial";
+    ctx.fillText("MAX HEALTH: " + (100 + character.health * 25), 65, 735);
+    ctx.fillText("CYBERWARE GRADE: " + gradeNames[character.compatibility], 490, 735);
+  } else {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 38px Arial";
+    ctx.fillText("CYBERWARE SHOP", 60, 235);
+    ctx.fillStyle = "#aab6cf";
+    ctx.font = "25px Arial";
+    ctx.fillText("The first cyberware stock is still being designed.", 60, 300);
+    ctx.fillText("Your credits are saved: $" + credits.toLocaleString(), 60, 355);
+    ctx.fillStyle = "#5ff5e8";
+    ctx.font = "bold 28px Arial";
+    ctx.fillText("UPGRADES COMING SOON", 60, 455);
+  }
+  ctx.fillStyle = "#ff789d";
+  ctx.font = "bold 22px Arial";
+  ctx.fillText("B  /  CLOSE MENU", 770, 720);
+  vrMenuTexture.needsUpdate = true;
+}
+
+function setVRMenuOpen(open) {
+  vrMenu.visible = open;
+  vrMenuPage = "character";
+  if (open) drawVRMenu();
+  for (const item of vrControllerRays) item.rayLine.visible = open;
+}
+function activateVRMenuAtController(controller) {
+  if (!renderer.xr.isPresenting || !vrMenu.visible) return;
+  vrMenuRaycaster.setFromXRController(controller);
+  const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
+  if (!hit?.uv) return;
+  const x = hit.uv.x * 1024;
+  const y = (1 - hit.uv.y) * 768;
+  if (y >= 92 && y <= 158) {
+    if (x >= 50 && x <= 490) vrMenuPage = "character";
+    else if (x >= 534 && x <= 974) vrMenuPage = "shop";
+  } else if (vrMenuPage === "character") {
+    const rows = [
+      { stat: "strength", y1: 277, y2: 389 },
+      { stat: "health", y1: 409, y2: 521 },
+      { stat: "compatibility", y1: 541, y2: 653 }
+    ];
+    for (const row of rows) {
+      if (y >= row.y1 && y <= row.y2 && x >= 780 && x <= 965) {
+        const change = x < 875 ? -1 : 1;
+        if (change > 0 && pointsLeft() > 0 && character[row.stat] < 3) character[row.stat]++;
+        if (change < 0 && character[row.stat] > 0) character[row.stat]--;
+        saveGame();
+        updateCharacterUI();
+        break;
+      }
+    }
+  }
+  drawVRMenu();
+}
+function updateVRMenuPointer() {
+  if (!renderer.xr.isPresenting || !vrMenu.visible) return;
+  const session = renderer.xr.getSession();
+  if (!session) return;
+  session.inputSources.forEach((source, index) => {
+    if (source.handedness !== "right") return;
+    const item = vrControllerRays[index];
+    if (!item) return;
+    item.rayLine.visible = true;
+    vrMenuRaycaster.setFromXRController(item.controller);
+    const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
+    item.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
+  });
+}
+
 // Mouse-look supports pointer lock and click-and-drag fallback.
 let pitch = 0;
 let dragging = false;
@@ -290,7 +461,7 @@ function movePlayer(delta) {
     const look = getRightStickAndMenuButton();
     stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
-    if (look.menu && !previousMenuButton) toggleGameMenu();
+    if (look.menu && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
     previousMenuButton = look.menu;
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
     player.rotation.y -= look.x * 2.2 * delta;
@@ -317,6 +488,7 @@ window.addEventListener("resize", () => {
 renderer.setAnimationLoop(time => {
   const delta = Math.min(clock.getDelta(), 0.05);
   movePlayer(delta);
+  updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
   marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
   renderer.render(scene, camera);
