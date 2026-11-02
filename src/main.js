@@ -11,10 +11,9 @@ scene.add(player);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
 camera.rotation.order = "YXZ";
-// Desktop uses a third-person follow camera behind the avatar.
-// WebXR replaces this pose with the real headset pose during VR sessions.
-camera.position.set(0, 2.55, 4.9);
-camera.rotation.x = -0.27;
+// First-person view: the camera sits at eye height inside the character.
+camera.position.set(0, 1.65, 0);
+camera.rotation.set(0, 0, 0);
 player.add(camera);
 player.position.set(0, 0, 7);
 
@@ -626,19 +625,19 @@ function startCity() {
   shopPanel.hidden = true;
   player.position.set(0, 0, 7);
   player.rotation.set(0, 0, 0);
-  if (renderer.xr.isPresenting) {
-    // The headset stays at eye height; the avatar body is visible below it.
-    camera.position.set(0, 1.65, 0);
-    camera.rotation.set(0, 0, 0);
-    pitch = 0;
-    if (playableAvatar) playableAvatar.head.visible = false;
-  } else {
-    camera.position.set(0, 2.55, 4.9);
-    pitch = -0.27;
-    camera.rotation.set(pitch, 0, 0);
-    if (playableAvatar) playableAvatar.head.visible = true;
+  // First-person on PC and Quest. Hide the head to avoid seeing inside it,
+  // but keep the torso and legs visible when the player looks down.
+  camera.position.set(0, 1.65, 0);
+  pitch = 0;
+  camera.rotation.set(0, 0, 0);
+  if (playableAvatar) {
+    playableAvatar.root.visible = true;
+    playableAvatar.head.visible = false;
+    // Desktop uses camera-view hands; Quest uses hands on the controllers.
+    for (const hand of playableAvatar.handGroups) hand.visible = false;
+    for (const arm of playableAvatar.armPivots) arm.visible = true;
   }
-  if (playableAvatar) playableAvatar.root.visible = true;
+  if (firstPersonHands) firstPersonHands.visible = !renderer.xr.isPresenting;
   startStatus.textContent = "City loaded. Welcome to Neon Genesis.";
 }
 
@@ -897,6 +896,64 @@ function updateCharacterPreview() {
   avatarModel.position.y = 0.12;
 }
 
+let firstPersonHands = null;
+function rebuildFirstPersonHands() {
+  if (firstPersonHands) disposeAvatarRig(firstPersonHands);
+  firstPersonHands = new THREE.Group();
+  firstPersonHands.name = "FIRST_PERSON_HANDS";
+  camera.add(firstPersonHands);
+
+  const skin = new THREE.MeshStandardMaterial({ color: 0xb98265, roughness: 0.84 });
+  const jacketHex = {
+    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.jacketColour] || 0x30394a;
+  const sleeve = new THREE.MeshStandardMaterial({ color: jacketHex, roughness: 0.78 });
+  const cuff = new THREE.MeshStandardMaterial({ color: 0x243448, roughness: 0.72 });
+  const add = (parent, geometry, material, x, y, z) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  };
+  const addLimb = (parent, start, end, radius, material) => {
+    const a = new THREE.Vector3(...start);
+    const b = new THREE.Vector3(...end);
+    const direction = b.clone().sub(a);
+    const midpoint = a.clone().add(b).multiplyScalar(0.5);
+    const mesh = add(parent,
+      new THREE.CapsuleGeometry(radius, Math.max(0.02, direction.length() - radius * 0.5), 6, 12),
+      material, midpoint.x, midpoint.y, midpoint.z);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+    return mesh;
+  };
+
+  for (const side of [-1, 1]) {
+    const shoulder = [side * 0.22, -0.22, -0.34];
+    const elbow = [side * 0.34, -0.42, -0.57];
+    const wrist = [side * 0.39, -0.59, -0.78];
+    addLimb(firstPersonHands, shoulder, elbow, 0.09, sleeve);
+    add(firstPersonHands, new THREE.SphereGeometry(0.09, 16, 12),
+      sleeve, elbow[0], elbow[1], elbow[2]);
+    addLimb(firstPersonHands, elbow, wrist, 0.075, sleeve);
+    add(firstPersonHands, new THREE.CylinderGeometry(0.075, 0.08, 0.055, 16),
+      cuff, wrist[0], wrist[1], wrist[2]);
+    const handX = side * 0.40;
+    const palm = add(firstPersonHands, new THREE.SphereGeometry(0.067, 18, 14),
+      skin, handX, -0.65, -0.84);
+    palm.scale.set(0.84, 1.12, 0.76);
+    for(let finger=0;finger<4;finger++){
+      const x=handX+(finger-1.5)*0.025;
+      const digit=add(firstPersonHands,new THREE.CapsuleGeometry(0.011,0.055,4,8),
+        skin,x,-0.735,-0.855);
+      digit.rotation.x=-0.18;
+    }
+    const thumb=add(firstPersonHands,new THREE.CapsuleGeometry(0.014,0.06,4,8),
+      skin,handX-side*0.07,-0.68,-0.82);
+    thumb.rotation.z=side*0.65;
+  }
+  firstPersonHands.visible = isInCity && !renderer.xr.isPresenting;
+}
 function rebuildPlayableAvatar() {
   if (playableAvatar) disposeAvatarRig(playableAvatar.root);
   playableAvatar = createHumanAvatar(player);
@@ -904,6 +961,7 @@ function rebuildPlayableAvatar() {
   // The builder faces +Z for the display stand. The actual player faces -Z.
   playableAvatar.root.rotation.y = Math.PI;
   playableAvatar.root.visible = false;
+  rebuildFirstPersonHands();
 }
 updateCharacterPreview();
 rebuildPlayableAvatar();
@@ -925,6 +983,10 @@ function animatePlayableAvatar(amount, elapsed) {
   playableAvatar.elbowPivots[0].rotation.x = 0.08 + leftLegFlex * 0.22;
   playableAvatar.elbowPivots[1].rotation.x = 0.08 + rightLegFlex * 0.22;
   playableAvatar.root.position.y = blend > 0 ? Math.abs(Math.sin(phase * 2)) * 0.024 * blend : 0;
+  if (firstPersonHands) {
+    firstPersonHands.position.y = -Math.abs(Math.sin(phase * 2)) * 0.012 * blend;
+    firstPersonHands.rotation.z = Math.sin(phase) * 0.025 * blend;
+  }
 }
 
 function setCharacterPreviewLocation(parent, x, y, z, scale = 1, yaw = 0) {
@@ -1147,14 +1209,17 @@ function showVRIntro() {
   for (const row of startRows) row.userData.refresh();
 }
 renderer.xr.addEventListener("sessionstart", () => {
-  // Quest keeps the real headset position. The body and tracked hands are
-  // rendered around it when the player enters the city.
+  // Use the real tracked headset pose. Keep the body below the camera and
+  // show virtual hands attached to the Touch controllers.
   camera.position.set(0, 1.65, 0);
   camera.rotation.set(0, 0, 0);
   pitch = 0;
+  if (firstPersonHands) firstPersonHands.visible = false;
   if (playableAvatar) {
     playableAvatar.root.visible = isInCity;
     playableAvatar.head.visible = false;
+    for (const hand of playableAvatar.handGroups) hand.visible = false;
+    for (const arm of playableAvatar.armPivots) arm.visible = true;
   }
   vrSessionIntroActive = false;
 });
@@ -1169,11 +1234,13 @@ renderer.xr.addEventListener("sessionend", () => {
   setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9, 0);
   if (playableAvatar) {
     playableAvatar.root.visible = false;
-    playableAvatar.head.visible = true;
+    playableAvatar.head.visible = false;
+    for (const hand of playableAvatar.handGroups) hand.visible = false;
   }
-  camera.position.set(0, 2.55, 4.9);
-  pitch = -0.27;
-  camera.rotation.set(pitch, 0, 0);
+  camera.position.set(0, 1.65, 0);
+  pitch = 0;
+  camera.rotation.set(0, 0, 0);
+  if (firstPersonHands) firstPersonHands.visible = false;
   startScreen.classList.remove("hidden");
 });
 
@@ -1409,12 +1476,12 @@ function updateVRMenuPointer() {
 }
 
 // Mouse-look supports pointer lock and click-and-drag fallback.
-let pitch = -0.27;
+let pitch = 0;
 let dragging = false;
 let lastX = 0;
 let lastY = 0;
-const minPitch = -0.95;
-const maxPitch = 0.22;
+const minPitch = -1.42;
+const maxPitch = 1.15;
 function rotateView(dx, dy) {
   const sensitivity = 0.0022;
   player.rotation.y -= dx * sensitivity;
