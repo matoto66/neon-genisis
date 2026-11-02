@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const status = document.querySelector("#status");
 const scene = new THREE.Scene();
@@ -415,6 +416,74 @@ mikaShop.add(shopHint);
 const shopLight = new THREE.PointLight(0x31e9dd, 2.2, 7);
 shopLight.position.set(0, 2.4, 1.0);
 mikaShop.add(shopLight);
+
+// Genesis Core display stand. The uploaded Blockbench model is loaded as a
+// glTF asset and presented inside Mika's workshop; pickup behavior comes later.
+const genesisCoreDisplay = new THREE.Group();
+genesisCoreDisplay.name = "GENESIS_CORE_DISPLAY";
+genesisCoreDisplay.position.set(0, 0, -1.62);
+mikaShop.add(genesisCoreDisplay);
+
+const coreStandMaterial = new THREE.MeshStandardMaterial({
+  color: 0x182538, metalness: 0.88, roughness: 0.3
+});
+const coreStandGlow = new THREE.MeshStandardMaterial({
+  color: 0x35e9e0, emissive: 0x087b78, emissiveIntensity: 1.15,
+  metalness: 0.6, roughness: 0.25
+});
+const coreStandBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.68, 0.78, 0.48, 32),
+  coreStandMaterial
+);
+coreStandBase.position.y = 0.24;
+genesisCoreDisplay.add(coreStandBase);
+const coreStandTop = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.72, 0.72, 0.07, 32),
+  coreStandGlow
+);
+coreStandTop.position.y = 0.49;
+genesisCoreDisplay.add(coreStandTop);
+const coreDisplayRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.57, 0.018, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0x39f4e7 })
+);
+coreDisplayRing.rotation.x = Math.PI / 2;
+coreDisplayRing.position.y = 0.54;
+genesisCoreDisplay.add(coreDisplayRing);
+
+let genesisCoreModel = null;
+const genesisCoreLoader = new GLTFLoader();
+genesisCoreLoader.load(
+  new URL("../Genisis_%20core.gltf", import.meta.url).href,
+  gltf => {
+    genesisCoreModel = gltf.scene;
+    genesisCoreModel.name = "GENESIS_CORE_BLOCKBENCH_MODEL";
+    genesisCoreModel.scale.setScalar(1.25);
+    genesisCoreModel.position.set(0, 0.55, 0);
+    // The energy lens was built on the model's -Z face. Turn it toward the
+    // workshop entrance so the player can see it when entering.
+    genesisCoreModel.rotation.y = Math.PI;
+    genesisCoreModel.traverse(object => {
+      if (!object.isMesh) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+      if (object.name.toLowerCase().includes("energy core")) {
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const material of materials) {
+          if (!material) continue;
+          material.emissive = new THREE.Color(0x087f91);
+          material.emissiveIntensity = 1.35;
+          material.needsUpdate = true;
+        }
+      }
+    });
+    genesisCoreDisplay.add(genesisCoreModel);
+  },
+  undefined,
+  error => console.error("Could not load the Genesis Core model:", error)
+);
 
 // Main-menu showcase world: a dark neon armory stage with a distant skyline.
 const mainMenuWorld = new THREE.Group();
@@ -2172,6 +2241,11 @@ renderer.setAnimationLoop((time, xrFrame) => {
     shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
   );
   updateVRMenuPointer();
+  if (genesisCoreModel) {
+    genesisCoreModel.rotation.y = Math.PI + Math.sin(time * 0.00045) * 0.08;
+    genesisCoreModel.position.y = 0.55 + Math.sin(time * 0.0015) * 0.025;
+  }
+  coreDisplayRing.rotation.z = time * 0.00035;
   neonRing.rotation.z = time * 0.00025;
   marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
   crossedProps.rotation.y = time * 0.00022;
