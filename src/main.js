@@ -764,6 +764,30 @@ function createHumanAvatar(parent) {
   add(root, new THREE.BoxGeometry(0.40, 0.035, 0.025), jacketShadow, 0, 0.94, 0.17);
   add(root, new THREE.BoxGeometry(0.06, 0.055, 0.012), hatDetail, 0, 1.00, 0.205);
 
+  // Layered cyberpunk jacket panels: fabric remains the main surface, while
+  // reinforced shoulder patches, piping and small hardware echo the hand design.
+  const leftChestPanel = add(root, new THREE.BoxGeometry(0.115, 0.235, 0.018),
+    jacketShadow, -0.17, 1.245, 0.197);
+  leftChestPanel.rotation.z = 0.08;
+  const rightChestPanel = add(root, new THREE.BoxGeometry(0.105, 0.185, 0.018),
+    jacketTrim, 0.165, 1.26, 0.199);
+  rightChestPanel.rotation.z = -0.10;
+  add(root, new THREE.BoxGeometry(0.018, 0.31, 0.012),
+    hatDetail, -0.245, 1.24, 0.18);
+  add(root, new THREE.BoxGeometry(0.018, 0.26, 0.012),
+    silverMaterial, 0.245, 1.22, 0.18);
+  for (const side of [-1, 1]) {
+    for (let snap = 0; snap < 3; snap++) {
+      add(root, new THREE.SphereGeometry(0.009, 10, 8),
+        silverMaterial, side * 0.145, 1.18 + snap * 0.055, 0.218);
+    }
+    const shoulderPatch = add(root, new THREE.SphereGeometry(0.17, 18, 14),
+      jacketTrim, side * 0.245, 1.385, -0.005);
+    shoulderPatch.scale.set(1.12, 0.62, 0.72);
+    add(root, new THREE.BoxGeometry(0.13, 0.022, 0.012),
+      hatDetail, side * 0.245, 1.40, 0.105);
+  }
+
   // Neck and a human face: no metal mask or mechanical visor.
   add(root, new THREE.CylinderGeometry(0.073, 0.085, 0.16, 18), skin, 0, 1.525, 0);
   const head = new THREE.Group();
@@ -838,6 +862,10 @@ function createHumanAvatar(parent) {
     capsule(elbow, jacket, proportions.arm * 0.83, 0.26, 0, -0.145, 0.012);
     add(elbow, new THREE.CylinderGeometry(0.074, 0.078, 0.045, 16),
       jacketShadow, 0, -0.285, 0.012);
+    add(elbow, new THREE.CylinderGeometry(0.079, 0.079, 0.018, 18),
+      jacketTrim, 0, -0.258, 0.012);
+    add(elbow, new THREE.BoxGeometry(0.018, 0.055, 0.012),
+      hatDetail, 0, -0.265, 0.078);
     const hand = new THREE.Group();
     hand.position.set(0, -0.30, 0.025);
     elbow.add(hand);
@@ -893,126 +921,184 @@ function updateCharacterPreview() {
   avatarModel.position.y = 0.12;
 }
 
-function createNaturalHand(parent, side = 1) {
+function createRobotHand(parent, side = 1) {
   const hand = new THREE.Group();
-  hand.name = "NATURAL_HAND";
+  hand.name = "CYBERNETIC_HAND";
   parent.add(hand);
 
-  const skin = new THREE.MeshStandardMaterial({
-    color: 0xb98265, roughness: 0.86, metalness: 0.0
+  const jacketHex = {
+    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.jacketColour] || 0x30394a;
+
+  const alloy = new THREE.MeshStandardMaterial({ color: 0x8797a8, metalness: 0.86, roughness: 0.28 });
+  const darkAlloy = new THREE.MeshStandardMaterial({ color: 0x182535, metalness: 0.82, roughness: 0.32 });
+  const jacketAccent = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.62, roughness: 0.34 });
+  const jointMaterial = new THREE.MeshStandardMaterial({ color: 0x090f19, metalness: 0.74, roughness: 0.26 });
+  const cyan = new THREE.MeshStandardMaterial({
+    color: 0x31eee1, emissive: 0x087d7c, emissiveIntensity: 1.1,
+    metalness: 0.55, roughness: 0.24
   });
-  const nailMaterial = new THREE.MeshStandardMaterial({
-    color: 0xd9b3a0, roughness: 0.92, metalness: 0.0
-  });
 
-  // A single rounded palm shape with a short wrist. The fingers start inside
-  // the palm, so they join into the hand instead of looking like loose tubes.
-  const palmShape = new THREE.Shape();
-  palmShape.moveTo(-0.026, -0.088);
-  palmShape.quadraticCurveTo(-0.036, -0.087, -0.037, -0.067);
-  palmShape.lineTo(-0.043, -0.008);
-  palmShape.quadraticCurveTo(-0.047, 0.026, -0.030, 0.039);
-  palmShape.quadraticCurveTo(0, 0.047, 0.030, 0.039);
-  palmShape.quadraticCurveTo(0.047, 0.026, 0.043, -0.008);
-  palmShape.lineTo(0.037, -0.067);
-  palmShape.quadraticCurveTo(0.036, -0.087, 0.026, -0.088);
-  palmShape.closePath();
-
-  const palmGeometry = new THREE.ExtrudeGeometry(palmShape, {
-    depth: 0.018,
-    bevelEnabled: true,
-    bevelSegments: 3,
-    steps: 1,
-    bevelSize: 0.004,
-    bevelThickness: 0.004,
-    curveSegments: 12
-  });
-  palmGeometry.translate(0, 0, -0.009);
-  const palm = new THREE.Mesh(palmGeometry, skin);
-  hand.add(palm);
-
-  // Build each finger as one gently bent, tapered surface with a rounded tip.
-  // The varying radius gives it a fingertip shape rather than a hotdog shape.
-  const makeFingerGeometry = (points, baseRadius) => {
-    const curve = new THREE.CatmullRomCurve3(
-      points.map(point => new THREE.Vector3(point[0], point[1], point[2]))
-    );
-    const segments = 14;
-    const radialSegments = 10;
-    const frames = curve.computeFrenetFrames(segments, false);
-    const vertices = [];
-    const indices = [];
-
-    for (let i = 0; i <= segments; i++) {
-      const u = i / segments;
-      const radiusProfile = (0.76 + 0.24 * Math.sin(Math.PI * u)) *
-        (1 - 0.42 * Math.pow(u, 2.2));
-      const radius = baseRadius * radiusProfile;
-      const point = curve.getPointAt(u);
-      for (let j = 0; j <= radialSegments; j++) {
-        const angle = (j / radialSegments) * Math.PI * 2;
-        const normal = frames.normals[i].clone().multiplyScalar(Math.cos(angle) * radius);
-        const binormal = frames.binormals[i].clone().multiplyScalar(Math.sin(angle) * radius);
-        const vertex = point.clone().add(normal).add(binormal);
-        vertices.push(vertex.x, vertex.y, vertex.z);
-      }
-    }
-
-    for (let i = 0; i < segments; i++) {
-      for (let j = 0; j < radialSegments; j++) {
-        const a = i * (radialSegments + 1) + j;
-        const b = (i + 1) * (radialSegments + 1) + j;
-        const c = b + 1;
-        const d = a + 1;
-        indices.push(a, b, d, b, c, d);
-      }
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    return geometry;
+  const add = (parentNode, geometry, material, x, y, z) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parentNode.add(mesh);
+    return mesh;
+  };
+  const addRing = (parentNode, radius, tube, x, y, z, material) => {
+    const ring = add(parentNode, new THREE.TorusGeometry(radius, tube, 8, 22),
+      material, x, y, z);
+    ring.rotation.x = Math.PI / 2;
+    return ring;
   };
 
-  const fingerXs = [-0.028, -0.009, 0.010, 0.029];
-  const fingerLengths = [0.071, 0.086, 0.091, 0.077];
-  const fingerRadii = [0.0074, 0.0082, 0.0083, 0.0076];
-  for (let index = 0; index < 4; index++) {
-    const x = fingerXs[index];
-    const length = fingerLengths[index];
-    const splay = (index - 1.5) * 0.0035;
-    const points = [
-      [x, 0.018, 0],
-      [x + splay * 0.15, 0.043, 0.002],
-      [x + splay * 0.7, 0.018 + length * 0.72, 0.006],
-      [x + splay, 0.018 + length, 0.006]
-    ];
-    const finger = new THREE.Mesh(makeFingerGeometry(points, fingerRadii[index]), skin);
-    hand.add(finger);
+  // Softly rounded mechanical palm with layered back-of-hand armor.
+  const palmCore = add(hand, new THREE.SphereGeometry(0.074, 24, 18),
+    darkAlloy, 0, -0.004, 0);
+  palmCore.scale.set(0.91, 1.24, 0.55);
+  const palmPlateShape = new THREE.Shape();
+  palmPlateShape.moveTo(-0.047, -0.055);
+  palmPlateShape.lineTo(-0.060, -0.020);
+  palmPlateShape.lineTo(-0.050, 0.045);
+  palmPlateShape.lineTo(-0.026, 0.064);
+  palmPlateShape.lineTo(0.026, 0.064);
+  palmPlateShape.lineTo(0.050, 0.045);
+  palmPlateShape.lineTo(0.060, -0.020);
+  palmPlateShape.lineTo(0.047, -0.055);
+  palmPlateShape.closePath();
+  const palmPlateGeometry = new THREE.ExtrudeGeometry(palmPlateShape, {
+    depth: 0.012, bevelEnabled: true, bevelSegments: 3,
+    steps: 1, bevelSize: 0.004, bevelThickness: 0.004
+  });
+  palmPlateGeometry.translate(0, 0, 0.032);
+  hand.add(new THREE.Mesh(palmPlateGeometry, alloy));
 
-    // Small, low-profile nails sit on the back of the fingertips.
-    const nail = new THREE.Mesh(new THREE.SphereGeometry(0.0048, 10, 8), nailMaterial);
-    nail.position.set(x + splay, 0.018 + length - 0.014, 0.010);
-    nail.scale.set(0.66, 1.15, 0.20);
-    hand.add(nail);
+  // A jacket-colored inset and cyan status light tie the hands to the outfit.
+  const palmInset = add(hand, new THREE.BoxGeometry(0.047, 0.035, 0.009),
+    jacketAccent, 0, -0.004, 0.048);
+  palmInset.rotation.z = -0.08;
+  add(hand, new THREE.BoxGeometry(0.030, 0.006, 0.004),
+    cyan, 0, 0.004, 0.054);
+  for (const sideSign of [-1, 1]) {
+    add(hand, new THREE.SphereGeometry(0.009, 12, 10),
+      alloy, sideSign * 0.055, -0.012, 0.012);
+    add(hand, new THREE.SphereGeometry(0.0045, 10, 8),
+      cyan, sideSign * 0.055, -0.012, 0.022);
   }
 
-  // The thumb grows from the side of the palm and curves toward the fingers.
-  const thumbSide = -side;
-  const thumbPoints = [
-    [thumbSide * 0.033, -0.027, 0.001],
-    [thumbSide * 0.052, -0.010, 0.004],
-    [thumbSide * 0.067, 0.021, 0.006],
-    [thumbSide * 0.064, 0.045, 0.006]
-  ];
-  const thumb = new THREE.Mesh(makeFingerGeometry(thumbPoints, 0.009), skin);
-  hand.add(thumb);
-  const thumbNail = new THREE.Mesh(new THREE.SphereGeometry(0.005, 10, 8), nailMaterial);
-  thumbNail.position.set(thumbSide * 0.064, 0.031, 0.011);
-  thumbNail.scale.set(0.65, 1.0, 0.2);
-  hand.add(thumbNail);
+  // Wrist bearing and cuff: the wrist can rotate as one connected assembly.
+  const wrist = new THREE.Group();
+  wrist.position.set(0, -0.078, 0);
+  hand.add(wrist);
+  add(wrist, new THREE.CylinderGeometry(0.052, 0.058, 0.045, 20),
+    jointMaterial, 0, -0.008, 0);
+  add(wrist, new THREE.CylinderGeometry(0.059, 0.059, 0.022, 20),
+    jacketAccent, 0, -0.010, 0);
+  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, cyan);
+  add(wrist, new THREE.BoxGeometry(0.057, 0.035, 0.012),
+    alloy, 0, -0.045, 0.045);
+  add(wrist, new THREE.BoxGeometry(0.028, 0.006, 0.004),
+    cyan, 0, -0.045, 0.053);
 
+  const fingerJoints = [];
+  const fingerRoots = [];
+  const fingerXs = [-0.043, -0.015, 0.015, 0.043];
+  const fingerLengths = [
+    [0.041, 0.033, 0.025],
+    [0.047, 0.036, 0.027],
+    [0.048, 0.037, 0.028],
+    [0.040, 0.032, 0.024]
+  ];
+  const fingerRadii = [0.0105, 0.0115, 0.0112, 0.0100];
+
+  // Each finger is a three-link articulated mechanism. Rounded bearings are
+  // visible at every joint and each link has a thin protective armor plate.
+  for (let index = 0; index < 4; index++) {
+    const fingerRoot = new THREE.Group();
+    fingerRoot.position.set(fingerXs[index], 0.052, 0.005);
+    hand.add(fingerRoot);
+    fingerRoots.push(fingerRoot);
+    let segmentParent = fingerRoot;
+
+    for (let segment = 0; segment < 3; segment++) {
+      const length = fingerLengths[index][segment];
+      const radius = fingerRadii[index] * (1 - segment * 0.16);
+      add(segmentParent, new THREE.SphereGeometry(radius * 1.08, 14, 12),
+        jointMaterial, 0, 0, 0);
+
+      const link = add(segmentParent,
+        new THREE.CapsuleGeometry(radius * 0.78, length * 0.78, 5, 12),
+        darkAlloy, 0, length * 0.48, 0);
+      link.scale.z = 0.82;
+
+      const armorPlate = add(segmentParent,
+        new THREE.BoxGeometry(radius * 1.55, length * 0.48, 0.010),
+        segment === 1 ? jacketAccent : alloy, 0, length * 0.50, radius * 0.68);
+      armorPlate.rotation.z = (index - 1.5) * -0.035;
+
+      add(segmentParent, new THREE.BoxGeometry(radius * 0.45, length * 0.36, 0.004),
+        cyan, 0, length * 0.52, radius * 0.68 + 0.006);
+
+      const nextJoint = new THREE.Group();
+      nextJoint.position.y = length * 0.92;
+      segmentParent.add(nextJoint);
+      add(nextJoint, new THREE.SphereGeometry(radius * 0.92, 14, 12),
+        jointMaterial, 0, 0, 0);
+      addRing(nextJoint, radius * 0.72, 0.0025, 0, 0, radius * 0.30, alloy);
+      fingerJoints.push({ pivot: nextJoint, finger: index, segment });
+      segmentParent = nextJoint;
+    }
+
+    // A small fingertip cap rounds off the last metal link.
+    add(segmentParent, new THREE.SphereGeometry(fingerRadii[index] * 0.66, 12, 10),
+      alloy, 0, 0.008, 0);
+  }
+
+  // Opposing thumb with two visible knuckles and a separate rotation pivot.
+  const thumbRoot = new THREE.Group();
+  thumbRoot.position.set(-side * 0.057, -0.035, 0.004);
+  thumbRoot.rotation.z = side * 0.78;
+  hand.add(thumbRoot);
+  add(thumbRoot, new THREE.SphereGeometry(0.014, 14, 12),
+    jointMaterial, 0, 0, 0);
+  const thumbBase = add(thumbRoot, new THREE.CapsuleGeometry(0.010, 0.034, 5, 10),
+    darkAlloy, 0, 0.019, 0);
+  thumbBase.rotation.z = side * -0.16;
+  add(thumbRoot, new THREE.BoxGeometry(0.017, 0.025, 0.010),
+    jacketAccent, 0, 0.022, 0.010);
+  const thumbTipPivot = new THREE.Group();
+  thumbTipPivot.position.y = 0.040;
+  thumbRoot.add(thumbTipPivot);
+  add(thumbTipPivot, new THREE.SphereGeometry(0.011, 12, 10),
+    jointMaterial, 0, 0, 0);
+  add(thumbTipPivot, new THREE.CapsuleGeometry(0.0085, 0.028, 5, 10),
+    alloy, 0, 0.017, 0);
+  add(thumbTipPivot, new THREE.BoxGeometry(0.014, 0.020, 0.009),
+    jacketAccent, 0, 0.018, 0.008);
+
+  // Side actuators and thin cables make the hand look engineered, not a glove.
+  for (const sideSign of [-1, 1]) {
+    const actuator = add(hand, new THREE.CylinderGeometry(0.009, 0.009, 0.075, 10),
+      jointMaterial, sideSign * 0.068, 0.005, -0.012);
+    actuator.rotation.z = sideSign * -0.08;
+    add(hand, new THREE.BoxGeometry(0.010, 0.065, 0.008),
+      cyan, sideSign * 0.068, 0.005, 0.010);
+  }
+
+  hand.userData.fingerRoots = fingerRoots;
+  hand.userData.fingerJoints = fingerJoints;
+  hand.userData.thumbRoot = thumbRoot;
+  hand.userData.thumbTipPivot = thumbTipPivot;
+  hand.userData.setGrip = amount => {
+    const grip = THREE.MathUtils.clamp(amount, 0, 1);
+    for (const joint of fingerJoints) {
+      joint.pivot.rotation.x = -grip * (joint.segment === 0 ? 0.16 : 0.34);
+    }
+    thumbRoot.rotation.z = side * (0.78 - grip * 0.25);
+    thumbTipPivot.rotation.x = -grip * 0.3;
+  };
+  hand.userData.setGrip(0.08);
   return hand;
 }
 
@@ -1024,10 +1110,10 @@ function rebuildFirstPersonHands() {
   camera.add(firstPersonHands);
 
   for (const side of [-1, 1]) {
-    const hand = createNaturalHand(firstPersonHands, side);
+    const hand = createRobotHand(firstPersonHands, side);
     hand.position.set(side * 0.31, -0.43, -0.72);
-    // Slight inward angle makes the hands feel naturally held in front.
-    hand.rotation.z = side * 0.16;
+    // Keep fingers upright and the armored palm facing the camera.
+    hand.rotation.set(0, 0, side * 0.12);
     hand.scale.setScalar(1.12);
   }
 
@@ -1074,6 +1160,19 @@ function updateAvatarHeightFromHeadset(xrFrame, delta) {
   playableAvatar.root.scale.set(1, smoothScale, 1);
 }
 
+function animateRobotHandJoints(hand, elapsed, phaseOffset = 0) {
+  if (!hand?.userData?.fingerJoints) return;
+  const idle = 0.035 + Math.sin(elapsed * 1.35 + phaseOffset) * 0.025;
+  const walking = Math.max(0, Math.sin(elapsed * 8.4 + phaseOffset)) * 0.035;
+  for (const joint of hand.userData.fingerJoints) {
+    const depth = joint.segment === 0 ? 0.10 : (joint.segment === 1 ? 0.22 : 0.27);
+    joint.pivot.rotation.x = -(idle + walking) * depth;
+  }
+  hand.userData.thumbRoot.rotation.z =
+    (phaseOffset < 1 ? 1 : -1) * (0.78 - idle * 0.25);
+  hand.userData.thumbTipPivot.rotation.x = -idle * 0.22;
+}
+
 function animatePlayableAvatar(amount, elapsed) {
   if (!playableAvatar) return;
   const blend = THREE.MathUtils.clamp(amount, 0, 1);
@@ -1094,6 +1193,9 @@ function animatePlayableAvatar(amount, elapsed) {
   if (firstPersonHands) {
     firstPersonHands.position.y = -Math.abs(Math.sin(phase * 2)) * 0.012 * blend;
     firstPersonHands.rotation.z = Math.sin(phase) * 0.025 * blend;
+    firstPersonHands.children.forEach((hand, index) =>
+      animateRobotHandJoints(hand, elapsed, index * Math.PI)
+    );
   }
 }
 
@@ -1374,9 +1476,12 @@ for (let i = 0; i < 2; i++) {
   trackedHand.name = "TRACKED_VIRTUAL_HAND";
   trackedHand.position.set(0, -0.025, -0.085);
   // The hand's fingers point down the controller's forward (-Z) direction.
-  const naturalHand = createNaturalHand(trackedHand, 1);
-  naturalHand.rotation.x = -Math.PI / 2;
-  naturalHand.scale.setScalar(1.0);
+  const robotHand = createRobotHand(trackedHand, 1);
+  // The controller points down -Z. This keeps fingers pointing along the
+  // controller while turning the armored palm toward the player instead of up.
+  robotHand.rotation.set(-Math.PI / 2, 0, Math.PI);
+  robotHand.scale.setScalar(1.0);
+  trackedHand.userData.robotHand = robotHand;
   controller.add(trackedHand);
   const rayLine = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3)]),
@@ -1714,6 +1819,11 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const movementAmount = isInCity ? movePlayer(delta) : 0;
   updateAvatarHeightFromHeadset(xrFrame, delta);
   animatePlayableAvatar(movementAmount, time * 0.001);
+  for (let handIndex = 0; handIndex < vrControllerRays.length; handIndex++) {
+    const robotHand = vrControllerRays[handIndex].controller.children
+      .find(child => child.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand;
+    animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI);
+  }
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
   marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
