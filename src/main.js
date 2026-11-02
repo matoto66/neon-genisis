@@ -1572,7 +1572,9 @@ for (let i = 0; i < 2; i++) {
   const robotHand = createRobotHand(trackedHand, 1);
   // The controller points down -Z. This keeps fingers pointing along the
   // controller while turning the armored palm toward the player instead of up.
-  robotHand.rotation.set(Math.PI / 2, 0, Math.PI);
+  // Hand fingers are built along local +Y. Rotate that axis onto the
+  // controller's forward -Z ray so fingertips point away from the player.
+  robotHand.rotation.set(-Math.PI / 2, 0, 0);
   robotHand.scale.setScalar(1.0);
   trackedHand.userData.robotHand = robotHand;
   controller.add(trackedHand);
