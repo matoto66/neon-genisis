@@ -715,7 +715,6 @@ function createHumanAvatar(parent) {
   const eyeDark = new THREE.MeshStandardMaterial({ color: 0x171923, roughness: 0.7 });
   const brow = new THREE.MeshStandardMaterial({ color: 0x32251f, roughness: 0.9 });
   const mouth = new THREE.MeshStandardMaterial({ color: 0x74483f, roughness: 0.9 });
-  const skinDetail = new THREE.MeshStandardMaterial({ color: 0x94644f, roughness: 0.9 });
 
   const add = (parentNode, geometry, material, x, y, z) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -725,6 +724,22 @@ function createHumanAvatar(parent) {
   };
   const capsule = (parentNode, material, radius, length, x, y, z) =>
     add(parentNode, new THREE.CapsuleGeometry(radius, length, 6, 14), material, x, y, z);
+  const addCircuitLine = (parentNode, points, radius, material) => {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map(([x, y, z]) => new THREE.Vector3(x, y, z))
+    );
+    const line = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, Math.max(16, points.length * 8), radius, 6, false),
+      material
+    );
+    line.frustumCulled = false;
+    parentNode.add(line);
+    return line;
+  };
+  const jacketCircuitRed = new THREE.MeshStandardMaterial({
+    color: 0xd92743, emissive: 0x650817, emissiveIntensity: 0.9,
+    metalness: 0.48, roughness: 0.3
+  });
 
   const proportions = bodyType === "Female"
     ? { shoulder: 0.285, hip: 0.245, legGap: 0.145, arm: 0.088 }
@@ -786,7 +801,32 @@ function createHumanAvatar(parent) {
     shoulderPatch.scale.set(1.12, 0.62, 0.72);
     add(root, new THREE.BoxGeometry(0.13, 0.022, 0.012),
       hatDetail, side * 0.245, 1.40, 0.105);
+
+    // Sharp, segmented neon traces run from the shoulder into each chest panel.
+    addCircuitLine(root, [
+      [side * 0.255, 1.405, 0.204],
+      [side * 0.215, 1.355, 0.239],
+      [side * 0.155, 1.300, 0.235],
+      [side * 0.185, 1.225, 0.211]
+    ], 0.0055, jacketCircuitRed);
+    addCircuitLine(root, [
+      [side * 0.095, 1.405, 0.252],
+      [side * 0.118, 1.350, 0.246],
+      [side * 0.082, 1.300, 0.239],
+      [side * 0.092, 1.245, 0.223]
+    ], 0.0035, hatDetail);
+    addCircuitLine(root, [
+      [side * 0.195, 1.145, 0.204],
+      [side * 0.158, 1.105, 0.199],
+      [side * 0.105, 1.085, 0.197]
+    ], 0.0035, jacketCircuitRed);
   }
+  // A clean angular collar trace ties both sides together.
+  addCircuitLine(root, [
+    [-0.105, 1.435, 0.245], [-0.055, 1.405, 0.258],
+    [0, 1.390, 0.262],
+    [0.055, 1.405, 0.258], [0.105, 1.435, 0.245]
+  ], 0.0038, hatDetail);
 
   // Neck and a human face: no metal mask or mechanical visor.
   add(root, new THREE.CylinderGeometry(0.073, 0.085, 0.16, 18), skin, 0, 1.525, 0);
@@ -810,7 +850,6 @@ function createHumanAvatar(parent) {
     eyebrow.rotation.z = side * -0.12;
   }
   add(head, new THREE.BoxGeometry(0.065, 0.009, 0.008), mouth, 0, -0.115, 0.143);
-  add(head, new THREE.SphereGeometry(0.018, 10, 8), skinDetail, -0.035, -0.055, 0.132);
 
   // Hats sit on the head but do not cover the face.
   if (appearance.hatStyle === "Baseball Cap") {
@@ -854,12 +893,30 @@ function createHumanAvatar(parent) {
     add(shoulder, new THREE.SphereGeometry(proportions.arm * 1.12, 18, 14),
       jacket, 0, -0.015, 0);
     capsule(shoulder, jacket, proportions.arm, 0.27, 0, -0.16, 0);
+    addCircuitLine(shoulder, [
+      [side * 0.045, -0.045, 0.088],
+      [side * 0.065, -0.115, 0.082],
+      [side * 0.052, -0.195, 0.074]
+    ], 0.0045, jacketCircuitRed);
+    addCircuitLine(shoulder, [
+      [-side * 0.038, -0.075, 0.087],
+      [-side * 0.047, -0.145, 0.079]
+    ], 0.003, hatDetail);
     const elbow = new THREE.Group();
     elbow.position.y = -0.30;
     shoulder.add(elbow);
     add(elbow, new THREE.SphereGeometry(proportions.arm * 0.96, 18, 14),
       jacket, 0, 0, 0);
     capsule(elbow, jacket, proportions.arm * 0.83, 0.26, 0, -0.145, 0.012);
+    addCircuitLine(elbow, [
+      [side * 0.048, -0.055, 0.081],
+      [side * 0.055, -0.125, 0.079],
+      [side * 0.040, -0.215, 0.073]
+    ], 0.004, hatDetail);
+    addCircuitLine(elbow, [
+      [-side * 0.035, -0.075, 0.080],
+      [-side * 0.043, -0.170, 0.075]
+    ], 0.003, jacketCircuitRed);
     add(elbow, new THREE.CylinderGeometry(0.074, 0.078, 0.045, 16),
       jacketShadow, 0, -0.285, 0.012);
     add(elbow, new THREE.CylinderGeometry(0.079, 0.079, 0.018, 18),
@@ -939,6 +996,10 @@ function createRobotHand(parent, side = 1) {
     color: 0x31eee1, emissive: 0x087d7c, emissiveIntensity: 1.1,
     metalness: 0.55, roughness: 0.24
   });
+  const arasakaRed = new THREE.MeshStandardMaterial({
+    color: 0xf02c49, emissive: 0x8f071e, emissiveIntensity: 1.25,
+    metalness: 0.58, roughness: 0.22
+  });
 
   const add = (parentNode, geometry, material, x, y, z) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -951,6 +1012,18 @@ function createRobotHand(parent, side = 1) {
       material, x, y, z);
     ring.rotation.x = Math.PI / 2;
     return ring;
+  };
+  const addHandCircuit = (points, radius = 0.002) => {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map(([x, y, z]) => new THREE.Vector3(x, y, z))
+    );
+    const line = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, Math.max(14, points.length * 8), radius, 6, false),
+      arasakaRed
+    );
+    line.frustumCulled = false;
+    hand.add(line);
+    return line;
   };
 
   // Softly rounded mechanical palm with layered back-of-hand armor.
@@ -979,7 +1052,20 @@ function createRobotHand(parent, side = 1) {
     jacketAccent, 0, -0.004, 0.048);
   palmInset.rotation.z = -0.08;
   add(hand, new THREE.BoxGeometry(0.030, 0.006, 0.004),
-    cyan, 0, 0.004, 0.054);
+    arasakaRed, 0, 0.004, 0.055);
+  // Split red light channels form a sharp, angular corporate circuit pattern.
+  addHandCircuit([
+    [-0.045, -0.034, 0.053], [-0.018, -0.015, 0.058],
+    [-0.034, 0.008, 0.058], [-0.014, 0.045, 0.056]
+  ], 0.0024);
+  addHandCircuit([
+    [0.045, -0.034, 0.053], [0.018, -0.015, 0.058],
+    [0.034, 0.008, 0.058], [0.014, 0.045, 0.056]
+  ], 0.0024);
+  addHandCircuit([
+    [-0.008, -0.046, 0.055], [0.008, -0.030, 0.058],
+    [-0.006, -0.012, 0.059], [0.006, 0.006, 0.058]
+  ], 0.0018);
   for (const sideSign of [-1, 1]) {
     add(hand, new THREE.SphereGeometry(0.009, 12, 10),
       alloy, sideSign * 0.055, -0.012, 0.012);
@@ -995,11 +1081,11 @@ function createRobotHand(parent, side = 1) {
     jointMaterial, 0, -0.008, 0);
   add(wrist, new THREE.CylinderGeometry(0.059, 0.059, 0.022, 20),
     jacketAccent, 0, -0.010, 0);
-  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, cyan);
+  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, arasakaRed);
   add(wrist, new THREE.BoxGeometry(0.057, 0.035, 0.012),
     alloy, 0, -0.045, 0.045);
   add(wrist, new THREE.BoxGeometry(0.028, 0.006, 0.004),
-    cyan, 0, -0.045, 0.053);
+    arasakaRed, 0, -0.045, 0.054);
 
   const fingerJoints = [];
   const fingerRoots = [];
@@ -1037,8 +1123,12 @@ function createRobotHand(parent, side = 1) {
         segment === 1 ? jacketAccent : alloy, 0, length * 0.50, radius * 0.68);
       armorPlate.rotation.z = (index - 1.5) * -0.035;
 
-      add(segmentParent, new THREE.BoxGeometry(radius * 0.45, length * 0.36, 0.004),
-        cyan, 0, length * 0.52, radius * 0.68 + 0.006);
+      add(segmentParent, new THREE.BoxGeometry(radius * 0.48, length * 0.34, 0.005),
+        arasakaRed, 0, length * 0.52, radius * 0.68 + 0.008);
+      const armorSlash = add(segmentParent,
+        new THREE.BoxGeometry(radius * 1.28, length * 0.075, 0.004),
+        arasakaRed, 0, length * 0.76, radius * 0.68 + 0.010);
+      armorSlash.rotation.z = (index - 1.5) * 0.055;
 
       const nextJoint = new THREE.Group();
       nextJoint.position.y = length * 0.92;
@@ -1076,6 +1166,8 @@ function createRobotHand(parent, side = 1) {
     alloy, 0, 0.017, 0);
   add(thumbTipPivot, new THREE.BoxGeometry(0.014, 0.020, 0.009),
     jacketAccent, 0, 0.018, 0.008);
+  add(thumbTipPivot, new THREE.BoxGeometry(0.004, 0.024, 0.004),
+    arasakaRed, 0, 0.018, 0.014);
 
   // Side actuators and thin cables make the hand look engineered, not a glove.
   for (const sideSign of [-1, 1]) {
@@ -1083,7 +1175,7 @@ function createRobotHand(parent, side = 1) {
       jointMaterial, sideSign * 0.068, 0.005, -0.012);
     actuator.rotation.z = sideSign * -0.08;
     add(hand, new THREE.BoxGeometry(0.010, 0.065, 0.008),
-      cyan, sideSign * 0.068, 0.005, 0.010);
+      arasakaRed, sideSign * 0.068, 0.005, 0.010);
   }
 
   hand.userData.fingerRoots = fingerRoots;
