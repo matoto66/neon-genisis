@@ -706,6 +706,7 @@ function createHumanAvatar(parent) {
   const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, roughness: 0.76, metalness: 0.08 });
   const jacketShadow = new THREE.MeshStandardMaterial({ color: 0x172131, roughness: 0.82, metalness: 0.06 });
   const jacketTrim = new THREE.MeshStandardMaterial({ color: 0x3b5267, roughness: 0.64, metalness: 0.18 });
+  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x9aa9b8, roughness: 0.34, metalness: 0.82 });
   const pants = new THREE.MeshStandardMaterial({ color: 0x202a39, roughness: 0.9, metalness: 0.03 });
   const shoes = new THREE.MeshStandardMaterial({ color: 0x101722, roughness: 0.82, metalness: 0.06 });
   const shoeSole = new THREE.MeshStandardMaterial({ color: 0x070c13, roughness: 0.9 });
