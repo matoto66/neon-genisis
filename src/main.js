@@ -370,7 +370,7 @@ hintContext.strokeRect(3, 3, 506, 90);
 hintContext.fillStyle = "#f0fdff";
 hintContext.font = "bold 30px Arial";
 hintContext.textAlign = "center";
-hintContext.fillText("AIM + TRIGGER TO OPEN", 256, 59);
+hintContext.fillText("GRAB HANDLE + TWIST TO OPEN", 256, 59);
 const hintTexture = new THREE.CanvasTexture(hintCanvas);
 hintTexture.colorSpace = THREE.SRGBColorSpace;
 const shopHint = new THREE.Mesh(
@@ -746,6 +746,7 @@ function startCity() {
   jumpVelocity = 0;
   previousJumpButton = false;
   shopDoorTarget = 0;
+  activeDoorGrab = null;
   shopDoorHinge.rotation.y = 0;
   // First-person on PC and Quest. Hide the head to avoid seeing inside it,
   // but keep the torso and legs visible when the player looks down.
@@ -1678,13 +1679,49 @@ function activateVRStartAtController(controller) {
 const vrMenuRaycaster = new THREE.Raycaster();
 const vrMenuPointer = new THREE.Vector3();
 
-function interactWithDoor(controller) {
+let activeDoorGrab = null;
+const doorGrabForward = new THREE.Vector3();
+function getControllerYaw(controller) {
+  controller.getWorldDirection(doorGrabForward);
+  doorGrabForward.y = 0;
+  if (doorGrabForward.lengthSq() < 0.0001) return 0;
+  doorGrabForward.normalize();
+  return Math.atan2(doorGrabForward.x, -doorGrabForward.z);
+}
+function wrapAngle(angle) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+function beginDoorGrab(controller) {
   if (!isInCity || vrMenu.visible || !renderer.xr.isPresenting) return false;
   vrMenuRaycaster.setFromXRController(controller);
-  const hit = vrMenuRaycaster.intersectObjects(shopDoorHitObjects, false)[0];
+  // The trigger only grabs the actual handle, not the whole door panel.
+  const hit = vrMenuRaycaster.intersectObject(shopDoorHandle, false)[0];
   if (!hit || hit.distance > 3.5) return false;
-  shopDoorTarget = shopDoorTarget === 0 ? -1.42 : 0;
+  activeDoorGrab = {
+    controller,
+    startYaw: getControllerYaw(controller),
+    startDoorAngle: shopDoorHinge.rotation.y
+  };
+  shopDoorTarget = shopDoorHinge.rotation.y;
   return true;
+}
+function updateDoorGrab() {
+  if (!activeDoorGrab) return;
+  const currentYaw = getControllerYaw(activeDoorGrab.controller);
+  const twist = wrapAngle(currentYaw - activeDoorGrab.startYaw);
+  // Twist left/right to swing the hinged door. Clamp before it turns through
+  // the frame, and keep the handle attached to the moving door.
+  shopDoorTarget = THREE.MathUtils.clamp(
+    activeDoorGrab.startDoorAngle + twist,
+    -1.48,
+    1.48
+  );
+}
+function endDoorGrab(controller) {
+  if (activeDoorGrab?.controller !== controller) return;
+  activeDoorGrab = null;
+  // Leave the door where the player released it.
+  shopDoorTarget = shopDoorHinge.rotation.y;
 }
 const vrControllerRays = [];
 const vrCursor = new THREE.Mesh(
@@ -1730,11 +1767,18 @@ for (let i = 0; i < 2; i++) {
   controller.addEventListener("disconnected", () => {
     controller.userData.handedness = undefined;
   });
+  controller.addEventListener("selectstart", () => {
+    if (controller.userData.handedness === "right" && isInCity && !vrMenu.visible) {
+      beginDoorGrab(controller);
+    }
+  });
+  controller.addEventListener("selectend", () => {
+    endDoorGrab(controller);
+  });
   controller.addEventListener("select", () => {
     if (controller.userData.handedness === "right") {
       if (vrStart.visible) activateVRStartAtController(controller);
       else if (vrMenu.visible) activateVRMenuAtController(controller);
-      else interactWithDoor(controller);
     }
   });
   // Keep XR controllers in the same moving/turning space as the player camera.
@@ -2015,8 +2059,9 @@ function getRightAButton() {
   const rightSource = Array.from(session.inputSources).find(source =>
     source.handedness === "right" && source.gamepad
   );
-  // On the Quest Touch controller, the primary right-hand face button is A.
-  return !!rightSource?.gamepad?.buttons[3]?.pressed;
+  // WebXR's standard Quest Touch mapping places the primary right face
+  // button (A) at index 4; index 3 is the thumbstick click.
+  return !!rightSource?.gamepad?.buttons[4]?.pressed;
 }
 
 function movePlayer(delta) {
@@ -2093,6 +2138,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       .find(child => child.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand;
     animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI);
   }
+  updateDoorGrab();
   shopDoorHinge.rotation.y = THREE.MathUtils.damp(
     shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
   );
