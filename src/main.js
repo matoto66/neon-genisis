@@ -929,9 +929,9 @@ function rebuildFirstPersonHands() {
   };
 
   for (const side of [-1, 1]) {
-    const shoulder = [side * 0.22, -0.22, -0.34];
-    const elbow = [side * 0.34, -0.42, -0.57];
-    const wrist = [side * 0.39, -0.59, -0.78];
+    const shoulder = [side * 0.22, -0.16, -0.34];
+    const elbow = [side * 0.34, -0.32, -0.56];
+    const wrist = [side * 0.39, -0.47, -0.80];
     addLimb(firstPersonHands, shoulder, elbow, 0.09, sleeve);
     add(firstPersonHands, new THREE.SphereGeometry(0.09, 16, 12),
       sleeve, elbow[0], elbow[1], elbow[2]);
@@ -940,16 +940,16 @@ function rebuildFirstPersonHands() {
       cuff, wrist[0], wrist[1], wrist[2]);
     const handX = side * 0.40;
     const palm = add(firstPersonHands, new THREE.SphereGeometry(0.067, 18, 14),
-      skin, handX, -0.65, -0.84);
+      skin, handX, -0.52, -0.88);
     palm.scale.set(0.84, 1.12, 0.76);
     for(let finger=0;finger<4;finger++){
       const x=handX+(finger-1.5)*0.025;
       const digit=add(firstPersonHands,new THREE.CapsuleGeometry(0.011,0.055,4,8),
-        skin,x,-0.735,-0.855);
+        skin,x,-0.59,-0.91);
       digit.rotation.x=-0.18;
     }
     const thumb=add(firstPersonHands,new THREE.CapsuleGeometry(0.014,0.06,4,8),
-      skin,handX-side*0.07,-0.68,-0.82);
+      skin,handX-side*0.07,-0.55,-0.85);
     thumb.rotation.z=side*0.65;
   }
   firstPersonHands.visible = isInCity && !renderer.xr.isPresenting;
