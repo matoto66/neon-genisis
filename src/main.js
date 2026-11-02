@@ -966,6 +966,35 @@ function rebuildPlayableAvatar() {
 updateCharacterPreview();
 rebuildPlayableAvatar();
 
+function updateAvatarHeightFromHeadset(xrFrame, delta) {
+  if (!playableAvatar) return;
+
+  let targetScale = 1;
+  if (renderer.xr.isPresenting && isInCity && xrFrame) {
+    try {
+      // The app requests local-floor, so this is the tracked headset height
+      // above the calibrated floor rather than its height above the player's
+      // changing camera position.
+      const referenceSpace = renderer.xr.getReferenceSpace();
+      const viewerPose = referenceSpace ? xrFrame.getViewerPose(referenceSpace) : null;
+      const headHeight = viewerPose?.transform?.position?.y;
+      if (Number.isFinite(headHeight)) {
+        // The avatar's eye line is about 1.75 m above its feet. Scale only
+        // vertically, keeping the feet planted while matching the user's
+        // standing, crouching, or lowered headset position.
+        targetScale = THREE.MathUtils.clamp(headHeight / 1.75, 0.64, 1.18);
+      }
+    } catch {
+      // Keep the last smooth height if a tracked pose is briefly unavailable.
+      targetScale = playableAvatar.root.scale.y || 1;
+    }
+  }
+
+  const currentScale = playableAvatar.root.scale.y || 1;
+  const smoothScale = THREE.MathUtils.damp(currentScale, targetScale, 9, delta);
+  playableAvatar.root.scale.set(1, smoothScale, 1);
+}
+
 function animatePlayableAvatar(amount, elapsed) {
   if (!playableAvatar) return;
   const blend = THREE.MathUtils.clamp(amount, 0, 1);
@@ -1608,11 +1637,12 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-renderer.setAnimationLoop(time => {
+renderer.setAnimationLoop((time, xrFrame) => {
   const delta = Math.min(clock.getDelta(), 0.05);
   // Initialize only after this frame has updated Three.js' tracked XR camera.
   const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
   const movementAmount = isInCity ? movePlayer(delta) : 0;
+  updateAvatarHeightFromHeadset(xrFrame, delta);
   animatePlayableAvatar(movementAmount, time * 0.001);
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
