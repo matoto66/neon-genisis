@@ -266,6 +266,124 @@ for (const child of [...scene.children]) {
 scene.add(cityWorld);
 cityWorld.visible = false;
 
+// SECTOR 09 — Mika's repair shop entrance. This is a real 3D doorway in the
+// city, built from lightweight Three.js geometry so it works on Quest.
+const mikaShop = new THREE.Group();
+mikaShop.name = "MIKAS_REPAIR_SHOP";
+mikaShop.position.set(-3.8, 0, -4.8);
+cityWorld.add(mikaShop);
+
+const shopWallMaterial = new THREE.MeshStandardMaterial({
+  color: 0x182436, roughness: 0.84, metalness: 0.42
+});
+const shopTrimMaterial = new THREE.MeshStandardMaterial({
+  color: 0x26384b, roughness: 0.46, metalness: 0.72
+});
+const shopNeonMaterial = new THREE.MeshStandardMaterial({
+  color: 0x38e8dc, emissive: 0x087d78, emissiveIntensity: 1.1,
+  metalness: 0.35, roughness: 0.28
+});
+const shopRedMaterial = new THREE.MeshStandardMaterial({
+  color: 0xff426c, emissive: 0x8e092a, emissiveIntensity: 0.8,
+  metalness: 0.45, roughness: 0.3
+});
+const addShopBox = (parent, w, h, d, material, x, y, z) => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+};
+
+// A shallow workshop shell with an open doorway.
+addShopBox(mikaShop, 1.34, 3.05, 0.28, shopWallMaterial, -1.55, 1.525, 0);
+addShopBox(mikaShop, 1.34, 3.05, 0.28, shopWallMaterial, 1.55, 1.525, 0);
+addShopBox(mikaShop, 1.76, 0.52, 0.28, shopWallMaterial, 0, 2.79, 0);
+addShopBox(mikaShop, 4.2, 0.18, 3.2, shopWallMaterial, 0, 0.02, -1.45);
+addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, -2.08, 1.48, -1.48);
+addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, 2.08, 1.48, -1.48);
+addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 2.95, -1.45);
+addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 0.12, -2.95);
+
+for (const x of [-0.82, 0.82]) {
+  addShopBox(mikaShop, 0.09, 2.72, 0.12, shopTrimMaterial, x, 1.36, 0.16);
+  addShopBox(mikaShop, 0.035, 2.66, 0.025, shopNeonMaterial, x, 1.36, 0.232);
+}
+addShopBox(mikaShop, 1.78, 0.09, 0.12, shopTrimMaterial, 0, 2.68, 0.16);
+addShopBox(mikaShop, 1.66, 0.025, 0.025, shopRedMaterial, 0, 2.68, 0.232);
+
+// Door leaf pivots on its left edge. Trigger interaction toggles its target angle.
+const shopDoorHinge = new THREE.Group();
+shopDoorHinge.position.set(-0.76, 0.12, 0.19);
+mikaShop.add(shopDoorHinge);
+const shopDoorLeaf = new THREE.Group();
+shopDoorLeaf.name = "MIKA_SHOP_DOOR";
+shopDoorHinge.add(shopDoorLeaf);
+addShopBox(shopDoorLeaf, 1.48, 2.52, 0.13, shopTrimMaterial, 0.74, 1.26, 0);
+addShopBox(shopDoorLeaf, 1.30, 2.30, 0.025, shopWallMaterial, 0.74, 1.26, 0.078);
+addShopBox(shopDoorLeaf, 0.82, 0.055, 0.018, shopRedMaterial, 0.74, 1.87, 0.098);
+addShopBox(shopDoorLeaf, 0.82, 0.035, 0.018, shopNeonMaterial, 0.74, 0.62, 0.098);
+addShopBox(shopDoorLeaf, 0.045, 0.22, 0.06, shopNeonMaterial, 1.27, 1.25, 0.13);
+const shopDoorHandle = new THREE.Mesh(
+  new THREE.SphereGeometry(0.045, 12, 10),
+  new THREE.MeshStandardMaterial({ color: 0xd8e8f3, metalness: 0.9, roughness: 0.2 })
+);
+shopDoorHandle.position.set(1.27, 1.25, 0.15);
+shopDoorLeaf.add(shopDoorHandle);
+let shopDoorTarget = 0;
+const shopDoorHitObjects = [shopDoorLeaf];
+shopDoorLeaf.traverse(object => {
+  if (object.isMesh) shopDoorHitObjects.push(object);
+});
+
+// 3D sign above the entrance.
+const signCanvas = document.createElement("canvas");
+signCanvas.width = 512;
+signCanvas.height = 128;
+const signContext = signCanvas.getContext("2d");
+signContext.fillStyle = "#071321";
+signContext.fillRect(0, 0, 512, 128);
+signContext.strokeStyle = "#38e8dc";
+signContext.lineWidth = 6;
+signContext.strokeRect(5, 5, 502, 118);
+signContext.fillStyle = "#eafaff";
+signContext.font = "bold 48px Arial";
+signContext.textAlign = "center";
+signContext.fillText("MIKA'S REPAIR", 256, 78);
+const signTexture = new THREE.CanvasTexture(signCanvas);
+signTexture.colorSpace = THREE.SRGBColorSpace;
+const shopSign = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.5, 0.62),
+  new THREE.MeshBasicMaterial({ map: signTexture, transparent: true })
+);
+shopSign.position.set(0, 3.38, 0.18);
+mikaShop.add(shopSign);
+
+const hintCanvas = document.createElement("canvas");
+hintCanvas.width = 512;
+hintCanvas.height = 96;
+const hintContext = hintCanvas.getContext("2d");
+hintContext.fillStyle = "rgba(4,10,22,0.9)";
+hintContext.fillRect(0, 0, 512, 96);
+hintContext.strokeStyle = "#5ff5e8";
+hintContext.lineWidth = 4;
+hintContext.strokeRect(3, 3, 506, 90);
+hintContext.fillStyle = "#f0fdff";
+hintContext.font = "bold 30px Arial";
+hintContext.textAlign = "center";
+hintContext.fillText("AIM + TRIGGER TO OPEN", 256, 59);
+const hintTexture = new THREE.CanvasTexture(hintCanvas);
+hintTexture.colorSpace = THREE.SRGBColorSpace;
+const shopHint = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.0, 0.38),
+  new THREE.MeshBasicMaterial({ map: hintTexture, transparent: true })
+);
+shopHint.position.set(0, 3.88, 0.18);
+mikaShop.add(shopHint);
+
+const shopLight = new THREE.PointLight(0x31e9dd, 2.2, 7);
+shopLight.position.set(0, 2.4, 1.0);
+mikaShop.add(shopLight);
+
 // Main-menu showcase world: a dark neon armory stage with a distant skyline.
 const mainMenuWorld = new THREE.Group();
 mainMenuWorld.name = "MAIN_MENU_WORLD";
@@ -625,6 +743,10 @@ function startCity() {
   shopPanel.hidden = true;
   player.position.set(0, 0, 7);
   player.rotation.set(0, 0, 0);
+  jumpVelocity = 0;
+  previousJumpButton = false;
+  shopDoorTarget = 0;
+  shopDoorHinge.rotation.y = 0;
   // First-person on PC and Quest. Hide the head to avoid seeing inside it,
   // but keep the torso and legs visible when the player looks down.
   camera.position.set(0, 1.65, 0);
@@ -1555,6 +1677,15 @@ function activateVRStartAtController(controller) {
 }
 const vrMenuRaycaster = new THREE.Raycaster();
 const vrMenuPointer = new THREE.Vector3();
+
+function interactWithDoor(controller) {
+  if (!isInCity || vrMenu.visible || !renderer.xr.isPresenting) return false;
+  vrMenuRaycaster.setFromXRController(controller);
+  const hit = vrMenuRaycaster.intersectObjects(shopDoorHitObjects, false)[0];
+  if (!hit || hit.distance > 3.5) return false;
+  shopDoorTarget = shopDoorTarget === 0 ? -1.42 : 0;
+  return true;
+}
 const vrControllerRays = [];
 const vrCursor = new THREE.Mesh(
   new THREE.SphereGeometry(0.018, 12, 12),
@@ -1602,7 +1733,8 @@ for (let i = 0; i < 2; i++) {
   controller.addEventListener("select", () => {
     if (controller.userData.handedness === "right") {
       if (vrStart.visible) activateVRStartAtController(controller);
-      else activateVRMenuAtController(controller);
+      else if (vrMenu.visible) activateVRMenuAtController(controller);
+      else interactWithDoor(controller);
     }
   });
   // Keep XR controllers in the same moving/turning space as the player camera.
@@ -1732,7 +1864,7 @@ function activateVRMenuAtController(controller) {
   drawVRMenu();
 }
 function updateVRMenuPointer() {
-  if (!renderer.xr.isPresenting || (!vrMenu.visible && !vrStart.visible)) {
+  if (!renderer.xr.isPresenting) {
     vrCursor.visible = false;
     return;
   }
@@ -1753,7 +1885,10 @@ function updateVRMenuPointer() {
   const menuHit = !vrStart.visible && vrMenu.visible
     ? vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0]
     : null;
-  const hit = startHit || menuHit;
+  const doorHit = isInCity && !vrMenu.visible
+    ? vrMenuRaycaster.intersectObjects(shopDoorHitObjects, false)[0]
+    : null;
+  const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null);
   const hovered = startHit?.object || null;
   if (vrStartHovered && vrStartHovered !== hovered) {
     vrStartHovered.material.emissive.setHex(vrStartHovered.userData.baseEmissive);
@@ -1827,6 +1962,8 @@ window.addEventListener("keyup", event => { keys[event.code] = false; });
 window.addEventListener("blur", () => { for (const key of Object.keys(keys)) keys[key] = false; });
 
 let previousMenuButton = false;
+let previousJumpButton = false;
+let jumpVelocity = 0;
 const clock = new THREE.Clock();
 const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
@@ -1872,6 +2009,16 @@ function getLeftYButton() {
   return !!leftSource?.gamepad?.buttons[5]?.pressed;
 }
 
+function getRightAButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  const rightSource = Array.from(session.inputSources).find(source =>
+    source.handedness === "right" && source.gamepad
+  );
+  // On the Quest Touch controller, the primary right-hand face button is A.
+  return !!rightSource?.gamepad?.buttons[3]?.pressed;
+}
+
 function movePlayer(delta) {
   let stickX = 0;
   let stickY = 0;
@@ -1883,6 +2030,19 @@ function movePlayer(delta) {
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
     if (yPressed && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
     previousMenuButton = yPressed;
+
+    const jumpPressed = getRightAButton();
+    if (jumpPressed && !previousJumpButton && player.position.y <= 0.001) {
+      jumpVelocity = 4.4;
+    }
+    previousJumpButton = jumpPressed;
+    jumpVelocity -= 11.5 * delta;
+    player.position.y += jumpVelocity * delta;
+    if (player.position.y < 0) {
+      player.position.y = 0;
+      jumpVelocity = 0;
+    }
+
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
     player.rotation.y -= look.x * 2.2 * delta;
   } else {
@@ -1897,7 +2057,21 @@ function movePlayer(delta) {
   movement.addScaledVector(right, stickX);
   const movementAmount = Math.min(1, movement.length());
   if (movement.lengthSq() > 1) movement.normalize();
-  player.position.addScaledVector(movement, (3.2 + character.strength * 0.18) * delta);
+  const step = movement.clone().multiplyScalar((3.2 + character.strength * 0.18) * delta);
+  const nextX = player.position.x + step.x;
+  const nextZ = player.position.z + step.z;
+  const doorWorldX = mikaShop.position.x;
+  const doorWorldZ = mikaShop.position.z + shopDoorHinge.position.z;
+  const crossesDoorPlane = (player.position.z - doorWorldZ) * (nextZ - doorWorldZ) <= 0 &&
+    Math.abs(player.position.z - nextZ) > 0.0001;
+  const withinDoorWidth = Math.abs(nextX - doorWorldX) < 0.78;
+  const doorStillClosed = Math.abs(shopDoorHinge.rotation.y) < 0.92;
+  if (!(crossesDoorPlane && withinDoorWidth && doorStillClosed)) {
+    player.position.x = nextX;
+    player.position.z = nextZ;
+  } else {
+    player.position.x = nextX;
+  }
   return movementAmount;
 }
 
@@ -1919,6 +2093,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
       .find(child => child.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand;
     animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI);
   }
+  shopDoorHinge.rotation.y = THREE.MathUtils.damp(
+    shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
+  );
   updateVRMenuPointer();
   neonRing.rotation.z = time * 0.00025;
   marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
