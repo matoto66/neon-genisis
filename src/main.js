@@ -335,6 +335,38 @@ shopDoorLeaf.traverse(object => {
   if (object.isMesh) shopDoorHitObjects.push(object);
 });
 
+// Simple player-radius collision against the workshop's actual wall pieces.
+// Coordinates are local to Mika's shop. The doorway stays open only when the
+// hinged door has swung far enough to clear the player's shoulder width.
+const SHOP_PLAYER_RADIUS = 0.31;
+const shopWallBoxes = [
+  { minX: -2.22, maxX: -0.88, minZ: -0.14, maxZ: 0.14 }, // front left wall
+  { minX:  0.88, maxX:  2.22, minZ: -0.14, maxZ: 0.14 }, // front right wall
+  { minX: -2.18, maxX: -1.98, minZ: -3.03, maxZ: 0.07 }, // left side wall
+  { minX:  1.98, maxX:  2.18, minZ: -3.03, maxZ: 0.07 }  // right side wall
+];
+function playerOverlapsShopBox(worldX, worldZ, box) {
+  const localX = worldX - mikaShop.position.x;
+  const localZ = worldZ - mikaShop.position.z;
+  const closestX = THREE.MathUtils.clamp(localX, box.minX, box.maxX);
+  const closestZ = THREE.MathUtils.clamp(localZ, box.minZ, box.maxZ);
+  const dx = localX - closestX;
+  const dz = localZ - closestZ;
+  return dx * dx + dz * dz < SHOP_PLAYER_RADIUS * SHOP_PLAYER_RADIUS;
+}
+function collidesWithMikaShop(worldX, worldZ) {
+  if (shopWallBoxes.some(box => playerOverlapsShopBox(worldX, worldZ, box))) {
+    return true;
+  }
+  // The closed door fills the doorway. Once it is opened past 0.92 radians,
+  // its leaf is considered clear of the walking path.
+  if (Math.abs(shopDoorHinge.rotation.y) < 0.92) {
+    const doorBox = { minX: -0.78, maxX: 0.75, minZ: 0.10, maxZ: 0.28 };
+    if (playerOverlapsShopBox(worldX, worldZ, doorBox)) return true;
+  }
+  return false;
+}
+
 // 3D sign above the entrance.
 const signCanvas = document.createElement("canvas");
 signCanvas.width = 512;
@@ -2103,19 +2135,16 @@ function movePlayer(delta) {
   const movementAmount = Math.min(1, movement.length());
   if (movement.lengthSq() > 1) movement.normalize();
   const step = movement.clone().multiplyScalar((3.2 + character.strength * 0.18) * delta);
+
+  // Resolve each axis separately so the player slides along the wall instead
+  // of getting stuck, while the wider wall colliders close tiny gaps.
   const nextX = player.position.x + step.x;
+  if (!collidesWithMikaShop(nextX, player.position.z)) {
+    player.position.x = nextX;
+  }
   const nextZ = player.position.z + step.z;
-  const doorWorldX = mikaShop.position.x;
-  const doorWorldZ = mikaShop.position.z + shopDoorHinge.position.z;
-  const crossesDoorPlane = (player.position.z - doorWorldZ) * (nextZ - doorWorldZ) <= 0 &&
-    Math.abs(player.position.z - nextZ) > 0.0001;
-  const withinDoorWidth = Math.abs(nextX - doorWorldX) < 0.78;
-  const doorStillClosed = Math.abs(shopDoorHinge.rotation.y) < 0.92;
-  if (!(crossesDoorPlane && withinDoorWidth && doorStillClosed)) {
-    player.position.x = nextX;
+  if (!collidesWithMikaShop(player.position.x, nextZ)) {
     player.position.z = nextZ;
-  } else {
-    player.position.x = nextX;
   }
   return movementAmount;
 }
