@@ -1,0 +1,2316 @@
+import * as THREE from "three";
+import { VRButton } from "three/addons/webxr/VRButton.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { buildCity, createNeonEnvironment } from "./city.js";
+import { createGame } from "./quests.js";
+import { skinify, mergeStatic } from "./optimize.js";
+import { CYBERWARE } from "./story.js";
+import {
+  state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
+  isActive, toggleInstall, moveSpeed, turnSpeed, jumpVelocity as jumpPower, totalPoints, MAX_STAT
+} from "./state.js";
+
+loadGame();
+const DEBUG = new URLSearchParams(location.search).has("debug");
+let game = null; // gameplay layer (missions, NPCs, dialogue) — created below
+const scene = new THREE.Scene();
+const menuBackground = new THREE.Color(0x080b18);
+const menuFog = new THREE.Fog(0x080b18, 28, 145);
+scene.background = menuBackground;
+scene.fog = menuFog;
+
+const player = new THREE.Group();
+scene.add(player);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 700);
+camera.rotation.order = "YXZ";
+// First-person view: the camera sits at eye height inside the character.
+camera.position.set(0, 1.65, 0);
+camera.rotation.set(0, 0, 0);
+player.add(camera);
+player.position.set(0, 0, 7);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+// Fixed foveated rendering: renders the edges of each eye at lower resolution
+// on Quest, a large GPU saving you can't see through the lenses.
+renderer.xr.setFoveation(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const gameUI = document.querySelector("#game-ui");
+const vrButton = VRButton.createButton(renderer, {
+  requiredFeatures: ["local-floor"],
+  optionalFeatures: ["bounded-floor", "dom-overlay"],
+  domOverlay: { root: gameUI }
+});
+vrButton.textContent = "ENTER VR";
+document.querySelector("#start-actions").appendChild(vrButton);
+vrButton.id = "VRButton";
+vrButton.textContent = "ENTER VR";
+
+// Release any desktop pointer lock before the browser starts an immersive session.
+// Capture phase runs before the VRButton's own click handler.
+vrButton.addEventListener("click", () => {
+  if (document.pointerLockElement) document.exitPointerLock?.();
+}, true);
+
+const startScreen = document.querySelector("#start-screen");
+const startStatus = document.querySelector("#start-status");
+const appearance = { bodyType: "Male", hatStyle: "Baseball Cap", hatColour: "Black", jacketColour: "Black" };
+try {
+  const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
+  if (savedAppearance) {
+    Object.assign(appearance, savedAppearance);
+  }
+} catch {}
+delete appearance.hairStyle;
+delete appearance.hairColour;
+for (const [id, key] of [["body-type","bodyType"],["hat-style","hatStyle"],["hat-colour","hatColour"],["jacket-colour","jacketColour"]]) {
+  const field = document.getElementById(id);
+  field.value = String(appearance[key]);
+  field.addEventListener("change", () => {
+    appearance[key] = field.value;
+    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+    updateCharacterPreview();
+    rebuildPlayableAvatar();
+    startStatus.textContent = "Appearance saved.";
+  });
+}
+setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
+
+// The city of Neo Kasumi (districts, collision, signage, props, rain) is
+// built in city.js as a handful of merged meshes for Quest performance.
+const city = buildCity(scene, renderer);
+// A small neon environment map gives metal, glass and wet streets coloured
+// reflections without any extra real-time lights.
+scene.environment = createNeonEnvironment(renderer);
+scene.environmentIntensity = 0.6;
+
+// Keep the city as a separate world. The title screen renders a different
+// environment until the player explicitly chooses PLAY.
+const cityWorld = new THREE.Group();
+cityWorld.name = "CITY_WORLD";
+for (const child of [...scene.children]) {
+  if (child !== player) cityWorld.attach(child);
+}
+scene.add(cityWorld);
+cityWorld.visible = false;
+
+// SECTOR 09 — Mika's repair shop entrance. This is a real 3D doorway in the
+// city, built from lightweight Three.js geometry so it works on Quest.
+const mikaShop = new THREE.Group();
+mikaShop.name = "MIKAS_REPAIR_SHOP";
+// Ground-floor storefront on the west side of the Sump's main street, facing
+// the road (+X). Local +Z is the shop front, so rotating by 90° turns it.
+mikaShop.position.set(-11, 0, -4.8);
+mikaShop.rotation.y = Math.PI / 2;
+cityWorld.add(mikaShop);
+
+const shopWallMaterial = new THREE.MeshStandardMaterial({
+  color: 0x182436, roughness: 0.84, metalness: 0.42
+});
+const shopTrimMaterial = new THREE.MeshStandardMaterial({
+  color: 0x26384b, roughness: 0.46, metalness: 0.72
+});
+const shopNeonMaterial = new THREE.MeshStandardMaterial({
+  color: 0x38e8dc, emissive: 0x087d78, emissiveIntensity: 1.1,
+  metalness: 0.35, roughness: 0.28
+});
+const shopRedMaterial = new THREE.MeshStandardMaterial({
+  color: 0xff426c, emissive: 0x8e092a, emissiveIntensity: 0.8,
+  metalness: 0.45, roughness: 0.3
+});
+const addShopBox = (parent, w, h, d, material, x, y, z) => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+};
+
+// A shallow workshop shell with an open doorway.
+addShopBox(mikaShop, 1.34, 3.05, 0.28, shopWallMaterial, -1.55, 1.525, 0);
+addShopBox(mikaShop, 1.34, 3.05, 0.28, shopWallMaterial, 1.55, 1.525, 0);
+addShopBox(mikaShop, 1.76, 0.52, 0.28, shopWallMaterial, 0, 2.79, 0);
+addShopBox(mikaShop, 4.2, 0.18, 3.2, shopWallMaterial, 0, 0.02, -1.45);
+addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, -2.08, 1.48, -1.48);
+addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, 2.08, 1.48, -1.48);
+addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 2.95, -1.45);
+addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 0.12, -2.95);
+// Back wall and roof close the workshop (previously open at the back).
+addShopBox(mikaShop, 4.36, 3.05, 0.2, shopWallMaterial, 0, 1.525, -3.05);
+addShopBox(mikaShop, 4.4, 0.16, 3.4, shopWallMaterial, 0, 3.06, -1.5);
+const mikaShopBlockers = [];
+mikaShop.traverse(o => { if (o.isMesh) mikaShopBlockers.push(o); });
+
+// Workshop interior: workbench, pegboard, parts shelves, screens and lamps.
+const benchMat = new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.7, metalness: 0.4 });
+const partMat = new THREE.MeshStandardMaterial({ color: 0x7d8796, roughness: 0.4, metalness: 0.85 });
+const crateMat = new THREE.MeshStandardMaterial({ color: 0x5c4a35, roughness: 0.85 });
+const screenMat = new THREE.MeshBasicMaterial({ color: 0x1fd6c9 });
+const warnMat = new THREE.MeshBasicMaterial({ color: 0xffb02e });
+addShopBox(mikaShop, 0.75, 0.08, 1.9, benchMat, -1.55, 0.92, -1.75);                 // bench top
+for (const z of [-0.9, -2.6]) addShopBox(mikaShop, 0.65, 0.9, 0.08, benchMat, -1.55, 0.45, z);
+addShopBox(mikaShop, 0.05, 1.2, 1.9, new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.8 }), -1.95, 1.75, -1.75); // pegboard
+for (let i = 0; i < 6; i++) addShopBox(mikaShop, 0.04, 0.25 + (i % 3) * 0.1, 0.05, partMat, -1.9, 1.6 + (i % 2) * 0.35, -1.0 - i * 0.28);
+addShopBox(mikaShop, 0.35, 0.22, 0.3, partMat, -1.5, 1.07, -1.3);                    // vice
+addShopBox(mikaShop, 0.5, 0.32, 0.03, screenMat, -1.75, 1.3, -2.35).rotation.y = 0.5; // diagnostic screen
+addShopBox(mikaShop, 0.12, 0.12, 0.6, partMat, -1.4, 1.02, -2.0).rotation.z = 0.3;   // spare robotic forearm
+for (let i = 0; i < 4; i++) {                                                         // shelves on the back wall
+  addShopBox(mikaShop, 1.7, 0.05, 0.35, benchMat, 0.9, 0.7 + i * 0.6, -2.75);
+  for (let k = 0; k < 3; k++) addShopBox(mikaShop, 0.32, 0.25, 0.28, k % 2 ? crateMat : partMat, 0.35 + k * 0.55, 0.86 + i * 0.6, -2.75);
+}
+addShopBox(mikaShop, 0.03, 0.03, 3.0, warnMat, 2.0, 2.85, -1.5);                     // hazard trim
+const mikaLamp = addShopBox(mikaShop, 0.5, 0.05, 0.2, new THREE.MeshBasicMaterial({ color: 0xfff2d6 }), -1.4, 2.6, -1.75);
+// Extra interior colliders (local shop coordinates): bench, shelves, core stand.
+const shopInteriorBoxes = [
+  { minX: -1.98, maxX: -1.15, minZ: -2.75, maxZ: -0.75 },
+  { minX: -0.1, maxX: 1.98, minZ: -2.98, maxZ: -2.55 },
+  { minX: -0.62, maxX: 0.62, minZ: -2.25, maxZ: -1.0 }
+];
+
+for (const x of [-0.82, 0.82]) {
+  addShopBox(mikaShop, 0.09, 2.72, 0.12, shopTrimMaterial, x, 1.36, 0.16);
+  addShopBox(mikaShop, 0.035, 2.66, 0.025, shopNeonMaterial, x, 1.36, 0.232);
+}
+addShopBox(mikaShop, 1.78, 0.09, 0.12, shopTrimMaterial, 0, 2.68, 0.16);
+addShopBox(mikaShop, 1.66, 0.025, 0.025, shopRedMaterial, 0, 2.68, 0.232);
+
+// Door leaf pivots on its left edge. Trigger interaction toggles its target angle.
+const shopDoorHinge = new THREE.Group();
+shopDoorHinge.position.set(-0.76, 0.12, 0.19);
+mikaShop.add(shopDoorHinge);
+const shopDoorLeaf = new THREE.Group();
+shopDoorLeaf.name = "MIKA_SHOP_DOOR";
+shopDoorHinge.add(shopDoorLeaf);
+addShopBox(shopDoorLeaf, 1.48, 2.52, 0.13, shopTrimMaterial, 0.74, 1.26, 0);
+addShopBox(shopDoorLeaf, 1.30, 2.30, 0.025, shopWallMaterial, 0.74, 1.26, 0.078);
+addShopBox(shopDoorLeaf, 0.82, 0.055, 0.018, shopRedMaterial, 0.74, 1.87, 0.098);
+addShopBox(shopDoorLeaf, 0.82, 0.035, 0.018, shopNeonMaterial, 0.74, 0.62, 0.098);
+addShopBox(shopDoorLeaf, 0.045, 0.22, 0.06, shopNeonMaterial, 1.27, 1.25, 0.13);
+const shopDoorHandle = new THREE.Mesh(
+  new THREE.SphereGeometry(0.045, 12, 10),
+  new THREE.MeshStandardMaterial({ color: 0xd8e8f3, metalness: 0.9, roughness: 0.2 })
+);
+shopDoorHandle.position.set(1.27, 1.25, 0.15);
+shopDoorLeaf.add(shopDoorHandle);
+let shopDoorTarget = 0;
+shopDoorLeaf.traverse(o => { if (o.isMesh) mikaShopBlockers.push(o); });
+// Invisible, slightly thicker box over the door so desktop players can aim F at it.
+const shopDoorAim = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 0.3), new THREE.MeshBasicMaterial({ visible: false }));
+shopDoorAim.position.set(0.74, 1.26, 0.05);
+shopDoorLeaf.add(shopDoorAim);
+const shopDoorHitObjects = [shopDoorLeaf];
+shopDoorLeaf.traverse(object => {
+  if (object.isMesh) shopDoorHitObjects.push(object);
+});
+
+// Simple player-radius collision against the workshop's actual wall pieces.
+// Coordinates are local to Mika's shop. The doorway stays open only when the
+// hinged door has swung far enough to clear the player's shoulder width.
+const SHOP_PLAYER_RADIUS = 0.31;
+const shopWallBoxes = [
+  { minX: -2.22, maxX: -0.88, minZ: -0.14, maxZ: 0.14 }, // front left wall
+  { minX:  0.88, maxX:  2.22, minZ: -0.14, maxZ: 0.14 }, // front right wall
+  { minX: -2.18, maxX: -1.98, minZ: -3.03, maxZ: 0.07 }, // left side wall
+  { minX:  1.98, maxX:  2.18, minZ: -3.03, maxZ: 0.07 }  // right side wall
+];
+function playerOverlapsShopBox(worldX, worldZ, box) {
+  // Convert the world position into the shop's rotated local space.
+  const ox = worldX - mikaShop.position.x;
+  const oz = worldZ - mikaShop.position.z;
+  const c = Math.cos(mikaShop.rotation.y), s = Math.sin(mikaShop.rotation.y);
+  const localX = ox * c - oz * s;
+  const localZ = ox * s + oz * c;
+  const closestX = THREE.MathUtils.clamp(localX, box.minX, box.maxX);
+  const closestZ = THREE.MathUtils.clamp(localZ, box.minZ, box.maxZ);
+  const dx = localX - closestX;
+  const dz = localZ - closestZ;
+  return dx * dx + dz * dz < SHOP_PLAYER_RADIUS * SHOP_PLAYER_RADIUS;
+}
+function collidesWithMikaShop(worldX, worldZ) {
+  if (shopWallBoxes.some(box => playerOverlapsShopBox(worldX, worldZ, box))) {
+    return true;
+  }
+  if (shopInteriorBoxes.some(box => playerOverlapsShopBox(worldX, worldZ, box))) return true;
+  // back wall
+  if (playerOverlapsShopBox(worldX, worldZ, { minX: -2.18, maxX: 2.18, minZ: -3.15, maxZ: -2.95 })) return true;
+  // The closed door fills the doorway. Once it is opened past 0.92 radians,
+  // its leaf is considered clear of the walking path.
+  if (shopDoorHinge.rotation.y > -0.92 && shopDoorHinge.rotation.y < 0.5) {
+    const doorBox = { minX: -0.78, maxX: 0.75, minZ: 0.10, maxZ: 0.28 };
+    if (playerOverlapsShopBox(worldX, worldZ, doorBox)) return true;
+  }
+  return false;
+}
+
+// 3D sign above the entrance.
+const signCanvas = document.createElement("canvas");
+signCanvas.width = 512;
+signCanvas.height = 128;
+const signContext = signCanvas.getContext("2d");
+signContext.fillStyle = "#071321";
+signContext.fillRect(0, 0, 512, 128);
+signContext.strokeStyle = "#38e8dc";
+signContext.lineWidth = 6;
+signContext.strokeRect(5, 5, 502, 118);
+signContext.fillStyle = "#eafaff";
+signContext.font = "bold 48px Arial";
+signContext.textAlign = "center";
+signContext.fillText("MIKA'S REPAIR", 256, 78);
+const signTexture = new THREE.CanvasTexture(signCanvas);
+signTexture.colorSpace = THREE.SRGBColorSpace;
+const shopSign = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.5, 0.62),
+  new THREE.MeshBasicMaterial({ map: signTexture, transparent: true })
+);
+shopSign.position.set(0, 3.38, 0.18);
+mikaShop.add(shopSign);
+
+const hintCanvas = document.createElement("canvas");
+hintCanvas.width = 512;
+hintCanvas.height = 96;
+const hintContext = hintCanvas.getContext("2d");
+hintContext.fillStyle = "rgba(4,10,22,0.9)";
+hintContext.fillRect(0, 0, 512, 96);
+hintContext.strokeStyle = "#5ff5e8";
+hintContext.lineWidth = 4;
+hintContext.strokeRect(3, 3, 506, 90);
+hintContext.fillStyle = "#f0fdff";
+hintContext.font = "bold 30px Arial";
+hintContext.textAlign = "center";
+hintContext.fillText("GRAB HANDLE + TWIST  ·  PC: F", 256, 59);
+const hintTexture = new THREE.CanvasTexture(hintCanvas);
+hintTexture.colorSpace = THREE.SRGBColorSpace;
+const shopHint = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.0, 0.38),
+  new THREE.MeshBasicMaterial({ map: hintTexture, transparent: true })
+);
+shopHint.position.set(0, 3.88, 0.18);
+mikaShop.add(shopHint);
+
+const shopLight = new THREE.PointLight(0x31e9dd, 3.2, 8);
+shopLight.position.set(0, 2.4, 1.0);
+mikaShop.add(shopLight);
+
+// Genesis Core display stand. The uploaded Blockbench model is loaded as a
+// glTF asset and presented inside Mika's workshop; pickup behavior comes later.
+const genesisCoreDisplay = new THREE.Group();
+genesisCoreDisplay.name = "GENESIS_CORE_DISPLAY";
+genesisCoreDisplay.position.set(0, 0, -1.62);
+mikaShop.add(genesisCoreDisplay);
+
+const coreStandMaterial = new THREE.MeshStandardMaterial({
+  color: 0x182538, metalness: 0.88, roughness: 0.3
+});
+const coreStandGlow = new THREE.MeshStandardMaterial({
+  color: 0x35e9e0, emissive: 0x087b78, emissiveIntensity: 1.15,
+  metalness: 0.6, roughness: 0.25
+});
+const coreStandBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.68, 0.78, 0.48, 32),
+  coreStandMaterial
+);
+coreStandBase.position.y = 0.24;
+genesisCoreDisplay.add(coreStandBase);
+const coreStandTop = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.72, 0.72, 0.07, 32),
+  coreStandGlow
+);
+coreStandTop.position.y = 0.49;
+genesisCoreDisplay.add(coreStandTop);
+const coreDisplayRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.57, 0.018, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0x39f4e7 })
+);
+coreDisplayRing.rotation.x = Math.PI / 2;
+coreDisplayRing.position.y = 0.54;
+genesisCoreDisplay.add(coreDisplayRing);
+
+// Display atmosphere: a soft light, a holographic projection cone, two slow
+// orbit rings and drifting energy motes around the core.
+const coreLight = new THREE.PointLight(0x38f0e6, 9, 6, 1.4);
+coreLight.position.set(0, 1.25, 0.2);
+genesisCoreDisplay.add(coreLight);
+const coreBeamMat = new THREE.MeshBasicMaterial({ color: 0x38f0e6, transparent: true, opacity: 0.1,
+  blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const coreBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.6, 1.5, 24, 1, true), coreBeamMat);
+coreBeam.position.y = 1.3;
+genesisCoreDisplay.add(coreBeam);
+const coreOrbitMat = new THREE.MeshBasicMaterial({ color: 0x8ffcff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+const coreOrbitA = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.008, 6, 64), coreOrbitMat);
+const coreOrbitB = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.006, 6, 64), coreOrbitMat);
+coreOrbitA.position.y = coreOrbitB.position.y = 1.15;
+genesisCoreDisplay.add(coreOrbitA, coreOrbitB);
+const MOTES = 36;
+const motePositions = new Float32Array(MOTES * 3);
+const moteGeometry = new THREE.BufferGeometry();
+moteGeometry.setAttribute("position", new THREE.BufferAttribute(motePositions, 3));
+const coreMotes = new THREE.Points(moteGeometry, new THREE.PointsMaterial({ color: 0x9ffcff, size: 0.025,
+  transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+coreMotes.frustumCulled = false;
+genesisCoreDisplay.add(coreMotes);
+// Hazard-striped floor ring and a small plaque in front of the stand.
+const corePlaqueCanvas = document.createElement("canvas");
+corePlaqueCanvas.width = 512; corePlaqueCanvas.height = 128;
+{
+  const c = corePlaqueCanvas.getContext("2d");
+  c.fillStyle = "#0a1220"; c.fillRect(0, 0, 512, 128);
+  c.strokeStyle = "#38f0e6"; c.lineWidth = 4; c.strokeRect(4, 4, 504, 120);
+  c.fillStyle = "#9ffcff"; c.font = "bold 40px Arial"; c.textAlign = "center"; c.fillText("GENESIS CORE", 256, 58);
+  c.fillStyle = "#6f8aa8"; c.font = "22px Arial"; c.fillText("SALVAGE LOT 0-71 · DO NOT TOUCH (MIKA)", 256, 98);
+}
+const corePlaqueTexture = new THREE.CanvasTexture(corePlaqueCanvas);
+corePlaqueTexture.colorSpace = THREE.SRGBColorSpace;
+const corePlaque = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.15), new THREE.MeshBasicMaterial({ map: corePlaqueTexture }));
+corePlaque.position.set(0, 0.3, 0.79);
+corePlaque.rotation.x = -0.35;
+genesisCoreDisplay.add(corePlaque);
+let coreFlareTime = -10;
+function flareGenesisCore() { coreFlareTime = performance.now(); }
+function animateGenesisCore(time) {
+  const flare = Math.max(0, 1 - (performance.now() - coreFlareTime) / 1800);
+  coreLight.intensity = 9 + Math.sin(time * 0.003) * 1.5 + flare * 40;
+  coreBeamMat.opacity = 0.08 + Math.sin(time * 0.002) * 0.03 + flare * 0.35;
+  coreOrbitA.rotation.set(Math.PI / 2 + Math.sin(time * 0.0007) * 0.4, time * 0.0009, 0);
+  coreOrbitB.rotation.set(Math.PI / 2.6, -time * 0.0006, Math.cos(time * 0.0005) * 0.3);
+  const s = 1 + flare * 0.5;
+  coreOrbitA.scale.setScalar(s); coreOrbitB.scale.setScalar(s);
+  for (let i = 0; i < MOTES; i++) {
+    const a = time * 0.0004 * (1 + (i % 5) * 0.2) + i * 1.7;
+    const r = 0.35 + (i % 7) * 0.06 + flare * 0.4;
+    motePositions[i * 3] = Math.cos(a) * r;
+    motePositions[i * 3 + 1] = 0.75 + ((time * 0.00015 + i * 0.13) % 1) * 1.1;
+    motePositions[i * 3 + 2] = Math.sin(a) * r;
+  }
+  moteGeometry.attributes.position.needsUpdate = true;
+}
+
+let genesisCoreModel = null;
+const genesisCoreLoader = new GLTFLoader();
+genesisCoreLoader.load(
+  new URL("../Genisis_%20core.gltf", import.meta.url).href,
+  gltf => {
+    genesisCoreModel = gltf.scene;
+    genesisCoreModel.name = "GENESIS_CORE_BLOCKBENCH_MODEL";
+    genesisCoreModel.scale.setScalar(1.25);
+    genesisCoreModel.position.set(0, 0.55, 0);
+    // The energy lens was built on the model's -Z face. Turn it toward the
+    // workshop entrance so the player can see it when entering.
+    genesisCoreModel.rotation.y = Math.PI;
+    genesisCoreModel.traverse(object => {
+      if (!object.isMesh) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+      if (object.name.toLowerCase().includes("energy core")) {
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const material of materials) {
+          if (!material) continue;
+          material.emissive = new THREE.Color(0x087f91);
+          material.emissiveIntensity = 1.35;
+          material.needsUpdate = true;
+        }
+      }
+    });
+    genesisCoreDisplay.add(genesisCoreModel);
+  },
+  undefined,
+  error => console.error("Could not load the Genesis Core model:", error)
+);
+
+// Main-menu showcase world: a dark neon armory stage with a distant skyline.
+const mainMenuWorld = new THREE.Group();
+mainMenuWorld.name = "MAIN_MENU_WORLD";
+scene.add(mainMenuWorld);
+
+mainMenuWorld.add(new THREE.HemisphereLight(0x9ab9ff, 0x100b22, 1.8));
+const menuKeyLight = new THREE.PointLight(0x4cefe4, 32, 20);
+menuKeyLight.position.set(-3, 5, 4);
+mainMenuWorld.add(menuKeyLight);
+const menuRimLight = new THREE.PointLight(0xb34bff, 28, 18);
+menuRimLight.position.set(4, 3, -1);
+mainMenuWorld.add(menuRimLight);
+
+const menuFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(90, 90),
+  new THREE.MeshStandardMaterial({ color: 0x070b18, roughness: 0.72, metalness: 0.32 })
+);
+menuFloor.rotation.x = -Math.PI / 2;
+menuFloor.position.y = -0.035;
+mainMenuWorld.add(menuFloor);
+
+const skylineMaterials = [
+  new THREE.MeshStandardMaterial({ color: 0x10182b, roughness: 0.8, metalness: 0.35 }),
+  new THREE.MeshStandardMaterial({ color: 0x17132a, roughness: 0.8, metalness: 0.4 }),
+  new THREE.MeshStandardMaterial({ color: 0x0d202a, roughness: 0.8, metalness: 0.35 })
+];
+const skylineGlowMaterials = [
+  new THREE.MeshBasicMaterial({ color: 0x24cfc9 }),
+  new THREE.MeshBasicMaterial({ color: 0x9c45e9 }),
+  new THREE.MeshBasicMaterial({ color: 0xff4f9a })
+];
+for (let i = 0; i < 17; i++) {
+  const x = (i - 8) * 3.1;
+  const width = 1.8 + (i % 3) * 0.45;
+  const height = 7 + ((i * 7) % 9);
+  const tower = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, 2.3),
+    skylineMaterials[i % skylineMaterials.length]
+  );
+  tower.position.set(x, height / 2 - 0.1, -10 - (i % 4) * 1.8);
+  mainMenuWorld.add(tower);
+  for (let band = 0; band < 3; band++) {
+    const strip = new THREE.Mesh(
+      new THREE.BoxGeometry(width * 0.82, 0.035, 0.045),
+      skylineGlowMaterials[(i + band) % skylineGlowMaterials.length]
+    );
+    strip.position.set(x, 1.5 + band * 1.25, -8.82 - (i % 4) * 1.8);
+    mainMenuWorld.add(strip);
+  }
+}
+
+// These are fictional, non-functional sci-fi display props: bold shapes,
+// glowing energy details and no realistic firing or mechanical systems.
+function createCyberpunkDisplayProp(primaryHex, glowHex, length, variant) {
+  // Stylized, non-functional energy display props with layered armor and light channels.
+  const prop = new THREE.Group();
+  prop.scale.setScalar(length / 2.65);
+
+  const shell = new THREE.MeshStandardMaterial({ color: primaryHex, metalness: 0.88, roughness: 0.24 });
+  const armor = new THREE.MeshStandardMaterial({
+    color: variant === 1 ? 0x35475b : 0x46334f, metalness: 0.78, roughness: 0.3
+  });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0b1220, metalness: 0.9, roughness: 0.22 });
+  const inset = new THREE.MeshStandardMaterial({ color: 0x18263a, metalness: 0.82, roughness: 0.32 });
+  const glow = new THREE.MeshStandardMaterial({
+    color: glowHex, emissive: glowHex, emissiveIntensity: 1.65, metalness: 0.42, roughness: 0.2
+  });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x9aabc0, metalness: 0.9, roughness: 0.22 });
+
+  const addBox = (w, h, d, x, y, z, material, rz = 0) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    mesh.rotation.z = rz;
+    prop.add(mesh);
+    return mesh;
+  };
+
+  // Faceted, bevelled main shell instead of a stack of plain rectangles.
+  const hullShape = new THREE.Shape();
+  hullShape.moveTo(-1.28, -0.16);
+  hullShape.lineTo(-1.13, -0.28);
+  hullShape.lineTo(-0.77, -0.25);
+  hullShape.lineTo(-0.55, -0.15);
+  hullShape.lineTo(-0.32, -0.29);
+  hullShape.lineTo(0.02, -0.27);
+  hullShape.lineTo(0.18, -0.16);
+  hullShape.lineTo(0.96, -0.14);
+  hullShape.lineTo(1.23, -0.06);
+  hullShape.lineTo(1.29, 0.05);
+  hullShape.lineTo(1.08, 0.14);
+  hullShape.lineTo(0.32, 0.17);
+  hullShape.lineTo(0.12, 0.29);
+  hullShape.lineTo(-0.57, 0.27);
+  hullShape.lineTo(-0.78, 0.17);
+  hullShape.lineTo(-1.17, 0.19);
+  hullShape.closePath();
+  const hullGeometry = new THREE.ExtrudeGeometry(hullShape, {
+    depth: 0.42, bevelEnabled: true, bevelSegments: 3,
+    steps: 1, bevelSize: 0.045, bevelThickness: 0.04, curveSegments: 5
+  });
+  hullGeometry.translate(0, 0, -0.21);
+  prop.add(new THREE.Mesh(hullGeometry, shell));
+
+  // Raised top spine and faceted side armor add depth and metallic highlights.
+  addBox(1.34, 0.075, 0.48, -0.02, 0.245, 0, armor, -0.015);
+  addBox(0.62, 0.055, 0.52, -0.34, 0.31, 0, dark, 0.02);
+  addBox(0.58, 0.055, 0.42, 0.40, 0.215, 0, trim, -0.015);
+  addBox(0.48, 0.035, 0.44, 0.39, 0.255, 0, glow, -0.015);
+
+  const sidePlateShape = new THREE.Shape();
+  sidePlateShape.moveTo(-0.88, -0.075);
+  sidePlateShape.lineTo(-0.68, -0.15);
+  sidePlateShape.lineTo(0.66, -0.12);
+  sidePlateShape.lineTo(0.88, -0.015);
+  sidePlateShape.lineTo(0.70, 0.105);
+  sidePlateShape.lineTo(-0.65, 0.11);
+  sidePlateShape.lineTo(-0.88, 0.035);
+  sidePlateShape.closePath();
+  const plateGeometry = new THREE.ExtrudeGeometry(sidePlateShape, {
+    depth: 0.035, bevelEnabled: true, bevelSegments: 2,
+    steps: 1, bevelSize: 0.018, bevelThickness: 0.012
+  });
+  plateGeometry.translate(0, 0, -0.0175);
+  const plateMaterial = armor.clone();
+  plateMaterial.side = THREE.DoubleSide;
+  for (const side of [-1, 1]) {
+    const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+    plate.position.set(0, 0, side * 0.225);
+    prop.add(plate);
+
+    // Recessed energy channel, inset panels and tiny status lights.
+    addBox(1.18, 0.035, 0.025, 0, 0.018, side * 0.253, glow);
+    addBox(0.54, 0.026, 0.028, -0.40, -0.085, side * 0.254, inset);
+    addBox(0.34, 0.025, 0.03, 0.43, -0.075, side * 0.254, dark);
+    for (let i = 0; i < 4; i++) {
+      addBox(0.105, 0.018, 0.028, -0.52 + i * 0.13, -0.12, side * 0.258, trim, -0.08);
+    }
+    const statusLight = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), glow);
+    statusLight.position.set(0.72, 0.055, side * 0.265);
+    prop.add(statusLight);
+  }
+
+  // A luminous energy aperture, intentionally not a functional barrel.
+  const emitterHousing = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.19, 0.22, 12), dark);
+  emitterHousing.rotation.z = -Math.PI / 2;
+  emitterHousing.position.set(1.25, 0.005, 0);
+  prop.add(emitterHousing);
+  const emitterRing = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.035, 10, 24), glow);
+  emitterRing.rotation.y = Math.PI / 2;
+  emitterRing.position.set(1.38, 0.005, 0);
+  prop.add(emitterRing);
+  const emitterCore = new THREE.Mesh(
+    new THREE.CircleGeometry(0.105, 20),
+    new THREE.MeshBasicMaterial({ color: glowHex })
+  );
+  emitterCore.position.set(1.391, 0.005, 0);
+  emitterCore.rotation.y = Math.PI / 2;
+  prop.add(emitterCore);
+
+  // Underside shell and layered fins finish the rear silhouette.
+  addBox(0.34, 0.36, 0.34, -0.47, -0.31, 0, dark, 0.12);
+  addBox(0.42, 0.075, 0.42, -0.55, -0.43, 0, armor, 0.12);
+  addBox(0.27, 0.08, 0.49, -0.90, 0.22, 0, dark, -0.08);
+  addBox(0.22, 0.045, 0.53, -0.96, 0.27, 0, glow, -0.08);
+  addBox(0.24, 0.07, 0.46, 0.02, 0.37, 0, trim, 0.02);
+
+  // Decorative fasteners: purely cosmetic surface details.
+  for (const side of [-1, 1]) {
+    for (const x of [-0.72, 0.72]) {
+      const fastener = new THREE.Mesh(new THREE.SphereGeometry(0.026, 8, 6), trim);
+      fastener.position.set(x, 0.02, side * 0.27);
+      prop.add(fastener);
+    }
+  }
+  return prop;
+}
+
+const menuPlatform = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.9, 2.08, 0.22, 64),
+  new THREE.MeshStandardMaterial({ color: 0x111a2b, metalness: 0.88, roughness: 0.25 })
+);
+menuPlatform.position.set(0, 0.02, 2.4);
+mainMenuWorld.add(menuPlatform);
+
+const platformRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.92, 0.035, 10, 96),
+  new THREE.MeshBasicMaterial({ color: 0x42f4e8 })
+);
+platformRing.rotation.x = Math.PI / 2;
+platformRing.position.set(0, 0.15, 2.4);
+mainMenuWorld.add(platformRing);
+
+const platformRingInner = new THREE.Mesh(
+  new THREE.TorusGeometry(1.52, 0.018, 8, 96),
+  new THREE.MeshBasicMaterial({ color: 0xa64cff })
+);
+platformRingInner.rotation.x = Math.PI / 2;
+platformRingInner.position.set(0, 0.16, 2.4);
+mainMenuWorld.add(platformRingInner);
+
+const crossedProps = new THREE.Group();
+crossedProps.name = "CROSSED_CYBERPUNK_PROPS";
+crossedProps.position.set(0, 1.72, 2.4);
+mainMenuWorld.add(crossedProps);
+
+const displayPropA = createCyberpunkDisplayProp(0x25364c, 0x27e8df, 2.65, 1);
+displayPropA.rotation.z = Math.PI * 0.245;
+displayPropA.position.set(0, 0.025, -0.13);
+crossedProps.add(displayPropA);
+
+const displayPropB = createCyberpunkDisplayProp(0x30233f, 0xff4c9c, 2.4, 2);
+displayPropB.rotation.z = -Math.PI * 0.245;
+displayPropB.position.set(0, -0.015, 0.13);
+crossedProps.add(displayPropB);
+
+const showcaseLight = new THREE.PointLight(0x43dfe6, 8, 7);
+showcaseLight.position.set(0, 2.2, 2.2);
+mainMenuWorld.add(showcaseLight);
+
+// Character, credits, cyberware and story progress live in state.js and are
+// saved automatically on this device. `character` is the live stats object.
+const character = state.character;
+
+function updateCharacterUI() {
+  document.querySelector("#points-left").textContent = pointsLeft();
+  document.querySelector("#points-total").textContent = totalPoints();
+  document.querySelector("#strength-value").textContent = character.strength;
+  document.querySelector("#health-value").textContent = character.health;
+  document.querySelector("#compatibility-value").textContent = character.compatibility;
+  document.querySelector("#max-health").textContent = maxHealth();
+  document.querySelector("#cyber-grade").textContent = gradeNames[character.compatibility];
+  document.querySelector("#credits").textContent = "$" + state.credits.toLocaleString();
+  document.querySelector("#shop-credits").textContent = "$" + state.credits.toLocaleString();
+  document.querySelectorAll("[data-stat][data-change]").forEach(button => {
+    const stat = button.dataset.stat;
+    const change = Number(button.dataset.change);
+    button.disabled = change > 0 ? (pointsLeft() <= 0 || character[stat] >= MAX_STAT) : character[stat] <= 0;
+  });
+  // Cyberware list in the desktop menu
+  const list = document.querySelector("#cyberware-list");
+  if (list) {
+    document.querySelector("#slot-count").textContent = `${state.installed.length} / ${slotCount()}`;
+    list.innerHTML = "";
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    if (!owned.length) list.innerHTML = '<p class="panel-note">No cyberware yet. Doc Anaya runs the Second Skin clinic in Neon Mile.</p>';
+    for (const id of owned) {
+      const w = CYBERWARE[id];
+      const row = document.createElement("div");
+      row.className = "ware-row";
+      const installed = state.installed.includes(id);
+      const inactive = installed && !isActive(id);
+      row.innerHTML = `<div><strong>${w.name}</strong><p>${w.desc}${inactive ? " <em>(needs COMPATIBILITY " + w.req + ")</em>" : ""}</p></div>`;
+      const btn = document.createElement("button");
+      btn.className = "ui-button" + (installed ? " accent" : "");
+      btn.textContent = installed ? "REMOVE" : "INSTALL";
+      btn.addEventListener("click", () => { const r = toggleInstall(id); if (r === "no-slots") game?.toast("No free slots. Raise COMPATIBILITY or remove something.", "warn"); updateCharacterUI(); });
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  }
+  const obj = game?.objectiveSummary();
+  if (obj) {
+    document.querySelector("#menu-objective-title").textContent = obj.title;
+    document.querySelector("#menu-objective-text").textContent = obj.text;
+  }
+  if (vrMenu?.visible) drawVRMenu();
+}
+
+document.querySelectorAll("[data-stat][data-change]").forEach(button => {
+  button.addEventListener("click", () => {
+    changeStat(button.dataset.stat, Number(button.dataset.change));
+    updateCharacterUI();
+  });
+});
+
+const characterPanel = document.querySelector("#character-panel");
+const shopPanel = document.querySelector("#shop-panel");
+function showPanel(panel) {
+  const wasOpen = !panel.hidden;
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  if (!wasOpen) panel.hidden = false;
+}
+
+function openGameMenu() {
+  gameUI.classList.remove("menu-closed");
+  gameUI.classList.add("menu-open");
+  if (!renderer.xr.isPresenting && document.pointerLockElement === renderer.domElement) {
+    document.exitPointerLock?.();
+  }
+}
+function closeGameMenu() {
+  gameUI.classList.remove("menu-open");
+  gameUI.classList.add("menu-closed");
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  if (!renderer.xr.isPresenting) renderer.domElement.requestPointerLock?.();
+}
+function toggleGameMenu() {
+  if (gameUI.classList.contains("menu-open")) closeGameMenu();
+  else openGameMenu();
+}
+document.addEventListener("keydown", event => {
+  if (game && isInCity && !renderer.xr.isPresenting) {
+    if (game.handleKey(event.code)) { event.preventDefault(); return; }
+    if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
+  }
+  if (event.code === "KeyE" && !renderer.xr.isPresenting) {
+    event.preventDefault();
+    toggleGameMenu();
+  }
+  if (event.code === "Escape" && gameUI.classList.contains("menu-open")) closeGameMenu();
+});
+document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
+document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
+document.querySelectorAll("[data-close]").forEach(button => {
+  button.addEventListener("click", () => { document.getElementById(button.dataset.close).hidden = true; });
+});
+// (updateCharacterUI runs once the game systems exist, further below.)
+
+// A true 3D menu for immersive VR. The normal HTML menu remains for desktop,
+// because browser DOM overlays are not consistently displayed in Quest VR.
+const vrMenu = new THREE.Group();
+vrMenu.visible = false;
+scene.add(vrMenu);
+// These values are replaced with hand-relative placement when the left
+// controller connects. The menu is deliberately compact, like a wrist display.
+vrMenu.position.set(0, 1.2, 0);
+vrMenu.scale.set(0.00062, 0.00062, 0.00062);
+
+const vrMenuCanvas = document.createElement("canvas");
+vrMenuCanvas.width = 1024;
+vrMenuCanvas.height = 768;
+const vrMenuContext = vrMenuCanvas.getContext("2d");
+const vrMenuTexture = new THREE.CanvasTexture(vrMenuCanvas);
+vrMenuTexture.colorSpace = THREE.SRGBColorSpace;
+const vrMenuMaterial = new THREE.MeshBasicMaterial({
+  map: vrMenuTexture, transparent: true, side: THREE.DoubleSide, depthTest: false
+});
+const vrMenuPanel = new THREE.Mesh(new THREE.PlaneGeometry(1024, 768), vrMenuMaterial);
+vrMenu.add(vrMenuPanel);
+vrMenuPanel.position.z = 0;
+vrMenuPanel.renderOrder = 1000;
+
+// World-anchored VR character terminal. Each option is its own 3D card,
+// inspired by diegetic spatial menus rather than one large flat splash screen.
+const vrStart = new THREE.Group();
+vrStart.visible = false;
+scene.add(vrStart);
+const vrStartTargets = [];
+let vrStartReady = false;
+let vrStartHovered = null;
+let isInCity = false;
+
+function startCity() {
+  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+  isInCity = true;
+  cityWorld.visible = true;
+  mainMenuWorld.visible = false;
+  vrStart.visible = false;
+  characterPreview.visible = false;
+  vrStartReady = true;
+  vrStartHovered = null;
+  vrMenu.visible = false;
+  vrCursor.visible = false;
+  startScreen.classList.add("hidden");
+  gameUI.classList.add("menu-closed");
+  gameUI.classList.remove("menu-open");
+  characterPanel.hidden = true;
+  shopPanel.hidden = true;
+  player.position.set(0, 0, 7);
+  player.rotation.set(0, 0, 0);
+  // Desktop: you look straight down the street toward Mika's shop and the
+  // Spire. In VR the headset decides where you look.
+  jumpVelocity = 0;
+  previousJumpButton = false;
+  shopDoorTarget = 0;
+  activeDoorGrab = null;
+  shopDoorHinge.rotation.y = 0;
+  // First-person on PC and Quest. Hide the head to avoid seeing inside it,
+  // but keep the torso and legs visible when the player looks down.
+  camera.position.set(0, 1.65, 0);
+  pitch = 0;
+  camera.rotation.set(0, 0, 0);
+  if (playableAvatar) {
+    // First-person gameplay shows hands only, not the full body or limbs.
+    playableAvatar.root.visible = false;
+  }
+  if (firstPersonHands) firstPersonHands.visible = !renderer.xr.isPresenting;
+  startStatus.textContent = "City loaded. Welcome to Neon Genesis.";
+  document.body.classList.add("in-city");
+  city.applyAtmosphere(scene, player.position.z);
+  updateCharacterUI();
+  game.beginSession();
+}
+
+const appearanceChoices = {
+  bodyType: ["Male", "Female"],
+  hatStyle: ["Baseball Cap", "Beanie", "Bucket Hat", "Tech Helmet"],
+  hatColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"],
+  jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
+};
+
+// 3D character preview: the same model is shown on desktop and beside the VR editor.
+const characterPreview = new THREE.Group();
+characterPreview.name = "LIVE_CHARACTER_PREVIEW";
+mainMenuWorld.add(characterPreview);
+characterPreview.position.set(3.15, 0, 2.4);
+
+const previewBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.48, 0.54, 0.12, 40),
+  new THREE.MeshStandardMaterial({ color: 0x111b2c, metalness: 0.88, roughness: 0.25 })
+);
+previewBase.position.y = 0.06;
+characterPreview.add(previewBase);
+const previewBaseRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.49, 0.018, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0x42f4e8 })
+);
+previewBaseRing.rotation.x = Math.PI / 2;
+previewBaseRing.position.y = 0.125;
+characterPreview.add(previewBaseRing);
+const previewKeyLight = new THREE.PointLight(0x79f5ed, 2.4, 4.5);
+previewKeyLight.position.set(-0.8, 2.1, 1.25);
+characterPreview.add(previewKeyLight);
+const previewRimLight = new THREE.PointLight(0xa54dff, 1.8, 3.5);
+previewRimLight.position.set(0.9, 1.55, -0.8);
+characterPreview.add(previewRimLight);
+
+let avatarModel = null;
+let playableAvatar = null;
+
+function disposeAvatarRig(rigRoot) {
+  if (!rigRoot) return;
+  rigRoot.traverse(object => {
+    object.geometry?.dispose();
+    if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+    else object.material?.dispose();
+  });
+  rigRoot.parent?.remove(rigRoot);
+}
+
+// Shared human character builder. The same model is used for the editor
+// preview and the playable character so clothing and body type stay matched.
+function createHumanAvatar(parent) {
+  const root = new THREE.Group();
+  root.name = "HUMAN_PLAYER_AVATAR";
+  parent.add(root);
+
+  const bodyType = appearance.bodyType === "Female" ? "Female" : "Male";
+  const jacketHex = {
+    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.jacketColour] || 0x30394a;
+  const hatHex = {
+    Black: 0x202735, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.hatColour] || 0x202735;
+
+  const skin = new THREE.MeshStandardMaterial({ color: 0xb98265, roughness: 0.82, metalness: 0.0 });
+  const skinLight = new THREE.MeshStandardMaterial({ color: 0xc99476, roughness: 0.84, metalness: 0.0 });
+  const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, roughness: 0.76, metalness: 0.08 });
+  const jacketShadow = new THREE.MeshStandardMaterial({ color: 0x172131, roughness: 0.82, metalness: 0.06 });
+  const jacketTrim = new THREE.MeshStandardMaterial({ color: 0x3b5267, roughness: 0.64, metalness: 0.18 });
+  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x9aa9b8, roughness: 0.34, metalness: 0.82 });
+  const pants = new THREE.MeshStandardMaterial({ color: 0x202a39, roughness: 0.9, metalness: 0.03 });
+  const shoes = new THREE.MeshStandardMaterial({ color: 0x101722, roughness: 0.82, metalness: 0.06 });
+  const shoeSole = new THREE.MeshStandardMaterial({ color: 0x070c13, roughness: 0.9 });
+  const hat = new THREE.MeshStandardMaterial({ color: hatHex, roughness: 0.72, metalness: 0.04 });
+  const hatDetail = new THREE.MeshStandardMaterial({ color: 0x35d6cd, emissive: 0x0a6564, emissiveIntensity: 0.42, roughness: 0.55 });
+  const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xf1e8dd, roughness: 0.8 });
+  const eyeDark = new THREE.MeshStandardMaterial({ color: 0x171923, roughness: 0.7 });
+  const brow = new THREE.MeshStandardMaterial({ color: 0x32251f, roughness: 0.9 });
+  const mouth = new THREE.MeshStandardMaterial({ color: 0x74483f, roughness: 0.9 });
+
+  const add = (parentNode, geometry, material, x, y, z) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parentNode.add(mesh);
+    return mesh;
+  };
+  const capsule = (parentNode, material, radius, length, x, y, z) =>
+    add(parentNode, new THREE.CapsuleGeometry(radius, length, 6, 14), material, x, y, z);
+  const addCircuitLine = (parentNode, points, radius, material) => {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map(([x, y, z]) => new THREE.Vector3(x, y, z))
+    );
+    const line = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, Math.max(16, points.length * 8), radius, 6, false),
+      material
+    );
+    line.frustumCulled = false;
+    parentNode.add(line);
+    return line;
+  };
+  const jacketCircuitRed = new THREE.MeshStandardMaterial({
+    color: 0xd92743, emissive: 0x650817, emissiveIntensity: 0.9,
+    metalness: 0.48, roughness: 0.3
+  });
+
+  const proportions = bodyType === "Female"
+    ? { shoulder: 0.285, hip: 0.245, legGap: 0.145, arm: 0.088 }
+    : { shoulder: 0.315, hip: 0.225, legGap: 0.14, arm: 0.096 };
+
+  // Natural waist, hips and jacket. LatheGeometry keeps the torso rounded
+  // instead of making it look like a stack of separate hard-surface pieces.
+  const pelvis = add(root, new THREE.SphereGeometry(0.235, 24, 18), pants, 0, 0.91, 0);
+  pelvis.scale.set(proportions.hip / 0.235, 0.78, 0.76);
+  const torsoProfile = bodyType === "Female"
+    ? [
+        new THREE.Vector2(0.19, 0.88), new THREE.Vector2(0.215, 0.96),
+        new THREE.Vector2(0.205, 1.04), new THREE.Vector2(0.225, 1.15),
+        new THREE.Vector2(0.26, 1.30), new THREE.Vector2(0.285, 1.39),
+        new THREE.Vector2(0.22, 1.46), new THREE.Vector2(0.12, 1.49)
+      ]
+    : [
+        new THREE.Vector2(0.20, 0.88), new THREE.Vector2(0.23, 0.96),
+        new THREE.Vector2(0.225, 1.04), new THREE.Vector2(0.24, 1.15),
+        new THREE.Vector2(0.275, 1.30), new THREE.Vector2(0.31, 1.39),
+        new THREE.Vector2(0.235, 1.46), new THREE.Vector2(0.12, 1.49)
+      ];
+  const torso = add(root, new THREE.LatheGeometry(torsoProfile, 32), jacket, 0, 0, 0);
+  torso.scale.z = 0.82;
+
+  // Soft collar, fabric seams, pockets and a cloth front closure.
+  add(root, new THREE.CylinderGeometry(0.13, 0.155, 0.075, 24), jacketShadow, 0, 1.455, 0);
+  add(root, new THREE.BoxGeometry(0.025, 0.40, 0.012), jacketTrim, 0, 1.20, 0.228);
+  add(root, new THREE.BoxGeometry(0.012, 0.38, 0.014), hatDetail, 0.018, 1.20, 0.236);
+  for (const side of [-1, 1]) {
+    const pocket = add(root, new THREE.BoxGeometry(0.105, 0.13, 0.018),
+      jacketShadow, side * 0.145, 1.24, 0.204);
+    pocket.rotation.z = side * -0.05;
+    add(root, new THREE.BoxGeometry(0.11, 0.018, 0.02),
+      jacketTrim, side * 0.145, 1.31, 0.215);
+  }
+  add(root, new THREE.BoxGeometry(0.40, 0.035, 0.025), jacketShadow, 0, 0.94, 0.17);
+  add(root, new THREE.BoxGeometry(0.06, 0.055, 0.012), hatDetail, 0, 1.00, 0.205);
+
+  // Layered cyberpunk jacket panels: fabric remains the main surface, while
+  // reinforced shoulder patches, piping and small hardware echo the hand design.
+  const leftChestPanel = add(root, new THREE.BoxGeometry(0.115, 0.235, 0.018),
+    jacketShadow, -0.17, 1.245, 0.197);
+  leftChestPanel.rotation.z = 0.08;
+  const rightChestPanel = add(root, new THREE.BoxGeometry(0.105, 0.185, 0.018),
+    jacketTrim, 0.165, 1.26, 0.199);
+  rightChestPanel.rotation.z = -0.10;
+  add(root, new THREE.BoxGeometry(0.018, 0.31, 0.012),
+    hatDetail, -0.245, 1.24, 0.18);
+  add(root, new THREE.BoxGeometry(0.018, 0.26, 0.012),
+    silverMaterial, 0.245, 1.22, 0.18);
+  for (const side of [-1, 1]) {
+    for (let snap = 0; snap < 3; snap++) {
+      add(root, new THREE.SphereGeometry(0.009, 10, 8),
+        silverMaterial, side * 0.145, 1.18 + snap * 0.055, 0.218);
+    }
+    const shoulderPatch = add(root, new THREE.SphereGeometry(0.17, 18, 14),
+      jacketTrim, side * 0.245, 1.385, -0.005);
+    shoulderPatch.scale.set(1.12, 0.62, 0.72);
+    add(root, new THREE.BoxGeometry(0.13, 0.022, 0.012),
+      hatDetail, side * 0.245, 1.40, 0.105);
+
+    // Sharp, segmented neon traces run from the shoulder into each chest panel.
+    addCircuitLine(root, [
+      [side * 0.255, 1.405, 0.204],
+      [side * 0.215, 1.355, 0.239],
+      [side * 0.155, 1.300, 0.235],
+      [side * 0.185, 1.225, 0.211]
+    ], 0.0055, jacketCircuitRed);
+    addCircuitLine(root, [
+      [side * 0.095, 1.405, 0.252],
+      [side * 0.118, 1.350, 0.246],
+      [side * 0.082, 1.300, 0.239],
+      [side * 0.092, 1.245, 0.223]
+    ], 0.0035, hatDetail);
+    addCircuitLine(root, [
+      [side * 0.195, 1.145, 0.204],
+      [side * 0.158, 1.105, 0.199],
+      [side * 0.105, 1.085, 0.197]
+    ], 0.0035, jacketCircuitRed);
+  }
+  // A clean angular collar trace ties both sides together.
+  addCircuitLine(root, [
+    [-0.105, 1.435, 0.245], [-0.055, 1.405, 0.258],
+    [0, 1.390, 0.262],
+    [0.055, 1.405, 0.258], [0.105, 1.435, 0.245]
+  ], 0.0038, hatDetail);
+
+  // Neck and a human face: no metal mask or mechanical visor.
+  add(root, new THREE.CylinderGeometry(0.073, 0.085, 0.16, 18), skin, 0, 1.525, 0);
+  const head = new THREE.Group();
+  head.name = "AVATAR_HEAD";
+  head.position.set(0, 1.715, 0);
+  root.add(head);
+  const skull = add(head, new THREE.SphereGeometry(0.17, 28, 22), skin, 0, 0, 0);
+  skull.scale.set(0.92, 1.12, 0.88);
+  const jaw = add(head, new THREE.SphereGeometry(0.125, 22, 16), skinLight, 0, -0.085, 0.035);
+  jaw.scale.set(0.98, 0.72, 0.92);
+  const nose = add(head, new THREE.SphereGeometry(0.035, 14, 12), skinLight, 0, -0.005, 0.145);
+  nose.scale.set(0.78, 1.28, 0.8);
+  for (const side of [-1, 1]) {
+    const ear = add(head, new THREE.SphereGeometry(0.045, 14, 12), skin, side * 0.15, -0.015, 0);
+    ear.scale.set(0.55, 1.1, 0.74);
+    add(head, new THREE.SphereGeometry(0.026, 14, 10), eyeWhite, side * 0.064, 0.035, 0.125);
+    add(head, new THREE.SphereGeometry(0.013, 12, 10), eyeDark, side * 0.064, 0.034, 0.147);
+    const eyebrow = add(head, new THREE.CapsuleGeometry(0.009, 0.045, 3, 8),
+      brow, side * 0.064, 0.073, 0.128);
+    eyebrow.rotation.z = side * -0.12;
+  }
+  add(head, new THREE.BoxGeometry(0.065, 0.009, 0.008), mouth, 0, -0.115, 0.143);
+
+  // Hats sit on the head but do not cover the face.
+  if (appearance.hatStyle === "Baseball Cap") {
+    const crown = add(head, new THREE.SphereGeometry(0.18, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+      hat, 0, 0.13, -0.012);
+    crown.scale.set(1.04, 0.88, 1.0);
+    add(head, new THREE.SphereGeometry(0.17, 20, 12), hat, 0, 0.13, 0.105)
+      .scale.set(1.04, 0.075, 0.72);
+    add(head, new THREE.BoxGeometry(0.018, 0.018, 0.105), hatDetail, 0, 0.19, -0.01);
+  } else if (appearance.hatStyle === "Beanie") {
+    add(head, new THREE.CylinderGeometry(0.17, 0.19, 0.20, 24), hat, 0, 0.15, 0);
+    add(head, new THREE.SphereGeometry(0.17, 20, 12), hat, 0, 0.25, 0)
+      .scale.set(1, 0.35, 1);
+    add(head, new THREE.CylinderGeometry(0.19, 0.19, 0.045, 24), jacketShadow, 0, 0.065, 0);
+  } else if (appearance.hatStyle === "Bucket Hat") {
+    add(head, new THREE.CylinderGeometry(0.15, 0.17, 0.16, 24), hat, 0, 0.16, 0);
+    add(head, new THREE.CylinderGeometry(0.18, 0.235, 0.035, 32), hat, 0, 0.075, 0);
+    add(head, new THREE.CylinderGeometry(0.16, 0.16, 0.012, 24), hatDetail, 0, 0.095, 0);
+  } else if (appearance.hatStyle === "Tech Helmet") {
+    const shell = add(head, new THREE.SphereGeometry(0.19, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+      hat, 0, 0.12, -0.005);
+    shell.scale.set(1.06, 0.94, 1.04);
+    add(head, new THREE.BoxGeometry(0.29, 0.035, 0.035), hatDetail, 0, 0.07, 0.15);
+    for (const side of [-1, 1]) {
+      add(head, new THREE.SphereGeometry(0.035, 12, 10), jacketTrim, side * 0.17, 0.005, 0);
+    }
+  }
+
+  const legPivots = [];
+  const kneePivots = [];
+  const armPivots = [];
+  const elbowPivots = [];
+  const handGroups = [];
+
+  // Continuous sleeves and rounded elbow joints overlap slightly so there
+  // are no exposed gaps or separate hard-looking joint caps.
+  for (const side of [-1, 1]) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * proportions.shoulder, 1.385, 0);
+    root.add(shoulder);
+    add(shoulder, new THREE.SphereGeometry(proportions.arm * 1.12, 18, 14),
+      jacket, 0, -0.015, 0);
+    capsule(shoulder, jacket, proportions.arm, 0.27, 0, -0.16, 0);
+    addCircuitLine(shoulder, [
+      [side * 0.045, -0.045, 0.088],
+      [side * 0.065, -0.115, 0.082],
+      [side * 0.052, -0.195, 0.074]
+    ], 0.0045, jacketCircuitRed);
+    addCircuitLine(shoulder, [
+      [-side * 0.038, -0.075, 0.087],
+      [-side * 0.047, -0.145, 0.079]
+    ], 0.003, hatDetail);
+    const elbow = new THREE.Group();
+    elbow.position.y = -0.30;
+    shoulder.add(elbow);
+    add(elbow, new THREE.SphereGeometry(proportions.arm * 0.96, 18, 14),
+      jacket, 0, 0, 0);
+    capsule(elbow, jacket, proportions.arm * 0.83, 0.26, 0, -0.145, 0.012);
+    addCircuitLine(elbow, [
+      [side * 0.048, -0.055, 0.081],
+      [side * 0.055, -0.125, 0.079],
+      [side * 0.040, -0.215, 0.073]
+    ], 0.004, hatDetail);
+    addCircuitLine(elbow, [
+      [-side * 0.035, -0.075, 0.080],
+      [-side * 0.043, -0.170, 0.075]
+    ], 0.003, jacketCircuitRed);
+    add(elbow, new THREE.CylinderGeometry(0.074, 0.078, 0.045, 16),
+      jacketShadow, 0, -0.285, 0.012);
+    add(elbow, new THREE.CylinderGeometry(0.079, 0.079, 0.018, 18),
+      jacketTrim, 0, -0.258, 0.012);
+    add(elbow, new THREE.BoxGeometry(0.018, 0.055, 0.012),
+      hatDetail, 0, -0.265, 0.078);
+    const hand = new THREE.Group();
+    hand.position.set(0, -0.30, 0.025);
+    elbow.add(hand);
+    add(hand, new THREE.SphereGeometry(0.068, 18, 14),
+      skin, 0, -0.045, 0.035).scale.set(0.82, 1.2, 0.72);
+    for (let finger = -1; finger <= 2; finger++) {
+      capsule(hand, skin, 0.012, 0.055, (finger - 0.5) * 0.026, -0.12, 0.055);
+    }
+    const thumb = capsule(hand, skin, 0.015, 0.065, side * 0.07, -0.075, 0.025);
+    thumb.rotation.z = side * -0.75;
+    armPivots.push(shoulder);
+    elbowPivots.push(elbow);
+    handGroups.push(hand);
+  }
+
+  // Rounded hips, knees and ankles. The knee joints are covered by the same
+  // trouser material as the legs, rather than sticking out like robot hinges.
+  for (const side of [-1, 1]) {
+    const hip = new THREE.Group();
+    hip.position.set(side * proportions.legGap, 0.91, 0);
+    root.add(hip);
+    capsule(hip, pants, 0.115, 0.37, 0, -0.205, 0);
+    const knee = new THREE.Group();
+    knee.position.y = -0.40;
+    hip.add(knee);
+    add(knee, new THREE.SphereGeometry(0.105, 18, 14), pants, 0, 0, 0);
+    capsule(knee, pants, 0.084, 0.33, 0, -0.175, 0);
+    add(knee, new THREE.CylinderGeometry(0.085, 0.09, 0.045, 18),
+      pants, 0, -0.35, 0);
+    const foot = new THREE.Group();
+    foot.position.set(0, -0.38, 0.015);
+    knee.add(foot);
+    const shoe = add(foot, new THREE.SphereGeometry(0.115, 18, 14),
+      shoes, 0, -0.045, 0.075);
+    shoe.scale.set(0.92, 0.66, 1.55);
+    const sole = add(foot, new THREE.BoxGeometry(0.19, 0.025, 0.27),
+      shoeSole, 0, -0.105, 0.08);
+    sole.rotation.x = -0.035;
+    add(foot, new THREE.BoxGeometry(0.06, 0.018, 0.012),
+      jacketTrim, 0, -0.026, 0.18);
+    legPivots.push(hip);
+    kneePivots.push(knee);
+  }
+
+  return { root, head, legPivots, kneePivots, armPivots, elbowPivots, handGroups };
+}
+
+function updateCharacterPreview() {
+  if (avatarModel) disposeAvatarRig(avatarModel);
+  const preview = createHumanAvatar(characterPreview);
+  avatarModel = preview.root;
+  avatarModel.name = "PLAYER_AVATAR_PREVIEW";
+  avatarModel.position.y = 0.12;
+}
+
+function createRobotHand(parent, side = 1) {
+  const hand = new THREE.Group();
+  hand.name = "CYBERNETIC_HAND";
+  parent.add(hand);
+
+  const jacketHex = {
+    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
+    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
+  }[appearance.jacketColour] || 0x30394a;
+
+  const alloy = new THREE.MeshStandardMaterial({ color: 0x8797a8, metalness: 0.86, roughness: 0.28 });
+  const darkAlloy = new THREE.MeshStandardMaterial({ color: 0x182535, metalness: 0.82, roughness: 0.32 });
+  const jacketAccent = new THREE.MeshStandardMaterial({ color: jacketHex, metalness: 0.62, roughness: 0.34 });
+  const jointMaterial = new THREE.MeshStandardMaterial({ color: 0x090f19, metalness: 0.74, roughness: 0.26 });
+  const cyan = new THREE.MeshStandardMaterial({
+    color: 0x31eee1, emissive: 0x087d7c, emissiveIntensity: 1.1,
+    metalness: 0.55, roughness: 0.24
+  });
+  const circuitRed = new THREE.MeshStandardMaterial({
+    color: 0xf02c49, emissive: 0x8f071e, emissiveIntensity: 1.25,
+    metalness: 0.58, roughness: 0.22
+  });
+
+  const add = (parentNode, geometry, material, x, y, z) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parentNode.add(mesh);
+    return mesh;
+  };
+  const addRing = (parentNode, radius, tube, x, y, z, material) => {
+    const ring = add(parentNode, new THREE.TorusGeometry(radius, tube, 8, 22),
+      material, x, y, z);
+    ring.rotation.x = Math.PI / 2;
+    return ring;
+  };
+  const addHandCircuit = (points, radius = 0.002) => {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map(([x, y, z]) => new THREE.Vector3(x, y, z))
+    );
+    const line = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, Math.max(14, points.length * 8), radius, 6, false),
+      circuitRed
+    );
+    line.frustumCulled = false;
+    hand.add(line);
+    return line;
+  };
+
+  // Softly rounded mechanical palm with layered back-of-hand armor.
+  const palmCore = add(hand, new THREE.SphereGeometry(0.074, 24, 18),
+    darkAlloy, 0, -0.004, 0);
+  palmCore.scale.set(0.91, 1.24, 0.55);
+  const palmPlateShape = new THREE.Shape();
+  palmPlateShape.moveTo(-0.047, -0.055);
+  palmPlateShape.lineTo(-0.060, -0.020);
+  palmPlateShape.lineTo(-0.050, 0.045);
+  palmPlateShape.lineTo(-0.026, 0.064);
+  palmPlateShape.lineTo(0.026, 0.064);
+  palmPlateShape.lineTo(0.050, 0.045);
+  palmPlateShape.lineTo(0.060, -0.020);
+  palmPlateShape.lineTo(0.047, -0.055);
+  palmPlateShape.closePath();
+  const palmPlateGeometry = new THREE.ExtrudeGeometry(palmPlateShape, {
+    depth: 0.012, bevelEnabled: true, bevelSegments: 3,
+    steps: 1, bevelSize: 0.004, bevelThickness: 0.004
+  });
+  palmPlateGeometry.translate(0, 0, 0.032);
+  hand.add(new THREE.Mesh(palmPlateGeometry, alloy));
+
+  // A jacket-colored inset and cyan status light tie the hands to the outfit.
+  const palmInset = add(hand, new THREE.BoxGeometry(0.047, 0.035, 0.009),
+    jacketAccent, 0, -0.004, 0.048);
+  palmInset.rotation.z = -0.08;
+  add(hand, new THREE.BoxGeometry(0.030, 0.006, 0.004),
+    circuitRed, 0, 0.004, 0.055);
+  // Split red light channels form a sharp, angular corporate circuit pattern.
+  addHandCircuit([
+    [-0.045, -0.034, 0.053], [-0.018, -0.015, 0.058],
+    [-0.034, 0.008, 0.058], [-0.014, 0.045, 0.056]
+  ], 0.0024);
+  addHandCircuit([
+    [0.045, -0.034, 0.053], [0.018, -0.015, 0.058],
+    [0.034, 0.008, 0.058], [0.014, 0.045, 0.056]
+  ], 0.0024);
+  addHandCircuit([
+    [-0.008, -0.046, 0.055], [0.008, -0.030, 0.058],
+    [-0.006, -0.012, 0.059], [0.006, 0.006, 0.058]
+  ], 0.0018);
+  for (const sideSign of [-1, 1]) {
+    add(hand, new THREE.SphereGeometry(0.009, 12, 10),
+      alloy, sideSign * 0.055, -0.012, 0.012);
+    add(hand, new THREE.SphereGeometry(0.0045, 10, 8),
+      cyan, sideSign * 0.055, -0.012, 0.022);
+  }
+
+  // Wrist bearing and cuff: the wrist can rotate as one connected assembly.
+  const wrist = new THREE.Group();
+  wrist.position.set(0, -0.078, 0);
+  hand.add(wrist);
+  add(wrist, new THREE.CylinderGeometry(0.052, 0.058, 0.045, 20),
+    jointMaterial, 0, -0.008, 0);
+  add(wrist, new THREE.CylinderGeometry(0.059, 0.059, 0.022, 20),
+    jacketAccent, 0, -0.010, 0);
+  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, circuitRed);
+  add(wrist, new THREE.BoxGeometry(0.057, 0.035, 0.012),
+    alloy, 0, -0.045, 0.045);
+  add(wrist, new THREE.BoxGeometry(0.028, 0.006, 0.004),
+    circuitRed, 0, -0.045, 0.054);
+
+  const fingerJoints = [];
+  const fingerRoots = [];
+  const fingerXs = [-0.043, -0.015, 0.015, 0.043];
+  const fingerLengths = [
+    [0.041, 0.033, 0.025],
+    [0.047, 0.036, 0.027],
+    [0.048, 0.037, 0.028],
+    [0.040, 0.032, 0.024]
+  ];
+  const fingerRadii = [0.0105, 0.0115, 0.0112, 0.0100];
+
+  // Each finger is a three-link articulated mechanism. Rounded bearings are
+  // visible at every joint and each link has a thin protective armor plate.
+  for (let index = 0; index < 4; index++) {
+    const fingerRoot = new THREE.Group();
+    fingerRoot.position.set(fingerXs[index], 0.052, 0.005);
+    hand.add(fingerRoot);
+    fingerRoots.push(fingerRoot);
+    let segmentParent = fingerRoot;
+
+    for (let segment = 0; segment < 3; segment++) {
+      const length = fingerLengths[index][segment];
+      const radius = fingerRadii[index] * (1 - segment * 0.16);
+      add(segmentParent, new THREE.SphereGeometry(radius * 1.08, 14, 12),
+        jointMaterial, 0, 0, 0);
+
+      const link = add(segmentParent,
+        new THREE.CapsuleGeometry(radius * 0.78, length * 0.78, 5, 12),
+        darkAlloy, 0, length * 0.48, 0);
+      link.scale.z = 0.82;
+
+      const armorPlate = add(segmentParent,
+        new THREE.BoxGeometry(radius * 1.55, length * 0.48, 0.010),
+        segment === 1 ? jacketAccent : alloy, 0, length * 0.50, radius * 0.68);
+      armorPlate.rotation.z = (index - 1.5) * -0.035;
+
+      add(segmentParent, new THREE.BoxGeometry(radius * 0.48, length * 0.34, 0.005),
+        circuitRed, 0, length * 0.52, radius * 0.68 + 0.008);
+      const armorSlash = add(segmentParent,
+        new THREE.BoxGeometry(radius * 1.28, length * 0.075, 0.004),
+        circuitRed, 0, length * 0.76, radius * 0.68 + 0.010);
+      armorSlash.rotation.z = (index - 1.5) * 0.055;
+
+      const nextJoint = new THREE.Group();
+      nextJoint.position.y = length * 0.92;
+      segmentParent.add(nextJoint);
+      add(nextJoint, new THREE.SphereGeometry(radius * 0.92, 14, 12),
+        jointMaterial, 0, 0, 0);
+      addRing(nextJoint, radius * 0.72, 0.0025, 0, 0, radius * 0.30, alloy);
+      fingerJoints.push({ pivot: nextJoint, finger: index, segment });
+      segmentParent = nextJoint;
+    }
+
+    // A small fingertip cap rounds off the last metal link.
+    add(segmentParent, new THREE.SphereGeometry(fingerRadii[index] * 0.66, 12, 10),
+      alloy, 0, 0.008, 0);
+  }
+
+  // Opposing thumb with two visible knuckles and a separate rotation pivot.
+  const thumbRoot = new THREE.Group();
+  thumbRoot.position.set(-side * 0.057, -0.035, 0.004);
+  thumbRoot.rotation.z = side * 0.78;
+  hand.add(thumbRoot);
+  add(thumbRoot, new THREE.SphereGeometry(0.014, 14, 12),
+    jointMaterial, 0, 0, 0);
+  const thumbBase = add(thumbRoot, new THREE.CapsuleGeometry(0.010, 0.034, 5, 10),
+    darkAlloy, 0, 0.019, 0);
+  thumbBase.rotation.z = side * -0.16;
+  add(thumbRoot, new THREE.BoxGeometry(0.017, 0.025, 0.010),
+    jacketAccent, 0, 0.022, 0.010);
+  const thumbTipPivot = new THREE.Group();
+  thumbTipPivot.position.y = 0.040;
+  thumbRoot.add(thumbTipPivot);
+  add(thumbTipPivot, new THREE.SphereGeometry(0.011, 12, 10),
+    jointMaterial, 0, 0, 0);
+  add(thumbTipPivot, new THREE.CapsuleGeometry(0.0085, 0.028, 5, 10),
+    alloy, 0, 0.017, 0);
+  add(thumbTipPivot, new THREE.BoxGeometry(0.014, 0.020, 0.009),
+    jacketAccent, 0, 0.018, 0.008);
+  add(thumbTipPivot, new THREE.BoxGeometry(0.004, 0.024, 0.004),
+    circuitRed, 0, 0.018, 0.014);
+
+  // Side actuators and thin cables make the hand look engineered, not a glove.
+  for (const sideSign of [-1, 1]) {
+    const actuator = add(hand, new THREE.CylinderGeometry(0.009, 0.009, 0.075, 10),
+      jointMaterial, sideSign * 0.068, 0.005, -0.012);
+    actuator.rotation.z = sideSign * -0.08;
+    add(hand, new THREE.BoxGeometry(0.010, 0.065, 0.008),
+      circuitRed, sideSign * 0.068, 0.005, 0.010);
+  }
+
+  hand.userData.fingerRoots = fingerRoots;
+  hand.userData.fingerJoints = fingerJoints;
+  hand.userData.thumbRoot = thumbRoot;
+  hand.userData.thumbTipPivot = thumbTipPivot;
+  hand.userData.setGrip = amount => {
+    const grip = THREE.MathUtils.clamp(amount, 0, 1);
+    for (const joint of fingerJoints) {
+      joint.pivot.rotation.x = -grip * (joint.segment === 0 ? 0.16 : 0.34);
+    }
+    thumbRoot.rotation.z = side * (0.78 - grip * 0.25);
+    thumbTipPivot.rotation.x = -grip * 0.3;
+  };
+  hand.userData.setGrip(0.08);
+  // ~115 parts → 2 GPU-skinned meshes. Finger joints stay animatable as bones.
+  skinify(hand, { metalness: 0.82, roughness: 0.28, frustumCulled: false });
+  return hand;
+}
+
+let firstPersonHands = null;
+function rebuildFirstPersonHands() {
+  if (firstPersonHands) disposeAvatarRig(firstPersonHands);
+  firstPersonHands = new THREE.Group();
+  firstPersonHands.name = "FIRST_PERSON_HANDS";
+  camera.add(firstPersonHands);
+
+  for (const side of [-1, 1]) {
+    const hand = createRobotHand(firstPersonHands, side);
+    hand.position.set(side * 0.31, -0.43, -0.72);
+    // Keep fingers upright and the armored palm facing the camera.
+    hand.rotation.set(0, 0, side * 0.12);
+    hand.scale.setScalar(1.12);
+  }
+
+  firstPersonHands.visible = isInCity && !renderer.xr.isPresenting;
+}
+function rebuildPlayableAvatar() {
+  if (playableAvatar) disposeAvatarRig(playableAvatar.root);
+  playableAvatar = createHumanAvatar(player);
+  playableAvatar.root.name = "PLAYABLE_HUMAN_AVATAR";
+  // The builder faces +Z for the display stand. The actual player faces -Z.
+  playableAvatar.root.rotation.y = Math.PI;
+  playableAvatar.root.visible = false;
+  rebuildFirstPersonHands();
+}
+updateCharacterPreview();
+rebuildPlayableAvatar();
+
+function updateAvatarHeightFromHeadset(xrFrame, delta) {
+  if (!playableAvatar) return;
+
+  let targetScale = 1;
+  if (renderer.xr.isPresenting && isInCity && xrFrame) {
+    try {
+      // The app requests local-floor, so this is the tracked headset height
+      // above the calibrated floor rather than its height above the player's
+      // changing camera position.
+      const referenceSpace = renderer.xr.getReferenceSpace();
+      const viewerPose = referenceSpace ? xrFrame.getViewerPose(referenceSpace) : null;
+      const headHeight = viewerPose?.transform?.position?.y;
+      if (Number.isFinite(headHeight)) {
+        // The avatar's eye line is about 1.75 m above its feet. Scale only
+        // vertically, keeping the feet planted while matching the user's
+        // standing, crouching, or lowered headset position.
+        targetScale = THREE.MathUtils.clamp(headHeight / 1.75, 0.64, 1.18);
+      }
+    } catch {
+      // Keep the last smooth height if a tracked pose is briefly unavailable.
+      targetScale = playableAvatar.root.scale.y || 1;
+    }
+  }
+
+  const currentScale = playableAvatar.root.scale.y || 1;
+  const smoothScale = THREE.MathUtils.damp(currentScale, targetScale, 9, delta);
+  playableAvatar.root.scale.set(1, smoothScale, 1);
+}
+
+function animateRobotHandJoints(hand, elapsed, phaseOffset = 0) {
+  if (!hand?.userData?.fingerJoints) return;
+  const idle = 0.035 + Math.sin(elapsed * 1.35 + phaseOffset) * 0.025;
+  const walking = Math.max(0, Math.sin(elapsed * 8.4 + phaseOffset)) * 0.035;
+  for (const joint of hand.userData.fingerJoints) {
+    const depth = joint.segment === 0 ? 0.10 : (joint.segment === 1 ? 0.22 : 0.27);
+    joint.pivot.rotation.x = -(idle + walking) * depth;
+  }
+  hand.userData.thumbRoot.rotation.z =
+    (phaseOffset < 1 ? 1 : -1) * (0.78 - idle * 0.25);
+  hand.userData.thumbTipPivot.rotation.x = -idle * 0.22;
+}
+
+function animatePlayableAvatar(amount, elapsed) {
+  if (!playableAvatar) return;
+  const blend = THREE.MathUtils.clamp(amount, 0, 1);
+  const phase = elapsed * 8.4;
+  const stride = Math.sin(phase) * 0.48 * blend;
+  const leftLegFlex = Math.max(0, Math.sin(phase + Math.PI)) * 0.58 * blend;
+  const rightLegFlex = Math.max(0, Math.sin(phase)) * 0.58 * blend;
+
+  playableAvatar.legPivots[0].rotation.x = stride;
+  playableAvatar.legPivots[1].rotation.x = -stride;
+  playableAvatar.kneePivots[0].rotation.x = leftLegFlex;
+  playableAvatar.kneePivots[1].rotation.x = rightLegFlex;
+  playableAvatar.armPivots[0].rotation.x = -stride * 0.72;
+  playableAvatar.armPivots[1].rotation.x = stride * 0.72;
+  playableAvatar.elbowPivots[0].rotation.x = 0.08 + leftLegFlex * 0.22;
+  playableAvatar.elbowPivots[1].rotation.x = 0.08 + rightLegFlex * 0.22;
+  playableAvatar.root.position.y = blend > 0 ? Math.abs(Math.sin(phase * 2)) * 0.024 * blend : 0;
+  if (firstPersonHands) {
+    firstPersonHands.position.y = -Math.abs(Math.sin(phase * 2)) * 0.012 * blend;
+    firstPersonHands.rotation.z = Math.sin(phase) * 0.025 * blend;
+    firstPersonHands.children.forEach((hand, index) =>
+      animateRobotHandJoints(hand, elapsed, index * Math.PI)
+    );
+  }
+}
+
+function setCharacterPreviewLocation(parent, x, y, z, scale = 1, yaw = 0) {
+  parent.add(characterPreview);
+  characterPreview.position.set(x, y, z);
+  characterPreview.rotation.set(0, yaw, 0);
+  characterPreview.scale.setScalar(scale);
+  characterPreview.visible = true;
+}
+updateCharacterPreview();
+
+const terminalMetal = new THREE.MeshStandardMaterial({
+  color: 0x111d2b, metalness: 0.82, roughness: 0.34
+});
+const terminalGlow = new THREE.MeshStandardMaterial({
+  color: 0x183c45, emissive: 0x0c6970, emissiveIntensity: 1.1,
+  metalness: 0.55, roughness: 0.28
+});
+const terminalButton = new THREE.MeshStandardMaterial({
+  color: 0x12313a, emissive: 0x087b7b, emissiveIntensity: 1.5,
+  metalness: 0.48, roughness: 0.3
+});
+
+function makeTerminalLabel(width, height, painter) {
+  // Draw at twice the pixel resolution while keeping the same physical mesh size.
+  const logicalWidth = 1024;
+  const logicalHeight = Math.max(128, Math.round(logicalWidth * height / width));
+  const resolutionScale = 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = logicalWidth * resolutionScale;
+  canvas.height = logicalHeight * resolutionScale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(resolutionScale, resolutionScale);
+  ctx.logicalWidth = logicalWidth;
+  ctx.logicalHeight = logicalHeight;
+  painter(ctx);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const material = new THREE.MeshBasicMaterial({
+    map: texture, transparent: true, side: THREE.DoubleSide, depthWrite: false
+  });
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  label.position.z = 0.032;
+  label.renderOrder = 1200;
+  return { label, texture, canvas };
+}
+
+function addTerminalCard({ x, y, width, height, action, labelPainter, button = false }) {
+  const group = new THREE.Group();
+  group.position.set(x, y, 0);
+  vrStart.add(group);
+  const backing = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, 0.055),
+    button ? terminalButton.clone() : terminalMetal.clone()
+  );
+  group.add(backing);
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.025, 0.012, 0.018),
+    terminalGlow
+  );
+  edge.position.set(0, height / 2 - 0.006, 0.034);
+  group.add(edge);
+  const { label, texture, canvas } = makeTerminalLabel(width * 0.96, height * 0.88, labelPainter);
+  group.add(label);
+  if (action) {
+    backing.userData.action = action;
+    backing.userData.baseEmissive = button ? 0x087b7b : 0x0c252c;
+    vrStartTargets.push(backing);
+  }
+  group.userData.refresh = () => {
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    ctx.clearRect(0, 0, ctx.logicalWidth, ctx.logicalHeight);
+    labelPainter(ctx);
+    texture.needsUpdate = true;
+  };
+  return group;
+}
+
+const titleCard = addTerminalCard({
+  x: 0, y: 0.48, width: 1.72, height: 0.22,
+  labelPainter: ctx => {
+    ctx.fillStyle = "#55f5e8";
+    ctx.font = "bold 64px Arial";
+    ctx.fillText("NEON GENESIS", 34, ctx.logicalHeight * 0.48);
+    ctx.fillStyle = "#b9c8d8";
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("CHARACTER SETUP", 38, ctx.logicalHeight * 0.80);
+  }
+});
+
+const startRows = [];
+const rowInfo = [
+  { key: "bodyType", label: "BODY TYPE" },
+  { key: "hatStyle", label: "HAT STYLE" },
+  { key: "hatColour", label: "HAT COLOR" },
+  { key: "jacketColour", label: "JACKET COLOUR" }
+];
+rowInfo.forEach((info, index) => {
+  const positions = [-0.63, -0.21, 0.21, 0.63];
+  const row = addTerminalCard({
+    x: positions[index], y: 0.02, width: 0.39, height: 0.28,
+    action: () => cycleAppearance(info.key),
+    labelPainter: ctx => {
+      const center = ctx.logicalWidth / 2;
+      const h = ctx.logicalHeight;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#9db4c9";
+      ctx.font = "bold 36px Arial";
+      ctx.fillText(info.label, center, h * 0.28);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 48px Arial";
+      ctx.fillText(String(appearance[info.key]).toUpperCase(), center, h * 0.57);
+      ctx.fillStyle = "#ffcf70";
+      ctx.font = "bold 22px Arial";
+      ctx.fillText("TAP TO CHANGE", center, h * 0.84);
+      ctx.textAlign = "left";
+    }
+  });
+  startRows.push(row);
+});
+
+document.querySelector("#play-button").addEventListener("click", startCity);
+
+const confirmCard = addTerminalCard({
+  x: 0, y: -0.34, width: 0.62, height: 0.17, button: true,
+  action: () => startCity(),
+  labelPainter: ctx => {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 58px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("PLAY", 512, ctx.logicalHeight * 0.62);
+    ctx.textAlign = "left";
+  }
+});
+
+// Side rails and a small base make the menu read like a physical terminal.
+for (const x of [-0.91, 0.91]) {
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.16, 0.035), terminalGlow);
+  rail.position.set(x, 0.02, -0.006);
+  vrStart.add(rail);
+}
+const base = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.025, 0.12), terminalMetal);
+base.position.set(0, -0.52, -0.015);
+vrStart.add(base);
+const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
+terminalLight.position.set(0, 0.08, 0.25);
+vrStart.add(terminalLight);
+
+function cycleAppearance(key) {
+  const choices = appearanceChoices[key];
+  const index = choices.indexOf(appearance[key]);
+  appearance[key] = choices[(index + 1) % choices.length];
+  const fieldIds = { bodyType: "body-type", hatStyle: "hat-style", hatColour: "hat-colour", jacketColour: "jacket-colour" };
+  const field = document.getElementById(fieldIds[key]);
+  if (field) field.value = String(appearance[key]);
+  updateCharacterPreview();
+  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+  const rowIndex = rowInfo.findIndex(item => item.key === key);
+  startRows[rowIndex]?.userData.refresh();
+}
+
+let vrSessionIntroActive = false;
+function showVRIntro() {
+  if (vrSessionIntroActive) return;
+  vrSessionIntroActive = true;
+  startScreen.classList.add("hidden");
+  isInCity = false;
+  cityWorld.visible = false;
+  mainMenuWorld.visible = true;
+  vrStartReady = false;
+  // Place the ENTIRE character-selection rectangle from the fixed player
+  // spawn transform. Do not read headset position, pitch, roll, or yaw here.
+  const spawnPosition = new THREE.Vector3();
+  const spawnRotation = new THREE.Quaternion();
+  player.getWorldPosition(spawnPosition);
+  player.getWorldQuaternion(spawnRotation);
+
+  // Use the player's horizontal forward (-Z), not Object3D.getWorldDirection
+  // which points along +Z for a normal Group. This stays level at any head pose.
+  const flatForward = new THREE.Vector3(0, 0, -1).applyQuaternion(spawnRotation);
+  flatForward.y = 0;
+  if (flatForward.lengthSq() < 0.0001) flatForward.set(0, 0, -1);
+  flatForward.normalize();
+
+  const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
+  const MENU_HEIGHT_ABOVE_FLOOR = 1.20;
+  // A little extra distance gives the side-by-side character and editor room in the Quest view.
+  const MENU_DISTANCE_FROM_SPAWN = 2.10;
+
+  // One world-space position and yaw for the root rectangle. Every card,
+  // border, rail and PLAY button is a child of vrStart and shares this plane.
+  vrStart.position.set(
+    spawnPosition.x + flatForward.x * MENU_DISTANCE_FROM_SPAWN,
+    spawnPosition.y + MENU_HEIGHT_ABOVE_FLOOR,
+    spawnPosition.z + flatForward.z * MENU_DISTANCE_FROM_SPAWN
+  );
+  vrStart.rotation.set(0, menuYaw, 0);
+  vrStart.scale.setScalar(1);
+  vrStart.visible = true;
+
+  // Parent the avatar to the starting menu so it always stays beside it,
+  // never beside the player's moving body or room-scale headset position.
+  // Local +Z is the menu's front, so a small +Z offset brings the model
+  // slightly toward the player while keeping it beside the right edge.
+  vrStart.updateMatrixWorld(true);
+  const avatarLocalX = 1.18;
+  const avatarLocalZ = 0.24;
+  const towardPlayerLocal = new THREE.Vector3(
+    -avatarLocalX, 0, MENU_DISTANCE_FROM_SPAWN - avatarLocalZ
+  ).normalize();
+  const characterYaw = Math.atan2(towardPlayerLocal.x, towardPlayerLocal.z);
+  setCharacterPreviewLocation(
+    vrStart, avatarLocalX, -MENU_HEIGHT_ABOVE_FLOOR, avatarLocalZ, 0.78, characterYaw
+  );
+  for (const row of startRows) row.userData.refresh();
+}
+renderer.xr.addEventListener("sessionstart", () => {
+  // Use the real tracked headset pose. Keep the body below the camera and
+  // show virtual hands attached to the Touch controllers.
+  camera.position.set(0, 1.65, 0);
+  camera.rotation.set(0, 0, 0);
+  pitch = 0;
+  if (firstPersonHands) firstPersonHands.visible = false;
+  if (playableAvatar) {
+    // Keep the body hidden in VR as well; the controller-mounted hands are
+    // the only player parts shown during first-person play.
+    playableAvatar.root.visible = false;
+  }
+  vrSessionIntroActive = false;
+});
+renderer.xr.addEventListener("sessionend", () => {
+  game?.onExit();
+  document.body.classList.remove("in-city");
+  scene.fog = menuFog;
+  scene.background = menuBackground;
+  vrSessionIntroActive = false;
+  vrStart.visible = false;
+  vrStartReady = false;
+  vrStartHovered = null;
+  isInCity = false;
+  cityWorld.visible = false;
+  mainMenuWorld.visible = true;
+  setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9, 0);
+  if (playableAvatar) {
+    playableAvatar.root.visible = false;
+    playableAvatar.head.visible = false;
+    for (const hand of playableAvatar.handGroups) hand.visible = false;
+  }
+  camera.position.set(0, 1.65, 0);
+  pitch = 0;
+  camera.rotation.set(0, 0, 0);
+  if (firstPersonHands) firstPersonHands.visible = false;
+  startScreen.classList.remove("hidden");
+});
+
+function activateVRStartAtController(controller) {
+  if (!vrStart.visible) return false;
+  vrMenuRaycaster.setFromXRController(controller);
+  const hit = vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0];
+  if (hit?.object?.userData?.action) hit.object.userData.action();
+  return true;
+}
+const vrMenuRaycaster = new THREE.Raycaster();
+const vrMenuPointer = new THREE.Vector3();
+
+let activeDoorGrab = null;
+const doorGrabForward = new THREE.Vector3();
+function getControllerYaw(controller) {
+  controller.getWorldDirection(doorGrabForward);
+  doorGrabForward.y = 0;
+  if (doorGrabForward.lengthSq() < 0.0001) return 0;
+  doorGrabForward.normalize();
+  return Math.atan2(doorGrabForward.x, -doorGrabForward.z);
+}
+function wrapAngle(angle) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+function beginDoorGrab(controller) {
+  if (!isInCity || vrMenu.visible || !renderer.xr.isPresenting) return false;
+  vrMenuRaycaster.setFromXRController(controller);
+  vrMenuRaycaster.far = Infinity;
+  // The trigger only grabs the actual handle, not the whole door panel.
+  const hit = vrMenuRaycaster.intersectObject(shopDoorHandle, false)[0];
+  if (!hit || hit.distance > 3.5) return false;
+  activeDoorGrab = {
+    controller,
+    startYaw: getControllerYaw(controller),
+    startDoorAngle: shopDoorHinge.rotation.y
+  };
+  shopDoorTarget = shopDoorHinge.rotation.y;
+  return true;
+}
+function updateDoorGrab() {
+  if (!activeDoorGrab) return;
+  const currentYaw = getControllerYaw(activeDoorGrab.controller);
+  const twist = wrapAngle(currentYaw - activeDoorGrab.startYaw);
+  // Twist left/right to swing the hinged door. Clamp before it turns through
+  // the frame, and keep the handle attached to the moving door.
+  // Outward (negative) swings fully open; inward stops at 0.55 rad so the
+  // leaf can't pass through the Genesis Core display behind it.
+  shopDoorTarget = THREE.MathUtils.clamp(
+    activeDoorGrab.startDoorAngle + twist,
+    -1.48,
+    0.55
+  );
+}
+function endDoorGrab(controller) {
+  if (activeDoorGrab?.controller !== controller) return;
+  activeDoorGrab = null;
+  // Leave the door where the player released it.
+  shopDoorTarget = shopDoorHinge.rotation.y;
+}
+const vrControllerRays = [];
+const vrCursor = new THREE.Mesh(
+  new THREE.SphereGeometry(0.018, 12, 12),
+  new THREE.MeshBasicMaterial({ color: 0x5ff5e8, depthTest: false })
+);
+vrCursor.visible = false;
+scene.add(vrCursor);
+
+for (let i = 0; i < 2; i++) {
+  const controller = renderer.xr.getController(i);
+  const trackedHand = new THREE.Group();
+  trackedHand.name = "TRACKED_VIRTUAL_HAND";
+  trackedHand.position.set(0, -0.025, -0.085);
+  // The hand's fingers point down the controller's forward (-Z) direction.
+  const robotHand = createRobotHand(trackedHand, 1);
+  // The controller points down -Z. This keeps fingers pointing along the
+  // controller while turning the armored palm toward the player instead of up.
+  // Hand fingers are built along local +Y. Rotate that axis onto the
+  // controller's forward -Z ray so fingertips point away from the player.
+  robotHand.rotation.set(-Math.PI / 2, 0, 0);
+  robotHand.scale.setScalar(1.0);
+  trackedHand.userData.robotHand = robotHand;
+  controller.add(trackedHand);
+  const rayLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3)]),
+    new THREE.LineBasicMaterial({ color: 0x5ff5e8, depthTest: false })
+  );
+  rayLine.visible = false;
+  controller.add(rayLine);
+  controller.addEventListener("connected", event => {
+    controller.userData.handedness = event.data.handedness;
+    // Mirror the thumb so it sits on the inside edge of each hand.
+    trackedHand.scale.x = event.data.handedness === "left" ? -1 : 1;
+    if (event.data.handedness === "left") {
+      // Attach the small menu to the left hand so it follows the hand,
+      // rather than staying behind at the player's original spawn position.
+      controller.add(vrMenu);
+      vrMenu.position.set(0.18, 0.08, -0.28);
+      vrMenu.rotation.set(-0.28, 0.12, 0);
+    }
+  });
+  controller.addEventListener("disconnected", () => {
+    controller.userData.handedness = undefined;
+  });
+  controller.addEventListener("selectstart", () => {
+    if (!isInCity || vrMenu.visible || vrStart.visible) return;
+    // Physical door handle first, then NPCs / pickups / dialogue buttons.
+    if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
+    if (beginDoorGrab(controller)) return;
+    game?.onTrigger(controller);
+  });
+  controller.addEventListener("selectend", () => {
+    endDoorGrab(controller);
+  });
+  controller.addEventListener("select", () => {
+    if (controller.userData.handedness === "right") {
+      if (vrStart.visible) activateVRStartAtController(controller);
+      else if (vrMenu.visible) activateVRMenuAtController(controller);
+    }
+  });
+  // Keep XR controllers in the same moving/turning space as the player camera.
+  player.add(controller);
+  vrControllerRays.push({ controller, rayLine });
+}
+
+let vrMenuPage = "character";
+const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
+function drawVRMenu() {
+  const ctx = vrMenuContext;
+  ctx.clearRect(0, 0, 1024, 768);
+  ctx.fillStyle = "rgba(5, 10, 25, 0.96)";
+  ctx.fillRect(0, 0, 1024, 768);
+  ctx.strokeStyle = "#5ff5e8";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(5, 5, 1014, 758);
+  ctx.fillStyle = "#5ff5e8";
+  ctx.font = "bold 28px Arial";
+  ctx.fillText("NEON GENESIS  /  " + (city.districtAt(player.position.z, player.position.y)), 54, 58);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 25px Arial";
+  ctx.fillText("CREDITS  $" + state.credits.toLocaleString(), 760, 58);
+  ctx.fillStyle = "#14243d";
+  ctx.fillRect(50, 92, 440, 66);
+  ctx.fillRect(534, 92, 440, 66);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 25px Arial";
+  ctx.fillText("CHARACTER", 205, 134);
+  ctx.fillText("CYBERWARE", 690, 134);
+  ctx.strokeStyle = vrMenuPage === "character" ? "#5ff5e8" : "#33445f";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(50, 92, 440, 66);
+  ctx.strokeStyle = vrMenuPage === "cyberware" ? "#5ff5e8" : "#33445f";
+  ctx.strokeRect(534, 92, 440, 66);
+
+  if (vrMenuPage === "character") {
+    ctx.fillStyle = "#aab6cf";
+    ctx.font = "24px Arial";
+    ctx.fillText(`Unspent attribute points: ${pointsLeft()} (of ${totalPoints()})    MAX HEALTH ${maxHealth()}    GRADE ${gradeNames[character.compatibility]}`, 60, 205);
+    const rows = [
+      ["STRENGTH", "Faster movement, lets you shift heavy objects", "strength"],
+      ["HEALTH", "Adds 25 maximum health per point", "health"],
+      ["CYBERWARE COMPATIBILITY", "More cyberware slots and higher-grade chrome", "compatibility"]
+    ];
+    rows.forEach((row, i) => {
+      const y = 280 + i * 125;
+      ctx.fillStyle = "#13233b";
+      ctx.fillRect(55, y - 40, 914, 108);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 27px Arial";
+      ctx.fillText(row[0], 80, y);
+      ctx.fillStyle = "#aab6cf";
+      ctx.font = "20px Arial";
+      ctx.fillText(row[1], 80, y + 34);
+      ctx.fillStyle = "#5ff5e8";
+      ctx.font = "bold 34px Arial";
+      ctx.fillText(String(character[row[2]]), 720, y + 15);
+      ctx.fillStyle = "#20465a";
+      ctx.fillRect(790, y - 25, 70, 62);
+      ctx.fillRect(880, y - 25, 70, 62);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 38px Arial";
+      ctx.fillText("−", 811, y + 18);
+      ctx.fillText("+", 902, y + 18);
+    });
+  } else {
+    ctx.fillStyle = "#aab6cf";
+    ctx.font = "24px Arial";
+    ctx.fillText(`Slots used ${state.installed.length} / ${slotCount()}  ·  Buy more chrome from Doc Anaya (Neon Mile)`, 60, 185);
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    if (!owned.length) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "26px Arial";
+      ctx.fillText("No cyberware installed yet. Your arm implant is stock GEN-0.", 60, 260);
+    }
+    owned.forEach((id, i) => {
+      const w = CYBERWARE[id], y = VR_WARE_TOP + i * VR_WARE_ROW;
+      const installed = state.installed.includes(id);
+      ctx.fillStyle = "#13233b"; ctx.fillRect(55, y, 914, VR_WARE_ROW - 8);
+      ctx.fillStyle = installed ? (isActive(id) ? "#6aff9e" : "#ffb02e") : "#ffffff";
+      ctx.font = "bold 25px Arial"; ctx.fillText(w.name, 78, y + 30);
+      ctx.fillStyle = "#aab6cf"; ctx.font = "18px Arial";
+      ctx.fillText(w.desc.length > 70 ? w.desc.slice(0, 68) + "…" : w.desc, 78, y + 56);
+      ctx.fillStyle = installed ? "#5a2a3a" : "#20465a"; ctx.fillRect(790, y + 10, 165, 48);
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 22px Arial"; ctx.fillText(installed ? "REMOVE" : "INSTALL", 822, y + 42);
+    });
+  }
+  // Current objective strip
+  const obj = game?.objectiveSummary();
+  ctx.fillStyle = "#1a1530"; ctx.fillRect(50, 650, 924, 80);
+  ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 22px Arial";
+  ctx.fillText("OBJECTIVE · " + (obj?.title || "EXPLORE").toUpperCase(), 70, 682);
+  ctx.fillStyle = "#ffffff"; ctx.font = "21px Arial";
+  const text = obj?.text || "";
+  ctx.fillText(text.length > 80 ? text.slice(0, 78) + "…" : text, 70, 714);
+  ctx.fillStyle = "#ff789d";
+  ctx.font = "bold 20px Arial";
+  ctx.fillText("Y · CLOSE", 870, 682);
+  vrMenuTexture.needsUpdate = true;
+}
+
+function setVRMenuOpen(open) {
+  vrMenu.visible = open;
+  vrMenuPage = "character";
+  if (open) drawVRMenu();
+  vrCursor.visible = false;
+  for (const item of vrControllerRays) {
+    item.rayLine.visible = open && item.controller.userData.handedness === "right";
+  }
+}
+function activateVRMenuAtController(controller) {
+  if (!renderer.xr.isPresenting || !vrMenu.visible) return;
+  vrMenuRaycaster.setFromXRController(controller);
+  vrMenuRaycaster.far = Infinity;
+  const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
+  if (!hit?.uv) return;
+  const x = hit.uv.x * 1024;
+  const y = (1 - hit.uv.y) * 768;
+  if (y >= 92 && y <= 158) {
+    if (x >= 50 && x <= 490) vrMenuPage = "character";
+    else if (x >= 534 && x <= 974) vrMenuPage = "cyberware";
+  } else if (vrMenuPage === "character") {
+    for (let i = 0; i < 3; i++) {
+      const rowY = 280 + i * 125;
+      if (y >= rowY - 40 && y <= rowY + 68 && x >= 780 && x <= 965) {
+        changeStat(["strength", "health", "compatibility"][i], x < 875 ? -1 : 1);
+        updateCharacterUI();
+        break;
+      }
+    }
+  } else {
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    const i = Math.floor((y - VR_WARE_TOP) / VR_WARE_ROW);
+    if (i >= 0 && i < owned.length && x >= 780 && x <= 965) {
+      if (toggleInstall(owned[i]) === "no-slots") game?.toast("No free slots. Raise COMPATIBILITY or remove something.", "warn");
+      updateCharacterUI();
+    }
+  }
+  drawVRMenu();
+}
+function updateVRMenuPointer() {
+  if (!renderer.xr.isPresenting) {
+    vrCursor.visible = false;
+    return;
+  }
+  // Match the controller by handedness, not by inputSources array position.
+  // Quest can reorder that array, which previously left the pointer at spawn.
+  const rightItem = vrControllerRays.find(item =>
+    item.controller.userData.handedness === "right"
+  );
+  if (!rightItem) {
+    vrCursor.visible = false;
+    return;
+  }
+  rightItem.rayLine.visible = true;
+  vrMenuRaycaster.setFromXRController(rightItem.controller);
+  const startHit = vrStart.visible
+    ? vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0]
+    : null;
+  const menuHit = !vrStart.visible && vrMenu.visible
+    ? vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0]
+    : null;
+  const doorHit = isInCity && !vrMenu.visible
+    ? vrMenuRaycaster.intersectObjects(shopDoorHitObjects, false)[0]
+    : null;
+  const gamePoint = !vrStart.visible && !vrMenu.visible ? game?.cursorPoint(rightItem.controller) : null;
+  const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null) || (gamePoint ? { point: gamePoint } : null);
+  const hovered = startHit?.object || null;
+  if (vrStartHovered && vrStartHovered !== hovered) {
+    vrStartHovered.material.emissive.setHex(vrStartHovered.userData.baseEmissive);
+    vrStartHovered.material.emissiveIntensity = 1.1;
+  }
+  if (hovered && hovered !== vrStartHovered) {
+    hovered.material.emissive.setHex(0x16a8a3);
+    hovered.material.emissiveIntensity = 1.8;
+  }
+  vrStartHovered = hovered;
+  rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
+  if (hit) {
+    vrCursor.position.copy(hit.point).addScaledVector(vrMenuRaycaster.ray.direction, -0.025);
+    vrCursor.renderOrder = 2000;
+    vrCursor.visible = true;
+  } else {
+    vrCursor.visible = false;
+  }
+}
+
+// Mouse-look supports pointer lock and click-and-drag fallback.
+let pitch = 0;
+let dragging = false;
+let lastX = 0;
+let lastY = 0;
+const minPitch = -1.42;
+const maxPitch = 1.15;
+function rotateView(dx, dy) {
+  const sensitivity = 0.0022;
+  player.rotation.y -= dx * sensitivity;
+  pitch = THREE.MathUtils.clamp(pitch - dy * sensitivity, minPitch, maxPitch);
+  camera.rotation.x = pitch;
+}
+const isQuestBrowser = /OculusBrowser|Quest/i.test(navigator.userAgent);
+renderer.domElement.addEventListener("click", () => {
+  // Quest Browser uses its own hand/controller cursor; do not capture it.
+  if (!isQuestBrowser && !renderer.xr.isPresenting && !game?.isPanelOpen() &&
+      document.pointerLockElement !== renderer.domElement) {
+    try {
+      const request = renderer.domElement.requestPointerLock?.();
+      if (request?.catch) request.catch(() => {});
+    } catch {}
+  }
+});
+renderer.domElement.addEventListener("mousedown", event => {
+  if (renderer.xr.isPresenting || event.button !== 0) return;
+  dragging = true;
+  lastX = event.clientX;
+  lastY = event.clientY;
+});
+window.addEventListener("mouseup", () => { dragging = false; });
+document.addEventListener("mousemove", event => {
+  if (renderer.xr.isPresenting) return;
+  if (document.pointerLockElement === renderer.domElement) {
+    rotateView(event.movementX, event.movementY);
+  } else if (dragging) {
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    rotateView(dx, dy);
+  }
+});
+
+const keys = {};
+window.addEventListener("keydown", event => {
+  keys[event.code] = true;
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
+});
+window.addEventListener("keyup", event => { keys[event.code] = false; });
+window.addEventListener("blur", () => { for (const key of Object.keys(keys)) keys[key] = false; });
+
+let previousMenuButton = false;
+let previousJumpButton = false;
+let jumpVelocity = 0;
+const clock = new THREE.Clock();
+const forward = new THREE.Vector3();
+const right = new THREE.Vector3();
+const movement = new THREE.Vector3();
+const up = new THREE.Vector3(0, 1, 0);
+const cameraDirection = new THREE.Vector3();
+
+function getLeftStick() {
+  const session = renderer.xr.getSession();
+  if (!session) return { x: 0, y: 0 };
+  for (const source of session.inputSources) {
+    if (source.handedness !== "left" || !source.gamepad) continue;
+    const axes = source.gamepad.axes;
+    if (axes.length >= 4) return { x: axes[2] || 0, y: axes[3] || 0 };
+    if (axes.length >= 2) return { x: axes[0] || 0, y: axes[1] || 0 };
+  }
+  return { x: 0, y: 0 };
+}
+
+function getRightStickAndMenuButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return { x: 0, y: 0 };
+  for (const source of session.inputSources) {
+    if (source.handedness !== "right" || !source.gamepad) continue;
+    const axes = source.gamepad.axes;
+    const x = axes.length >= 4 ? axes[2] : axes[0];
+    const y = axes.length >= 4 ? axes[3] : axes[1];
+    return {
+      x: Math.abs(x || 0) > 0.15 ? x : 0,
+      y: Math.abs(y || 0) > 0.15 ? y : 0
+    };
+  }
+  return { x: 0, y: 0 };
+}
+
+function getLeftYButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  const leftSource = Array.from(session.inputSources).find(source =>
+    source.handedness === "left" && source.gamepad
+  );
+  // Quest Touch: Y is the left controller's secondary face button.
+  return !!leftSource?.gamepad?.buttons[5]?.pressed;
+}
+
+function getRightAButton() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  const rightSource = Array.from(session.inputSources).find(source =>
+    source.handedness === "right" && source.gamepad
+  );
+  // WebXR's standard Quest Touch mapping places the primary right face
+  // button (A) at index 4; index 3 is the thumbstick click.
+  return !!rightSource?.gamepad?.buttons[4]?.pressed;
+}
+
+const headWorld = new THREE.Vector3();
+const headAfterTurn = new THREE.Vector3();
+const PLAYER_RADIUS = 0.31;
+// Smooth turning pivots around your head, not the centre of your play space,
+// so turning while standing off-centre doesn't swing you sideways.
+function turnAroundHead(angle) {
+  if (!angle) return;
+  camera.getWorldPosition(headWorld);
+  player.rotation.y += angle;
+  player.updateMatrixWorld(true);
+  camera.getWorldPosition(headAfterTurn);
+  player.position.x += headWorld.x - headAfterTurn.x;
+  player.position.z += headWorld.z - headAfterTurn.z;
+}
+function blocked(x, z) {
+  return city.collides(x, z, player.position.y, PLAYER_RADIUS) || collidesWithMikaShop(x, z);
+}
+
+function movePlayer(delta) {
+  let stickX = 0;
+  let stickY = 0;
+  let jumpPressed = false;
+  if (renderer.xr.isPresenting) {
+    const stick = getLeftStick();
+    const look = getRightStickAndMenuButton();
+    const yPressed = getLeftYButton();
+    stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
+    stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
+    if (yPressed && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
+    previousMenuButton = yPressed;
+    jumpPressed = getRightAButton();
+    // Smooth horizontal turning; headset tracking still controls natural up/down looking.
+    turnAroundHead(-look.x * turnSpeed() * delta);
+  } else {
+    stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+    jumpPressed = !!keys.Space;
+  }
+  if (game?.isPanelOpen()) { stickX = 0; stickY = 0; jumpPressed = false; }
+
+  // Head offset inside the play space (room-scale): collisions are tested
+  // where your head actually is, so you can't lean or step through walls
+  // with the stick.
+  camera.getWorldPosition(headWorld);
+  const offX = renderer.xr.isPresenting ? headWorld.x - player.position.x : 0;
+  const offZ = renderer.xr.isPresenting ? headWorld.z - player.position.z : 0;
+
+  // Jumping and gravity, with walkable rooftops from city.js.
+  const ground = city.groundAt(player.position.x + offX, player.position.z + offZ, player.position.y);
+  if (jumpPressed && !previousJumpButton && player.position.y <= ground + 0.001) jumpVelocity = jumpPower();
+  previousJumpButton = jumpPressed;
+  jumpVelocity -= 11.5 * delta;
+  player.position.y += jumpVelocity * delta;
+  if (player.position.y < ground) {
+    player.position.y = ground;
+    jumpVelocity = 0;
+  }
+
+  camera.getWorldDirection(cameraDirection);
+  forward.set(cameraDirection.x, 0, cameraDirection.z);
+  if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
+  forward.normalize();
+  right.crossVectors(forward, up).normalize();
+  movement.set(0, 0, 0);
+  movement.addScaledVector(forward, -stickY);
+  movement.addScaledVector(right, stickX);
+  const movementAmount = Math.min(1, movement.length());
+  if (movement.lengthSq() > 1) movement.normalize();
+  const step = movement.multiplyScalar(moveSpeed() * delta);
+
+  // Resolve each axis separately so the player slides along walls instead of
+  // sticking to them.
+  if (step.x && !blocked(player.position.x + offX + step.x, player.position.z + offZ)) player.position.x += step.x;
+  if (step.z && !blocked(player.position.x + offX, player.position.z + offZ + step.z)) player.position.z += step.z;
+  return movementAmount;
+}
+
+startStatus.textContent = state.introSeen
+  ? "Save found — you'll continue where you left off. Y opens the menu in VR, E on PC."
+  : "City systems are ready. Y opens the menu in VR, E on PC.";
+
+// Merge the workshop's static pieces (walls, bench, shelves…) by material.
+// The door, Genesis Core display and signs keep their own meshes.
+const mergedShop = mergeStatic(mikaShop, [shopDoorHinge, genesisCoreDisplay, shopSign, shopHint]);
+mikaShopBlockers.length = 0;
+mikaShopBlockers.push(...mergedShop);
+shopDoorLeaf.traverse(o => { if (o.isMesh && o !== shopDoorAim) mikaShopBlockers.push(o); });
+
+// ── gameplay layer: NPCs, missions, dialogue, shop ────────────────────────
+mikaShop.updateMatrixWorld(true);
+game = createGame({
+  scene, cityWorld, camera, player, renderer, city,
+  core: { group: genesisCoreDisplay, flare: flareGenesisCore },
+  mika: { position: new THREE.Vector3(1.35, 0, -0.85).applyMatrix4(mikaShop.matrixWorld), yaw: Math.PI / 2 },
+  door: {
+    object: shopDoorLeaf, hit: shopDoorAim,
+    toggle: () => { shopDoorTarget = Math.abs(shopDoorHinge.rotation.y) > 0.5 ? 0 : -1.4; }
+  },
+  blockers: mikaShopBlockers,
+  onStateChange: () => updateCharacterUI(),
+  isInCity: () => isInCity,
+  onTeleport: () => { jumpVelocity = 0; }
+});
+updateCharacterUI();
+
+document.querySelector("#reset-button")?.addEventListener("click", () => {
+  if (!confirm("Erase your saved progress on this device and start a new story?")) return;
+  resetGame();
+  location.reload();
+});
+
+renderer.domElement.addEventListener("mousedown", event => {
+  if (renderer.xr.isPresenting || event.button !== 0 || !isInCity) return;
+  if (game.isPanelOpen()) game.desktopClick();
+  else if (document.pointerLockElement === renderer.domElement) game.desktopInteract();
+});
+
+// Developer hook: open the page with ?debug to drive the game from the console.
+if (DEBUG) {
+  window.__NEON = {
+    game, state, city, player, camera, renderer, startCity,
+    teleport(x, y, z, yaw = 0, pitchValue = 0) {
+      player.position.set(x, y, z); player.rotation.set(0, yaw, 0);
+      pitch = pitchValue; camera.rotation.x = pitchValue; jumpVelocity = 0;
+    },
+    stats() { const i = renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures, programs: i.programs?.length }; }
+  };
+}
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+renderer.setAnimationLoop((time, xrFrame) => {
+  const delta = Math.min(clock.getDelta(), 0.05);
+  // Initialize only after this frame has updated Three.js' tracked XR camera.
+  const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
+  const movementAmount = isInCity ? movePlayer(delta) : 0;
+  updateAvatarHeightFromHeadset(xrFrame, delta);
+  animatePlayableAvatar(movementAmount, time * 0.001);
+  for (let handIndex = 0; handIndex < vrControllerRays.length; handIndex++) {
+    const robotHand = vrControllerRays[handIndex].controller.children
+      .find(child => child.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand;
+    animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI);
+  }
+  updateDoorGrab();
+  shopDoorHinge.rotation.y = THREE.MathUtils.damp(
+    shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
+  );
+  if (isInCity) {
+    city.applyAtmosphere(scene, player.position.z);
+    city.update(time, delta, player.position);
+    animateGenesisCore(time);
+    game.update(time, delta, vrControllerRays.map(item => item.controller));
+  }
+  updateVRMenuPointer();
+  if (genesisCoreModel) {
+    genesisCoreModel.rotation.y = Math.PI + Math.sin(time * 0.00045) * 0.08;
+    genesisCoreModel.position.y = 0.55 + Math.sin(time * 0.0015) * 0.025;
+  }
+  coreDisplayRing.rotation.z = time * 0.00035;
+  crossedProps.rotation.y = time * 0.00022;
+  crossedProps.position.y = 1.72 + Math.sin(time * 0.0012) * 0.045;
+  platformRing.rotation.y = time * 0.00018;
+  platformRingInner.rotation.y = -time * 0.00024;
+  renderer.render(scene, camera);
+  if (needsVRIntro && renderer.xr.isPresenting) showVRIntro();
+});

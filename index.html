@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=vr-genesis-core-31" />
+    <link rel="stylesheet" href="./style.css?v=neo-kasumi-40" />
     <script type="importmap">
       {
         "imports": {
@@ -45,23 +45,36 @@
         <div id="start-actions">
           <button id="play-button" type="button">PLAY</button>
         </div>
+        <button id="reset-button" type="button" class="text-button">Start a new story (erase save)</button>
       </section>
-      <p class="start-footer">VR FIRST · LEFT JOYSTICK TO MOVE · USE YOUR BODY TO LOOK AND MOVE NATURALLY</p>
+      <p class="start-footer">VR: LEFT STICK MOVE · RIGHT STICK TURN · TRIGGER INTERACT · A JUMP · Y MENU<br>PC: WASD · MOUSE LOOK · F INTERACT · SPACE JUMP · E MENU · 1–4 DIALOGUE</p>
     </main>
+    <section id="hud" aria-live="polite">
+      <div class="objective-card">
+        <span class="small-label" id="district-name">THE SUMP</span>
+        <strong id="objective-title">EXPLORE</strong>
+        <p id="objective-text"></p>
+        <span id="objective-distance"></span>
+      </div>
+      <div id="crosshair"></div>
+      <div id="interact-prompt" hidden></div>
+      <div id="toasts"></div>
+    </section>
     <section id="game-ui" class="menu-closed" aria-label="Character and game menu">
+      <div class="menu-objective"><span class="small-label">CURRENT OBJECTIVE</span><strong id="menu-objective-title">EXPLORE</strong><p id="menu-objective-text"></p></div>
       <div class="topbar">
         <div class="credits"><span class="small-label">CREDITS</span><strong id="credits">$500</strong></div>
         <button id="character-toggle" class="ui-button">CHARACTER</button>
-        <button id="shop-toggle" class="ui-button accent">CYBERWARE SHOP</button>
+        <button id="shop-toggle" class="ui-button accent">CYBERWARE</button>
       </div>
       <section id="character-panel" class="panel" hidden>
         <button class="close-button" data-close="character-panel" aria-label="Close">×</button>
         <p class="eyebrow">YOUR PROFILE</p>
         <h2>CHARACTER</h2>
-        <p class="panel-note">You have 3 starting attribute points. Spend them across the three stats.</p>
-        <div class="points-line">UNSPENT POINTS <strong id="points-left">3</strong></div>
+        <p class="panel-note">You start with 3 attribute points and earn more by finishing story chapters. You can move points around at any time.</p>
+        <div class="points-line">UNSPENT POINTS <strong><span id="points-left">3</span> / <span id="points-total">3</span></strong></div>
         <div class="stat-row">
-          <div><strong>STRENGTH</strong><p>Improves physical ability and carrying capacity.</p></div>
+          <div><strong>STRENGTH</strong><p>Faster movement, and lets you shift heavy objects.</p></div>
           <div class="stat-control"><button data-stat="strength" data-change="-1" aria-label="Lower strength">−</button><strong id="strength-value">0</strong><button data-stat="strength" data-change="1" aria-label="Raise strength">+</button></div>
         </div>
         <div class="stat-row">
@@ -69,7 +82,7 @@
           <div class="stat-control"><button data-stat="health" data-change="-1" aria-label="Lower health">−</button><strong id="health-value">0</strong><button data-stat="health" data-change="1" aria-label="Raise health">+</button></div>
         </div>
         <div class="stat-row">
-          <div><strong>CYBERWARE COMPATIBILITY</strong><p>Higher compatibility supports more and better cyberware.</p></div>
+          <div><strong>CYBERWARE COMPATIBILITY</strong><p>Each point adds a cyberware slot and unlocks higher-grade chrome.</p></div>
           <div class="stat-control"><button data-stat="compatibility" data-change="-1" aria-label="Lower compatibility">−</button><strong id="compatibility-value">0</strong><button data-stat="compatibility" data-change="1" aria-label="Raise compatibility">+</button></div>
         </div>
         <div class="profile-summary">
@@ -80,13 +93,14 @@
       </section>
       <section id="shop-panel" class="panel shop-panel" hidden>
         <button class="close-button" data-close="shop-panel" aria-label="Close">×</button>
-        <p class="eyebrow">NIGHT MARKET</p>
-        <h2>CYBERWARE SHOP</h2>
-        <p class="panel-note">Your credits are ready. We're still deciding which implants and upgrades belong in the first shop.</p>
-        <div class="shop-placeholder"><span class="shop-symbol">✦</span><strong>STOCK INCOMING</strong><p>Cyberware, prices and compatibility requirements will be added next.</p></div>
+        <p class="eyebrow">INSTALLED CHROME</p>
+        <h2>CYBERWARE</h2>
+        <p class="panel-note">Buy new cyberware in person from Doc Anaya at the Second Skin clinic in Neon Mile. Install or remove what you own here.</p>
+        <div class="points-line">SLOTS USED <strong id="slot-count">0 / 2</strong></div>
+        <div id="cyberware-list"></div>
         <p class="shop-balance">AVAILABLE CREDITS <strong id="shop-credits">$500</strong></p>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=vr-genesis-core-31"></script>
+    <script type="module" src="./src/main.js?v=neo-kasumi-40"></script>
   </body>
 </html>

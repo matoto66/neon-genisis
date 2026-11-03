@@ -207,3 +207,57 @@ h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: .08em; }
   }
   .customize-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
+
+/* ── In-city HUD (desktop). Hidden on the start screen and inside VR. ── */
+#hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: none; font-family: Inter, system-ui, Arial, sans-serif; }
+body.in-city #hud { display: block; }
+.objective-card {
+  position: absolute; top: 18px; left: 20px; max-width: 360px; padding: 12px 16px 12px 14px;
+  border-left: 3px solid #ffcf4a; border-radius: 0 10px 10px 0;
+  background: linear-gradient(90deg, rgba(7,12,27,.9), rgba(7,12,27,.55)); backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.objective-card strong { display: block; margin: 4px 0 3px; color: #ffcf4a; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+.objective-card p { margin: 0; color: #e7efff; font-size: 13px; line-height: 1.45; }
+#objective-distance { display: block; margin-top: 4px; color: #5ff5e8; font-size: 12px; font-weight: 800; letter-spacing: .1em; }
+#objective-distance:empty { display: none; }
+#crosshair { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #5ff5e8; box-shadow: 0 0 8px #5ff5e8; opacity: .85; }
+body.dialogue-open #crosshair { display: none; }
+#interact-prompt {
+  position: absolute; top: calc(50% + 28px); left: 50%; transform: translateX(-50%);
+  padding: 8px 14px; border: 1px solid rgba(95,245,232,.6); border-radius: 8px; background: rgba(6,10,24,.88);
+  color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .06em; white-space: nowrap;
+}
+#interact-prompt[hidden] { display: none; }
+kbd { display: inline-block; min-width: 20px; margin-right: 6px; padding: 1px 6px; border-radius: 4px; background: #ffcf4a; color: #10131c; font: 800 12px/18px Arial; text-align: center; }
+#toasts { position: absolute; left: 50%; bottom: 9vh; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; width: min(92vw, 620px); }
+.toast {
+  padding: 9px 16px; border-radius: 9px; border: 1px solid rgba(95,245,232,.55); background: rgba(6,10,24,.9);
+  color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-align: center;
+  animation: toast-in .35s ease-out; transition: opacity .7s, transform .7s;
+}
+.toast.out { opacity: 0; transform: translateY(8px); }
+.toast-mission { border-color: #ffcf4a; color: #ffe9a8; }
+.toast-complete { border-color: #6aff9e; color: #c9ffd9; }
+.toast-credits { border-color: #ff6fe0; }
+.toast-warn { border-color: #ff8a5a; color: #ffd2bf; }
+.toast-district { border-color: transparent; background: transparent; font-size: 22px; letter-spacing: .35em; text-shadow: 0 0 18px #5ff5e8; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* Desktop menu additions: objective + cyberware list */
+.menu-objective { display: none; }
+#game-ui.menu-open .menu-objective {
+  display: block; position: absolute; top: calc(50% - 150px); left: 50%; transform: translateX(-50%);
+  width: min(92vw, 430px); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,207,74,.45); background: rgba(7,12,27,.95);
+}
+.menu-objective strong { display: block; color: #ffcf4a; font-size: 13px; letter-spacing: .06em; margin: 3px 0; text-transform: uppercase; }
+.menu-objective p { margin: 0; color: #dce7ff; font-size: 12px; line-height: 1.4; }
+#game-ui.menu-open .topbar { top: calc(50% - 64px); }
+#game-ui.menu-open .panel { top: calc(50% - 10px); }
+.ware-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(145,169,205,.16); }
+.ware-row strong { font-size: 12px; letter-spacing: .04em; }
+.ware-row p { color: #9eabc4; font-size: 10px; line-height: 1.4; margin: 4px 0 0; }
+.ware-row em { color: #ffb02e; font-style: normal; }
+#cyberware-list { margin-top: 10px; }
+.text-button { margin-top: 12px; border: 0; background: transparent; color: #7d8fae; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.text-button:hover { color: #ff8a9d; }
