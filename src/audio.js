@@ -94,8 +94,10 @@ export function createAudio(camera) {
   let rainGain, cityGain, trafficFilter;
   function startAmbience() {
     // rain = two bands of noise
-    rainGain = ctx.createGain(); rainGain.gain.value = 0; rainGain.connect(buses.ambience);
-    for (const [freq, q, vol] of [[2600, 0.6, 0.05], [700, 0.8, 0.03]]) {
+    rainGain = ctx.createGain(); rainGain.gain.value = 0;
+    const rainSoften = ctx.createBiquadFilter(); rainSoften.type = "lowpass"; rainSoften.frequency.value = 3200;
+    rainGain.connect(rainSoften); rainSoften.connect(buses.ambience);
+    for (const [freq, q, vol] of [[1700, 0.5, 0.022], [600, 0.8, 0.016]]) {
       const s = noiseSource(true), f = ctx.createBiquadFilter(), g = ctx.createGain();
       f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q; g.gain.value = vol;
       s.connect(f); f.connect(g); g.connect(rainGain); s.start();
@@ -302,7 +304,7 @@ export function createAudio(camera) {
     if (!ctx) return;
     if (!started && inCity) { started = true; startAmbience(); }
     if (rainGain) {
-      const rain = !inCity ? 0 : indoors ? 0.25 : (height > 10 ? 1.2 : 1);
+      const rain = !inCity ? 0 : indoors ? 0.25 : 1;
       rainGain.gain.setTargetAtTime(rain, now(), 0.4);
       cityGain.gain.setTargetAtTime(!inCity ? 0 : indoors ? 0.35 : district === "NEON MILE" ? 1 : 0.8, now(), 0.6);
     }
