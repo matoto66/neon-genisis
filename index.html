@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=neo-kasumi-40" />
+    <link rel="stylesheet" href="./style.css?v=neo-kasumi-50" />
     <script type="importmap">
       {
         "imports": {
@@ -25,21 +25,8 @@
       <section class="start-card">
         <p class="eyebrow">NEW RUN</p>
         <h2>CREATE YOUR CHARACTER</h2>
-        <p class="start-copy">Choose your look before entering the city. Your appearance choices are saved on this device.</p>
-        <div class="customize-grid">
-          <label>BODY TYPE
-            <select id="body-type"><option value="Male">Male</option><option value="Female">Female</option></select>
-          </label>
-          <label>HAT STYLE
-            <select id="hat-style"><option value="Baseball Cap">Baseball Cap</option><option value="Beanie">Beanie</option><option value="Bucket Hat">Bucket Hat</option><option value="Tech Helmet">Tech Helmet</option></select>
-          </label>
-          <label>HAT COLOR
-            <select id="hat-colour"><option value="Black">Black</option><option value="White">White</option><option value="Yellow">Yellow</option><option value="Cyan">Cyan</option><option value="Purple">Purple</option><option value="Red">Red</option></select>
-          </label>
-          <label>JACKET COLOUR
-            <select id="jacket-colour"><option value="Black">Black</option><option value="White">White</option><option value="Yellow">Yellow</option><option value="Cyan">Cyan</option><option value="Purple">Purple</option><option value="Red">Red</option></select>
-          </label>
-        </div>
+        <p class="start-copy">Build your runner: identity, face, hair, outfit and chrome. Everything saves on this device.</p>
+        <div id="creator" aria-label="Character creator"></div>
 
         <p id="start-status">City systems are ready.</p>
         <div id="start-actions">
@@ -101,6 +88,6 @@
         <p class="shop-balance">AVAILABLE CREDITS <strong id="shop-credits">$500</strong></p>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=neo-kasumi-40"></script>
+    <script type="module" src="./src/main.js?v=neo-kasumi-50"></script>
   </body>
 </html>

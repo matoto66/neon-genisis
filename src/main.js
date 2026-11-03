@@ -4,6 +4,9 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildCity, createNeonEnvironment } from "./city.js";
 import { createGame } from "./quests.js";
 import { skinify, mergeStatic } from "./optimize.js";
+import { createAudio } from "./audio.js";
+import { buildCharacter } from "./character.js";
+import * as creator from "./creator.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -29,6 +32,11 @@ camera.position.set(0, 1.65, 0);
 camera.rotation.set(0, 0, 0);
 player.add(camera);
 player.position.set(0, 0, 7);
+// Procedural sound (music, ambience, voices). Starts on the first click.
+const audio = createAudio(camera);
+function startAudio() { audio.init(); if (!isInCity) audio.setMood("menu"); }
+window.addEventListener("pointerdown", startAudio, { capture: true });
+window.addEventListener("keydown", startAudio, { capture: true });
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -59,26 +67,10 @@ vrButton.addEventListener("click", () => {
 
 const startScreen = document.querySelector("#start-screen");
 const startStatus = document.querySelector("#start-status");
-const appearance = { bodyType: "Male", hatStyle: "Baseball Cap", hatColour: "Black", jacketColour: "Black" };
-try {
-  const savedAppearance = JSON.parse(localStorage.getItem("neon-genesis-appearance") || "null");
-  if (savedAppearance) {
-    Object.assign(appearance, savedAppearance);
-  }
-} catch {}
-delete appearance.hairStyle;
-delete appearance.hairColour;
-for (const [id, key] of [["body-type","bodyType"],["hat-style","hatStyle"],["hat-colour","hatColour"],["jacket-colour","jacketColour"]]) {
-  const field = document.getElementById(id);
-  field.value = String(appearance[key]);
-  field.addEventListener("change", () => {
-    appearance[key] = field.value;
-    try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
-    updateCharacterPreview();
-    rebuildPlayableAvatar();
-    startStatus.textContent = "Appearance saved.";
-  });
-}
+// The player's look lives in creator.js (saved on this device; older saves
+// from the 4-option creator are converted automatically).
+creator.loadLook();
+const appearance = creator.look;
 setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
 
 // The city of Neo Kasumi (districts, collision, signage, props, rain) is
@@ -388,38 +380,98 @@ function animateGenesisCore(time) {
   moteGeometry.attributes.position.needsUpdate = true;
 }
 
+// Genesis Core v2: a detailed model (genesis_core_v2.glb, built by
+// tools/build_genesis_core.html). If it fails to load, the original
+// Blockbench model (Genisis_ core.gltf, kept as a backup) is used instead.
 let genesisCoreModel = null;
+let genesisCoreParts = null;
+const CORE_BASE_Y = 0.52;
+// Animated plasma shader for the energy sphere: swirling noise + bright rim.
+const coreEnergyUniforms = { uTime: { value: 0 }, uFlare: { value: 0 } };
+const coreEnergyMaterial = new THREE.ShaderMaterial({
+  uniforms: coreEnergyUniforms,
+  vertexShader: `
+    varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;
+    uniform float uTime;
+    void main() {
+      vPos = position;
+      vec3 p = position * (1.0 + 0.04 * sin(uTime * 3.0 + position.y * 40.0));
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      vNormal = normalize(normalMatrix * normal);
+      vView = normalize(-mv.xyz);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;
+    uniform float uTime; uniform float uFlare;
+    float hash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.3, 41.7))) * 43758.5453); }
+    float noise(vec3 p) {
+      vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                 mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+    }
+    void main() {
+      vec3 p = normalize(vPos) * 3.0;
+      float n = noise(p + vec3(0.0, uTime * 0.9, uTime * 0.4)) * 0.6 + noise(p * 2.3 - uTime * 0.7) * 0.4;
+      float veins = smoothstep(0.42, 0.5, n) - smoothstep(0.5, 0.58, n);
+      float rim = pow(1.0 - max(dot(vNormal, vView), 0.0), 2.2);
+      vec3 deep = vec3(0.02, 0.35, 0.55), cyan = vec3(0.25, 0.95, 0.92), violet = vec3(0.7, 0.35, 1.0);
+      vec3 col = mix(deep, cyan, smoothstep(0.25, 0.85, n)) * 0.9 + violet * veins * 1.4 + cyan * rim * 0.9;
+      col *= 1.0 + uFlare * 2.0;
+      gl_FragColor = vec4(col, 1.0);
+    }`
+});
+function prepareGenesisCore(model, isV2) {
+  model.traverse(object => {
+    if (!object.isMesh) return;
+    const name = object.name.toLowerCase();
+    const materialName = (object.material?.name || "").toLowerCase();
+    if (name.includes("energy") || materialName.includes("energy")) {
+      object.material = coreEnergyMaterial;
+    } else if (object.material?.emissive && (name.startsWith("glow") || materialName.startsWith("glow"))) {
+      object.material.emissiveIntensity = 1.8;
+    } else if (materialName.includes("glass")) {
+      object.material.opacity = 0.08;
+      object.material.depthWrite = false;
+    }
+  });
+  if (isV2) {
+    genesisCoreParts = {
+      outer: model.getObjectByName("ring_outer"),
+      inner: model.getObjectByName("ring_inner"),
+      crown: model.getObjectByName("crown")
+    };
+  }
+}
 const genesisCoreLoader = new GLTFLoader();
-genesisCoreLoader.load(
-  new URL("../Genisis_%20core.gltf", import.meta.url).href,
-  gltf => {
+function loadOriginalGenesisCore() {
+  genesisCoreLoader.load(new URL("../Genisis_%20core.gltf", import.meta.url).href, gltf => {
     genesisCoreModel = gltf.scene;
     genesisCoreModel.name = "GENESIS_CORE_BLOCKBENCH_MODEL";
     genesisCoreModel.scale.setScalar(1.25);
-    genesisCoreModel.position.set(0, 0.55, 0);
-    // The energy lens was built on the model's -Z face. Turn it toward the
-    // workshop entrance so the player can see it when entering.
+    genesisCoreModel.position.set(0, CORE_BASE_Y, 0);
+    // The energy lens was built on the model's -Z face; turn it to the entrance.
     genesisCoreModel.rotation.y = Math.PI;
-    genesisCoreModel.traverse(object => {
-      if (!object.isMesh) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
-      if (object.name.toLowerCase().includes("energy core")) {
-        const materials = Array.isArray(object.material)
-          ? object.material
-          : [object.material];
-        for (const material of materials) {
-          if (!material) continue;
-          material.emissive = new THREE.Color(0x087f91);
-          material.emissiveIntensity = 1.35;
-          material.needsUpdate = true;
-        }
-      }
-    });
+    prepareGenesisCore(genesisCoreModel, false);
     genesisCoreDisplay.add(genesisCoreModel);
+  }, undefined, error => console.error("Could not load the Genesis Core model:", error));
+}
+genesisCoreLoader.load(
+  new URL("../genesis_core_v2.glb", import.meta.url).href,
+  gltf => {
+    genesisCoreModel = gltf.scene;
+    genesisCoreModel.name = "GENESIS_CORE_V2";
+    genesisCoreModel.position.set(0, CORE_BASE_Y, 0);
+    genesisCoreModel.scale.setScalar(1.15);
+    prepareGenesisCore(genesisCoreModel, true);
+    genesisCoreDisplay.add(genesisCoreModel);
+    // The v2 model has its own gyroscope rings, so retire the old floating ones
+    // and the projection cone that hid the model's detail.
+    coreOrbitA.visible = coreOrbitB.visible = false;
+    coreBeam.visible = false;
   },
   undefined,
-  error => console.error("Could not load the Genesis Core model:", error)
+  error => { console.warn("Genesis Core v2 failed to load, using the original model.", error); loadOriginalGenesisCore(); }
 );
 
 // Main-menu showcase world: a dark neon armory stage with a distant skyline.
@@ -777,7 +829,7 @@ let vrStartHovered = null;
 let isInCity = false;
 
 function startCity() {
-  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
+  creator.saveLook();
   isInCity = true;
   cityWorld.visible = true;
   mainMenuWorld.visible = false;
@@ -813,23 +865,17 @@ function startCity() {
   if (firstPersonHands) firstPersonHands.visible = !renderer.xr.isPresenting;
   startStatus.textContent = "City loaded. Welcome to Neon Genesis.";
   document.body.classList.add("in-city");
+  startAudio();
   city.applyAtmosphere(scene, player.position.z);
   updateCharacterUI();
   game.beginSession();
 }
 
-const appearanceChoices = {
-  bodyType: ["Male", "Female"],
-  hatStyle: ["Baseball Cap", "Beanie", "Bucket Hat", "Tech Helmet"],
-  hatColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"],
-  jacketColour: ["Black", "White", "Yellow", "Cyan", "Purple", "Red"]
-};
-
 // 3D character preview: the same model is shown on desktop and beside the VR editor.
 const characterPreview = new THREE.Group();
 characterPreview.name = "LIVE_CHARACTER_PREVIEW";
 mainMenuWorld.add(characterPreview);
-characterPreview.position.set(3.15, 0, 2.4);
+characterPreview.position.set(1.7, 0, 3.2);
 
 const previewBase = new THREE.Mesh(
   new THREE.CylinderGeometry(0.48, 0.54, 0.12, 40),
@@ -844,10 +890,13 @@ const previewBaseRing = new THREE.Mesh(
 previewBaseRing.rotation.x = Math.PI / 2;
 previewBaseRing.position.y = 0.125;
 characterPreview.add(previewBaseRing);
-const previewKeyLight = new THREE.PointLight(0x79f5ed, 2.4, 4.5);
-previewKeyLight.position.set(-0.8, 2.1, 1.25);
+const previewKeyLight = new THREE.PointLight(0xbffaf5, 9, 5, 1.4);
+previewKeyLight.position.set(-0.6, 1.9, 1.5);
+const previewFaceLight = new THREE.PointLight(0xffe8d8, 3.5, 2.6, 1.6);
+previewFaceLight.position.set(0.3, 1.75, 0.9);
+characterPreview.add(previewFaceLight);
 characterPreview.add(previewKeyLight);
-const previewRimLight = new THREE.PointLight(0xa54dff, 1.8, 3.5);
+const previewRimLight = new THREE.PointLight(0xa54dff, 5, 3.5, 1.4);
 previewRimLight.position.set(0.9, 1.55, -0.8);
 characterPreview.add(previewRimLight);
 
@@ -864,299 +913,15 @@ function disposeAvatarRig(rigRoot) {
   rigRoot.parent?.remove(rigRoot);
 }
 
-// Shared human character builder. The same model is used for the editor
-// preview and the playable character so clothing and body type stay matched.
-function createHumanAvatar(parent) {
-  const root = new THREE.Group();
-  root.name = "HUMAN_PLAYER_AVATAR";
-  parent.add(root);
-
-  const bodyType = appearance.bodyType === "Female" ? "Female" : "Male";
-  const jacketHex = {
-    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
-    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
-  }[appearance.jacketColour] || 0x30394a;
-  const hatHex = {
-    Black: 0x202735, White: 0xcbd4df, Yellow: 0xc49a25,
-    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
-  }[appearance.hatColour] || 0x202735;
-
-  const skin = new THREE.MeshStandardMaterial({ color: 0xb98265, roughness: 0.82, metalness: 0.0 });
-  const skinLight = new THREE.MeshStandardMaterial({ color: 0xc99476, roughness: 0.84, metalness: 0.0 });
-  const jacket = new THREE.MeshStandardMaterial({ color: jacketHex, roughness: 0.76, metalness: 0.08 });
-  const jacketShadow = new THREE.MeshStandardMaterial({ color: 0x172131, roughness: 0.82, metalness: 0.06 });
-  const jacketTrim = new THREE.MeshStandardMaterial({ color: 0x3b5267, roughness: 0.64, metalness: 0.18 });
-  const silverMaterial = new THREE.MeshStandardMaterial({ color: 0x9aa9b8, roughness: 0.34, metalness: 0.82 });
-  const pants = new THREE.MeshStandardMaterial({ color: 0x202a39, roughness: 0.9, metalness: 0.03 });
-  const shoes = new THREE.MeshStandardMaterial({ color: 0x101722, roughness: 0.82, metalness: 0.06 });
-  const shoeSole = new THREE.MeshStandardMaterial({ color: 0x070c13, roughness: 0.9 });
-  const hat = new THREE.MeshStandardMaterial({ color: hatHex, roughness: 0.72, metalness: 0.04 });
-  const hatDetail = new THREE.MeshStandardMaterial({ color: 0x35d6cd, emissive: 0x0a6564, emissiveIntensity: 0.42, roughness: 0.55 });
-  const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xf1e8dd, roughness: 0.8 });
-  const eyeDark = new THREE.MeshStandardMaterial({ color: 0x171923, roughness: 0.7 });
-  const brow = new THREE.MeshStandardMaterial({ color: 0x32251f, roughness: 0.9 });
-  const mouth = new THREE.MeshStandardMaterial({ color: 0x74483f, roughness: 0.9 });
-
-  const add = (parentNode, geometry, material, x, y, z) => {
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(x, y, z);
-    parentNode.add(mesh);
-    return mesh;
-  };
-  const capsule = (parentNode, material, radius, length, x, y, z) =>
-    add(parentNode, new THREE.CapsuleGeometry(radius, length, 6, 14), material, x, y, z);
-  const addCircuitLine = (parentNode, points, radius, material) => {
-    const curve = new THREE.CatmullRomCurve3(
-      points.map(([x, y, z]) => new THREE.Vector3(x, y, z))
-    );
-    const line = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, Math.max(16, points.length * 8), radius, 6, false),
-      material
-    );
-    line.frustumCulled = false;
-    parentNode.add(line);
-    return line;
-  };
-  const jacketCircuitRed = new THREE.MeshStandardMaterial({
-    color: 0xd92743, emissive: 0x650817, emissiveIntensity: 0.9,
-    metalness: 0.48, roughness: 0.3
-  });
-
-  const proportions = bodyType === "Female"
-    ? { shoulder: 0.285, hip: 0.245, legGap: 0.145, arm: 0.088 }
-    : { shoulder: 0.315, hip: 0.225, legGap: 0.14, arm: 0.096 };
-
-  // Natural waist, hips and jacket. LatheGeometry keeps the torso rounded
-  // instead of making it look like a stack of separate hard-surface pieces.
-  const pelvis = add(root, new THREE.SphereGeometry(0.235, 24, 18), pants, 0, 0.91, 0);
-  pelvis.scale.set(proportions.hip / 0.235, 0.78, 0.76);
-  const torsoProfile = bodyType === "Female"
-    ? [
-        new THREE.Vector2(0.19, 0.88), new THREE.Vector2(0.215, 0.96),
-        new THREE.Vector2(0.205, 1.04), new THREE.Vector2(0.225, 1.15),
-        new THREE.Vector2(0.26, 1.30), new THREE.Vector2(0.285, 1.39),
-        new THREE.Vector2(0.22, 1.46), new THREE.Vector2(0.12, 1.49)
-      ]
-    : [
-        new THREE.Vector2(0.20, 0.88), new THREE.Vector2(0.23, 0.96),
-        new THREE.Vector2(0.225, 1.04), new THREE.Vector2(0.24, 1.15),
-        new THREE.Vector2(0.275, 1.30), new THREE.Vector2(0.31, 1.39),
-        new THREE.Vector2(0.235, 1.46), new THREE.Vector2(0.12, 1.49)
-      ];
-  const torso = add(root, new THREE.LatheGeometry(torsoProfile, 32), jacket, 0, 0, 0);
-  torso.scale.z = 0.82;
-
-  // Soft collar, fabric seams, pockets and a cloth front closure.
-  add(root, new THREE.CylinderGeometry(0.13, 0.155, 0.075, 24), jacketShadow, 0, 1.455, 0);
-  add(root, new THREE.BoxGeometry(0.025, 0.40, 0.012), jacketTrim, 0, 1.20, 0.228);
-  add(root, new THREE.BoxGeometry(0.012, 0.38, 0.014), hatDetail, 0.018, 1.20, 0.236);
-  for (const side of [-1, 1]) {
-    const pocket = add(root, new THREE.BoxGeometry(0.105, 0.13, 0.018),
-      jacketShadow, side * 0.145, 1.24, 0.204);
-    pocket.rotation.z = side * -0.05;
-    add(root, new THREE.BoxGeometry(0.11, 0.018, 0.02),
-      jacketTrim, side * 0.145, 1.31, 0.215);
-  }
-  add(root, new THREE.BoxGeometry(0.40, 0.035, 0.025), jacketShadow, 0, 0.94, 0.17);
-  add(root, new THREE.BoxGeometry(0.06, 0.055, 0.012), hatDetail, 0, 1.00, 0.205);
-
-  // Layered cyberpunk jacket panels: fabric remains the main surface, while
-  // reinforced shoulder patches, piping and small hardware echo the hand design.
-  const leftChestPanel = add(root, new THREE.BoxGeometry(0.115, 0.235, 0.018),
-    jacketShadow, -0.17, 1.245, 0.197);
-  leftChestPanel.rotation.z = 0.08;
-  const rightChestPanel = add(root, new THREE.BoxGeometry(0.105, 0.185, 0.018),
-    jacketTrim, 0.165, 1.26, 0.199);
-  rightChestPanel.rotation.z = -0.10;
-  add(root, new THREE.BoxGeometry(0.018, 0.31, 0.012),
-    hatDetail, -0.245, 1.24, 0.18);
-  add(root, new THREE.BoxGeometry(0.018, 0.26, 0.012),
-    silverMaterial, 0.245, 1.22, 0.18);
-  for (const side of [-1, 1]) {
-    for (let snap = 0; snap < 3; snap++) {
-      add(root, new THREE.SphereGeometry(0.009, 10, 8),
-        silverMaterial, side * 0.145, 1.18 + snap * 0.055, 0.218);
-    }
-    const shoulderPatch = add(root, new THREE.SphereGeometry(0.17, 18, 14),
-      jacketTrim, side * 0.245, 1.385, -0.005);
-    shoulderPatch.scale.set(1.12, 0.62, 0.72);
-    add(root, new THREE.BoxGeometry(0.13, 0.022, 0.012),
-      hatDetail, side * 0.245, 1.40, 0.105);
-
-    // Sharp, segmented neon traces run from the shoulder into each chest panel.
-    addCircuitLine(root, [
-      [side * 0.255, 1.405, 0.204],
-      [side * 0.215, 1.355, 0.239],
-      [side * 0.155, 1.300, 0.235],
-      [side * 0.185, 1.225, 0.211]
-    ], 0.0055, jacketCircuitRed);
-    addCircuitLine(root, [
-      [side * 0.095, 1.405, 0.252],
-      [side * 0.118, 1.350, 0.246],
-      [side * 0.082, 1.300, 0.239],
-      [side * 0.092, 1.245, 0.223]
-    ], 0.0035, hatDetail);
-    addCircuitLine(root, [
-      [side * 0.195, 1.145, 0.204],
-      [side * 0.158, 1.105, 0.199],
-      [side * 0.105, 1.085, 0.197]
-    ], 0.0035, jacketCircuitRed);
-  }
-  // A clean angular collar trace ties both sides together.
-  addCircuitLine(root, [
-    [-0.105, 1.435, 0.245], [-0.055, 1.405, 0.258],
-    [0, 1.390, 0.262],
-    [0.055, 1.405, 0.258], [0.105, 1.435, 0.245]
-  ], 0.0038, hatDetail);
-
-  // Neck and a human face: no metal mask or mechanical visor.
-  add(root, new THREE.CylinderGeometry(0.073, 0.085, 0.16, 18), skin, 0, 1.525, 0);
-  const head = new THREE.Group();
-  head.name = "AVATAR_HEAD";
-  head.position.set(0, 1.715, 0);
-  root.add(head);
-  const skull = add(head, new THREE.SphereGeometry(0.17, 28, 22), skin, 0, 0, 0);
-  skull.scale.set(0.92, 1.12, 0.88);
-  const jaw = add(head, new THREE.SphereGeometry(0.125, 22, 16), skinLight, 0, -0.085, 0.035);
-  jaw.scale.set(0.98, 0.72, 0.92);
-  const nose = add(head, new THREE.SphereGeometry(0.035, 14, 12), skinLight, 0, -0.005, 0.145);
-  nose.scale.set(0.78, 1.28, 0.8);
-  for (const side of [-1, 1]) {
-    const ear = add(head, new THREE.SphereGeometry(0.045, 14, 12), skin, side * 0.15, -0.015, 0);
-    ear.scale.set(0.55, 1.1, 0.74);
-    add(head, new THREE.SphereGeometry(0.026, 14, 10), eyeWhite, side * 0.064, 0.035, 0.125);
-    add(head, new THREE.SphereGeometry(0.013, 12, 10), eyeDark, side * 0.064, 0.034, 0.147);
-    const eyebrow = add(head, new THREE.CapsuleGeometry(0.009, 0.045, 3, 8),
-      brow, side * 0.064, 0.073, 0.128);
-    eyebrow.rotation.z = side * -0.12;
-  }
-  add(head, new THREE.BoxGeometry(0.065, 0.009, 0.008), mouth, 0, -0.115, 0.143);
-
-  // Hats sit on the head but do not cover the face.
-  if (appearance.hatStyle === "Baseball Cap") {
-    const crown = add(head, new THREE.SphereGeometry(0.18, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
-      hat, 0, 0.13, -0.012);
-    crown.scale.set(1.04, 0.88, 1.0);
-    add(head, new THREE.SphereGeometry(0.17, 20, 12), hat, 0, 0.13, 0.105)
-      .scale.set(1.04, 0.075, 0.72);
-    add(head, new THREE.BoxGeometry(0.018, 0.018, 0.105), hatDetail, 0, 0.19, -0.01);
-  } else if (appearance.hatStyle === "Beanie") {
-    add(head, new THREE.CylinderGeometry(0.17, 0.19, 0.20, 24), hat, 0, 0.15, 0);
-    add(head, new THREE.SphereGeometry(0.17, 20, 12), hat, 0, 0.25, 0)
-      .scale.set(1, 0.35, 1);
-    add(head, new THREE.CylinderGeometry(0.19, 0.19, 0.045, 24), jacketShadow, 0, 0.065, 0);
-  } else if (appearance.hatStyle === "Bucket Hat") {
-    add(head, new THREE.CylinderGeometry(0.15, 0.17, 0.16, 24), hat, 0, 0.16, 0);
-    add(head, new THREE.CylinderGeometry(0.18, 0.235, 0.035, 32), hat, 0, 0.075, 0);
-    add(head, new THREE.CylinderGeometry(0.16, 0.16, 0.012, 24), hatDetail, 0, 0.095, 0);
-  } else if (appearance.hatStyle === "Tech Helmet") {
-    const shell = add(head, new THREE.SphereGeometry(0.19, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-      hat, 0, 0.12, -0.005);
-    shell.scale.set(1.06, 0.94, 1.04);
-    add(head, new THREE.BoxGeometry(0.29, 0.035, 0.035), hatDetail, 0, 0.07, 0.15);
-    for (const side of [-1, 1]) {
-      add(head, new THREE.SphereGeometry(0.035, 12, 10), jacketTrim, side * 0.17, 0.005, 0);
-    }
-  }
-
-  const legPivots = [];
-  const kneePivots = [];
-  const armPivots = [];
-  const elbowPivots = [];
-  const handGroups = [];
-
-  // Continuous sleeves and rounded elbow joints overlap slightly so there
-  // are no exposed gaps or separate hard-looking joint caps.
-  for (const side of [-1, 1]) {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(side * proportions.shoulder, 1.385, 0);
-    root.add(shoulder);
-    add(shoulder, new THREE.SphereGeometry(proportions.arm * 1.12, 18, 14),
-      jacket, 0, -0.015, 0);
-    capsule(shoulder, jacket, proportions.arm, 0.27, 0, -0.16, 0);
-    addCircuitLine(shoulder, [
-      [side * 0.045, -0.045, 0.088],
-      [side * 0.065, -0.115, 0.082],
-      [side * 0.052, -0.195, 0.074]
-    ], 0.0045, jacketCircuitRed);
-    addCircuitLine(shoulder, [
-      [-side * 0.038, -0.075, 0.087],
-      [-side * 0.047, -0.145, 0.079]
-    ], 0.003, hatDetail);
-    const elbow = new THREE.Group();
-    elbow.position.y = -0.30;
-    shoulder.add(elbow);
-    add(elbow, new THREE.SphereGeometry(proportions.arm * 0.96, 18, 14),
-      jacket, 0, 0, 0);
-    capsule(elbow, jacket, proportions.arm * 0.83, 0.26, 0, -0.145, 0.012);
-    addCircuitLine(elbow, [
-      [side * 0.048, -0.055, 0.081],
-      [side * 0.055, -0.125, 0.079],
-      [side * 0.040, -0.215, 0.073]
-    ], 0.004, hatDetail);
-    addCircuitLine(elbow, [
-      [-side * 0.035, -0.075, 0.080],
-      [-side * 0.043, -0.170, 0.075]
-    ], 0.003, jacketCircuitRed);
-    add(elbow, new THREE.CylinderGeometry(0.074, 0.078, 0.045, 16),
-      jacketShadow, 0, -0.285, 0.012);
-    add(elbow, new THREE.CylinderGeometry(0.079, 0.079, 0.018, 18),
-      jacketTrim, 0, -0.258, 0.012);
-    add(elbow, new THREE.BoxGeometry(0.018, 0.055, 0.012),
-      hatDetail, 0, -0.265, 0.078);
-    const hand = new THREE.Group();
-    hand.position.set(0, -0.30, 0.025);
-    elbow.add(hand);
-    add(hand, new THREE.SphereGeometry(0.068, 18, 14),
-      skin, 0, -0.045, 0.035).scale.set(0.82, 1.2, 0.72);
-    for (let finger = -1; finger <= 2; finger++) {
-      capsule(hand, skin, 0.012, 0.055, (finger - 0.5) * 0.026, -0.12, 0.055);
-    }
-    const thumb = capsule(hand, skin, 0.015, 0.065, side * 0.07, -0.075, 0.025);
-    thumb.rotation.z = side * -0.75;
-    armPivots.push(shoulder);
-    elbowPivots.push(elbow);
-    handGroups.push(hand);
-  }
-
-  // Rounded hips, knees and ankles. The knee joints are covered by the same
-  // trouser material as the legs, rather than sticking out like robot hinges.
-  for (const side of [-1, 1]) {
-    const hip = new THREE.Group();
-    hip.position.set(side * proportions.legGap, 0.91, 0);
-    root.add(hip);
-    capsule(hip, pants, 0.115, 0.37, 0, -0.205, 0);
-    const knee = new THREE.Group();
-    knee.position.y = -0.40;
-    hip.add(knee);
-    add(knee, new THREE.SphereGeometry(0.105, 18, 14), pants, 0, 0, 0);
-    capsule(knee, pants, 0.084, 0.33, 0, -0.175, 0);
-    add(knee, new THREE.CylinderGeometry(0.085, 0.09, 0.045, 18),
-      pants, 0, -0.35, 0);
-    const foot = new THREE.Group();
-    foot.position.set(0, -0.38, 0.015);
-    knee.add(foot);
-    const shoe = add(foot, new THREE.SphereGeometry(0.115, 18, 14),
-      shoes, 0, -0.045, 0.075);
-    shoe.scale.set(0.92, 0.66, 1.55);
-    const sole = add(foot, new THREE.BoxGeometry(0.19, 0.025, 0.27),
-      shoeSole, 0, -0.105, 0.08);
-    sole.rotation.x = -0.035;
-    add(foot, new THREE.BoxGeometry(0.06, 0.018, 0.012),
-      jacketTrim, 0, -0.026, 0.18);
-    legPivots.push(hip);
-    kneePivots.push(knee);
-  }
-
-  return { root, head, legPivots, kneePivots, armPivots, elbowPivots, handGroups };
-}
-
+// Live preview of the player's character on the menu stage / beside the VR terminal.
+let previewRig = null;
 function updateCharacterPreview() {
   if (avatarModel) disposeAvatarRig(avatarModel);
-  const preview = createHumanAvatar(characterPreview);
-  avatarModel = preview.root;
+  avatarModel = buildCharacter({ ...appearance, umbrella: false });
   avatarModel.name = "PLAYER_AVATAR_PREVIEW";
   avatarModel.position.y = 0.12;
+  previewRig = avatarModel.userData.rig;
+  characterPreview.add(avatarModel);
 }
 
 function createRobotHand(parent, side = 1) {
@@ -1164,10 +929,8 @@ function createRobotHand(parent, side = 1) {
   hand.name = "CYBERNETIC_HAND";
   parent.add(hand);
 
-  const jacketHex = {
-    Black: 0x30394a, White: 0xcbd4df, Yellow: 0xc49a25,
-    Cyan: 0x147f89, Purple: 0x6542a0, Red: 0x9e283b
-  }[appearance.jacketColour] || 0x30394a;
+  // Hand accents follow the outfit chosen in the character creator.
+  const jacketHex = appearance.topColor ?? 0x30394a;
 
   const alloy = new THREE.MeshStandardMaterial({ color: 0x8797a8, metalness: 0.86, roughness: 0.28 });
   const darkAlloy = new THREE.MeshStandardMaterial({ color: 0x182535, metalness: 0.82, roughness: 0.32 });
@@ -1394,13 +1157,9 @@ function rebuildFirstPersonHands() {
 
   firstPersonHands.visible = isInCity && !renderer.xr.isPresenting;
 }
+// First-person play shows only the robotic hands (no visible body), so the
+// "playable avatar" is just the hands now.
 function rebuildPlayableAvatar() {
-  if (playableAvatar) disposeAvatarRig(playableAvatar.root);
-  playableAvatar = createHumanAvatar(player);
-  playableAvatar.root.name = "PLAYABLE_HUMAN_AVATAR";
-  // The builder faces +Z for the display stand. The actual player faces -Z.
-  playableAvatar.root.rotation.y = Math.PI;
-  playableAvatar.root.visible = false;
   rebuildFirstPersonHands();
 }
 updateCharacterPreview();
@@ -1449,22 +1208,8 @@ function animateRobotHandJoints(hand, elapsed, phaseOffset = 0) {
 }
 
 function animatePlayableAvatar(amount, elapsed) {
-  if (!playableAvatar) return;
   const blend = THREE.MathUtils.clamp(amount, 0, 1);
   const phase = elapsed * 8.4;
-  const stride = Math.sin(phase) * 0.48 * blend;
-  const leftLegFlex = Math.max(0, Math.sin(phase + Math.PI)) * 0.58 * blend;
-  const rightLegFlex = Math.max(0, Math.sin(phase)) * 0.58 * blend;
-
-  playableAvatar.legPivots[0].rotation.x = stride;
-  playableAvatar.legPivots[1].rotation.x = -stride;
-  playableAvatar.kneePivots[0].rotation.x = leftLegFlex;
-  playableAvatar.kneePivots[1].rotation.x = rightLegFlex;
-  playableAvatar.armPivots[0].rotation.x = -stride * 0.72;
-  playableAvatar.armPivots[1].rotation.x = stride * 0.72;
-  playableAvatar.elbowPivots[0].rotation.x = 0.08 + leftLegFlex * 0.22;
-  playableAvatar.elbowPivots[1].rotation.x = 0.08 + rightLegFlex * 0.22;
-  playableAvatar.root.position.y = blend > 0 ? Math.abs(Math.sin(phase * 2)) * 0.024 * blend : 0;
   if (firstPersonHands) {
     firstPersonHands.position.y = -Math.abs(Math.sin(phase * 2)) * 0.012 * blend;
     firstPersonHands.rotation.z = Math.sin(phase) * 0.025 * blend;
@@ -1484,7 +1229,7 @@ function setCharacterPreviewLocation(parent, x, y, z, scale = 1, yaw = 0) {
 updateCharacterPreview();
 
 const terminalMetal = new THREE.MeshStandardMaterial({
-  color: 0x111d2b, metalness: 0.82, roughness: 0.34
+  color: 0x111d2b, metalness: 0.82, roughness: 0.34, envMapIntensity: 0.25
 });
 const terminalGlow = new THREE.MeshStandardMaterial({
   color: 0x183c45, emissive: 0x0c6970, emissiveIntensity: 1.1,
@@ -1495,11 +1240,9 @@ const terminalButton = new THREE.MeshStandardMaterial({
   metalness: 0.48, roughness: 0.3
 });
 
-function makeTerminalLabel(width, height, painter) {
-  // Draw at twice the pixel resolution while keeping the same physical mesh size.
-  const logicalWidth = 1024;
-  const logicalHeight = Math.max(128, Math.round(logicalWidth * height / width));
-  const resolutionScale = 2;
+function makeTerminalLabel(width, height, painter, resolutionScale = 2, logicalWidth = 1024) {
+  // Draw at a higher pixel resolution while keeping the same physical mesh size.
+  const logicalHeight = Math.max(64, Math.round(logicalWidth * height / width));
   const canvas = document.createElement("canvas");
   canvas.width = logicalWidth * resolutionScale;
   canvas.height = logicalHeight * resolutionScale;
@@ -1523,7 +1266,7 @@ function makeTerminalLabel(width, height, painter) {
   return { label, texture, canvas };
 }
 
-function addTerminalCard({ x, y, width, height, action, labelPainter, button = false }) {
+function addTerminalCard({ x, y, width, height, action, labelPainter, button = false, res = 2, logicalWidth = 1024 }) {
   const group = new THREE.Group();
   group.position.set(x, y, 0);
   vrStart.add(group);
@@ -1538,7 +1281,7 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
   );
   edge.position.set(0, height / 2 - 0.006, 0.034);
   group.add(edge);
-  const { label, texture, canvas } = makeTerminalLabel(width * 0.96, height * 0.88, labelPainter);
+  const { label, texture, canvas } = makeTerminalLabel(width * 0.96, height * 0.88, labelPainter, res, logicalWidth);
   group.add(label);
   if (action) {
     backing.userData.action = action;
@@ -1547,7 +1290,7 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
   }
   group.userData.refresh = () => {
     const ctx = canvas.getContext("2d");
-    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    ctx.setTransform(res, 0, 0, res, 0, 0);
     ctx.clearRect(0, 0, ctx.logicalWidth, ctx.logicalHeight);
     labelPainter(ctx);
     texture.needsUpdate = true;
@@ -1555,88 +1298,149 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
   return group;
 }
 
+// ── VR character terminal: tabs, option rows, randomize and play ─────────
+let creatorTab = 0;
+const termText = (ctx, text, x, y, size, color, align = "left", weight = "bold") => {
+  ctx.fillStyle = color; ctx.font = `${weight} ${size}px Arial`; ctx.textAlign = align; ctx.fillText(text, x, y); ctx.textAlign = "left";
+};
 const titleCard = addTerminalCard({
-  x: 0, y: 0.48, width: 1.72, height: 0.22,
+  x: 0, y: 0.58, width: 1.72, height: 0.15, res: 1,
   labelPainter: ctx => {
-    ctx.fillStyle = "#55f5e8";
-    ctx.font = "bold 64px Arial";
-    ctx.fillText("NEON GENESIS", 34, ctx.logicalHeight * 0.48);
-    ctx.fillStyle = "#b9c8d8";
-    ctx.font = "bold 30px Arial";
-    ctx.fillText("CHARACTER SETUP", 38, ctx.logicalHeight * 0.80);
+    termText(ctx, "NEON GENESIS", 30, ctx.logicalHeight * 0.55, 56, "#55f5e8");
+    termText(ctx, "CREATE YOUR CHARACTER", 994, ctx.logicalHeight * 0.55, 30, "#b9c8d8", "right");
+    termText(ctx, (appearance.name || "UNNAMED") + "  ·  POINT + TRIGGER: LEFT SIDE = BACK, RIGHT SIDE = NEXT", 30, ctx.logicalHeight * 0.88, 20, "#7f93ab", "left", "normal");
   }
 });
-
-const startRows = [];
-const rowInfo = [
-  { key: "bodyType", label: "BODY TYPE" },
-  { key: "hatStyle", label: "HAT STYLE" },
-  { key: "hatColour", label: "HAT COLOR" },
-  { key: "jacketColour", label: "JACKET COLOUR" }
-];
-rowInfo.forEach((info, index) => {
-  const positions = [-0.63, -0.21, 0.21, 0.63];
-  const row = addTerminalCard({
-    x: positions[index], y: 0.02, width: 0.39, height: 0.28,
-    action: () => cycleAppearance(info.key),
+const tabCards = creator.TABS.map((tab, i) => addTerminalCard({
+  x: -0.69 + i * 0.345, y: 0.43, width: 0.33, height: 0.09, res: 1, logicalWidth: 512,
+  action: () => { creatorTab = i; refreshVRCreator(); applyCreatorFocus(); },
+  labelPainter: ctx => {
+    const on = creatorTab === i;
+    if (on) { ctx.fillStyle = "rgba(85,245,232,0.25)"; ctx.fillRect(0, 0, ctx.logicalWidth, ctx.logicalHeight); }
+    termText(ctx, tab.label, ctx.logicalWidth / 2, ctx.logicalHeight * 0.66, 40, on ? "#ffffff" : "#8ea3bf", "center");
+  }
+}));
+const creatorRows = [];
+for (let r = 0; r < 10; r++) {
+  const col = r % 2, row = Math.floor(r / 2);
+  const card = addTerminalCard({
+    x: col ? 0.44 : -0.44, y: 0.28 - row * 0.112, width: 0.85, height: 0.098, res: 1, logicalWidth: 768,
+    action: hit => {
+      const field = creator.TABS[creatorTab].fields[r];
+      if (!field) return;
+      const dir = hit?.uv && hit.uv.x < 0.3 ? -1 : 1;
+      if (field.type === "text") creator.cycle({ ...field, type: "choice" }, dir);
+      else creator.cycle(field, dir);
+      onLookChanged();
+    },
     labelPainter: ctx => {
-      const center = ctx.logicalWidth / 2;
-      const h = ctx.logicalHeight;
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#9db4c9";
-      ctx.font = "bold 36px Arial";
-      ctx.fillText(info.label, center, h * 0.28);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 48px Arial";
-      ctx.fillText(String(appearance[info.key]).toUpperCase(), center, h * 0.57);
-      ctx.fillStyle = "#ffcf70";
-      ctx.font = "bold 22px Arial";
-      ctx.fillText("TAP TO CHANGE", center, h * 0.84);
-      ctx.textAlign = "left";
+      const field = creator.TABS[creatorTab].fields[r];
+      if (!field) return;
+      const w = ctx.logicalWidth, h = ctx.logicalHeight;
+      termText(ctx, "‹", 18, h * 0.68, 46, "#ffcf70");
+      termText(ctx, "›", w - 18, h * 0.68, 46, "#ffcf70", "right");
+      termText(ctx, field.label, 56, h * 0.42, 24, "#8ea3bf");
+      termText(ctx, creator.valueText(field), 56, h * 0.82, 34, "#ffffff");
+      if (field.type === "color") { ctx.fillStyle = creator.hexCss(appearance[field.key]); ctx.fillRect(w - 130, h * 0.22, 64, h * 0.56); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(w - 130, h * 0.22, 64, h * 0.56); }
     }
   });
-  startRows.push(row);
+  creatorRows.push(card);
+}
+const randomCard = addTerminalCard({
+  x: -0.45, y: -0.36, width: 0.6, height: 0.13, res: 1, logicalWidth: 768,
+  action: () => { creator.randomize(); onLookChanged(); },
+  labelPainter: ctx => termText(ctx, "⟳  RANDOMIZE", ctx.logicalWidth / 2, ctx.logicalHeight * 0.64, 44, "#ffcf70", "center")
 });
-
 document.querySelector("#play-button").addEventListener("click", startCity);
-
 const confirmCard = addTerminalCard({
-  x: 0, y: -0.34, width: 0.62, height: 0.17, button: true,
+  x: 0.45, y: -0.36, width: 0.6, height: 0.13, button: true, res: 1, logicalWidth: 768,
   action: () => startCity(),
-  labelPainter: ctx => {
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 58px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("PLAY", 512, ctx.logicalHeight * 0.62);
-    ctx.textAlign = "left";
-  }
+  labelPainter: ctx => termText(ctx, "PLAY  ▶", ctx.logicalWidth / 2, ctx.logicalHeight * 0.66, 54, "#ffffff", "center")
 });
-
 // Side rails and a small base make the menu read like a physical terminal.
 for (const x of [-0.91, 0.91]) {
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.16, 0.035), terminalGlow);
-  rail.position.set(x, 0.02, -0.006);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.2, 0.035), terminalGlow);
+  rail.position.set(x, 0.12, -0.006);
   vrStart.add(rail);
 }
 const base = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.025, 0.12), terminalMetal);
-base.position.set(0, -0.52, -0.015);
+base.position.set(0, -0.47, -0.015);
 vrStart.add(base);
 const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
 terminalLight.position.set(0, 0.08, 0.25);
 vrStart.add(terminalLight);
 
-function cycleAppearance(key) {
-  const choices = appearanceChoices[key];
-  const index = choices.indexOf(appearance[key]);
-  appearance[key] = choices[(index + 1) % choices.length];
-  const fieldIds = { bodyType: "body-type", hatStyle: "hat-style", hatColour: "hat-colour", jacketColour: "jacket-colour" };
-  const field = document.getElementById(fieldIds[key]);
-  if (field) field.value = String(appearance[key]);
-  updateCharacterPreview();
-  try { localStorage.setItem("neon-genesis-appearance", JSON.stringify(appearance)); } catch {}
-  const rowIndex = rowInfo.findIndex(item => item.key === key);
-  startRows[rowIndex]?.userData.refresh();
+function refreshVRCreator() {
+  titleCard.userData.refresh();
+  tabCards.forEach(c => c.userData.refresh());
+  const fields = creator.TABS[creatorTab].fields;
+  creatorRows.forEach((c, r) => { c.visible = r < fields.length; c.userData.refresh(); });
 }
+// Any change: rebuild the preview, re-tint the hands, update both UIs.
+function onLookChanged() {
+  creator.saveLook();
+  updateCharacterPreview();
+  rebuildPlayableAvatar();
+  refreshVRCreator();
+  renderDesktopCreator();
+  audio.play("click");
+}
+
+// ── PC character creator (HTML) ─────────────────────────────────────────
+const creatorRoot = document.querySelector("#creator");
+function renderDesktopCreator() {
+  if (!creatorRoot) return;
+  const tab = creator.TABS[creatorTab];
+  const tabs = creator.TABS.map((t, i) => `<button type="button" class="creator-tab${i === creatorTab ? " active" : ""}" data-tab="${i}">${t.label}</button>`).join("");
+  const rows = tab.fields.map((f, idx) => {
+    if (f.type === "text") return `<label class="creator-row"><span>${f.label}</span><input id="creator-name" maxlength="16" placeholder="Type a name" value="${(appearance.name || "").replace(/"/g, "&quot;")}"></label>`;
+    if (f.type === "color") return `<div class="creator-row"><span>${f.label} <em>${creator.valueText(f)}</em></span><div class="swatches">${f.options.map(c => `<button type="button" class="swatch${appearance[f.key] === c ? " on" : ""}" style="background:${creator.hexCss(c)}" data-field="${idx}" data-value="${c}" aria-label="${f.label}"></button>`).join("")}</div></div>`;
+    if (f.type === "preset") return `<div class="creator-row"><span>${f.label}</span><div class="chips">${creator.PRESETS.map((p, i) => `<button type="button" class="chip${creator.presetIndex === i ? " on" : ""}" data-preset="${i}">${p.name}</button>`).join("")}</div></div>`;
+    return `<div class="creator-row"><span>${f.label}</span><div class="stepper"><button type="button" data-field="${idx}" data-dir="-1" aria-label="Previous">‹</button><strong>${creator.valueText(f)}</strong><button type="button" data-field="${idx}" data-dir="1" aria-label="Next">›</button></div></div>`;
+  }).join("");
+  creatorRoot.innerHTML = `<div class="creator-tabs">${tabs}</div><div class="creator-fields">${rows}</div>
+    <div class="creator-tools"><button type="button" class="ui-button" data-random>⟳ RANDOMIZE</button><span class="creator-hint">Drag the character to rotate</span></div>`;
+}
+creatorRoot?.addEventListener("click", event => {
+  const b = event.target.closest("button");
+  if (!b) return;
+  const fields = creator.TABS[creatorTab].fields;
+  if (b.dataset.tab !== undefined) { creatorTab = Number(b.dataset.tab); renderDesktopCreator(); refreshVRCreator(); applyCreatorFocus(); audio.play("click"); return; }
+  if (b.dataset.random !== undefined) { creator.randomize(); return onLookChanged(); }
+  if (b.dataset.preset !== undefined) { creator.applyPreset(Number(b.dataset.preset)); return onLookChanged(); }
+  const field = fields[Number(b.dataset.field)];
+  if (!field) return;
+  if (b.dataset.value !== undefined) creator.setValue(field.key, Number(b.dataset.value));
+  else creator.cycle(field, Number(b.dataset.dir));
+  onLookChanged();
+});
+creatorRoot?.addEventListener("input", event => {
+  if (event.target.id !== "creator-name") return;
+  creator.setValue("name", event.target.value.replace(/[<>]/g, "").slice(0, 16));
+  titleCard.userData.refresh();
+});
+// Drag on the empty part of the start screen to spin the preview.
+let previewDrag = null, previewSpin = 0;
+startScreen.addEventListener("pointerdown", e => { if (e.target === startScreen || e.target.classList.contains("start-brand")) previewDrag = e.clientX; });
+window.addEventListener("pointermove", e => { if (previewDrag !== null) { previewSpin += (e.clientX - previewDrag) * 0.01; previewDrag = e.clientX; } });
+window.addEventListener("pointerup", () => { previewDrag = null; });
+// Face and hair tabs zoom the PC camera in on the character's face.
+const MENU_VIEWS = { body: { x: 0.95, y: 0, z: 5.7, pitch: -0.1 }, face: { x: 1.4, y: 0.12, z: 4.6, pitch: 0.0 } };
+let menuView = MENU_VIEWS.body;
+function applyCreatorFocus() { menuView = ["face", "hair"].includes(creator.TABS[creatorTab].id) ? MENU_VIEWS.face : MENU_VIEWS.body; }
+function updateMenuCamera(delta, time) {
+  if (isInCity || renderer.xr.isPresenting) return;
+  const k = 1 - Math.exp(-4 * delta);
+  player.position.x += (menuView.x - player.position.x) * k;
+  player.position.y += (menuView.y - player.position.y) * k;
+  player.position.z += (menuView.z - player.position.z) * k;
+  pitch += (menuView.pitch - pitch) * k;
+  camera.rotation.x = pitch;
+  player.rotation.y += (0 - player.rotation.y) * k;
+  if (characterPreview.parent === mainMenuWorld) characterPreview.rotation.y = previewSpin + Math.sin(time * 0.0004) * 0.25;
+  if (previewRig?.head) { previewRig.head.rotation.y = Math.sin(time * 0.0007) * 0.35; previewRig.body.scale.y = 1 + Math.sin(time * 0.0016) * 0.006; }
+}
+renderDesktopCreator();
 
 let vrSessionIntroActive = false;
 function showVRIntro() {
@@ -1691,7 +1495,7 @@ function showVRIntro() {
   setCharacterPreviewLocation(
     vrStart, avatarLocalX, -MENU_HEIGHT_ABOVE_FLOOR, avatarLocalZ, 0.78, characterYaw
   );
-  for (const row of startRows) row.userData.refresh();
+  refreshVRCreator();
 }
 renderer.xr.addEventListener("sessionstart", () => {
   // Use the real tracked headset pose. Keep the body below the camera and
@@ -1709,6 +1513,7 @@ renderer.xr.addEventListener("sessionstart", () => {
 });
 renderer.xr.addEventListener("sessionend", () => {
   game?.onExit();
+  audio.setMood("menu");
   document.body.classList.remove("in-city");
   scene.fog = menuFog;
   scene.background = menuBackground;
@@ -1719,7 +1524,7 @@ renderer.xr.addEventListener("sessionend", () => {
   isInCity = false;
   cityWorld.visible = false;
   mainMenuWorld.visible = true;
-  setCharacterPreviewLocation(mainMenuWorld, 2.45, 0, 2.4, 0.9, 0);
+  setCharacterPreviewLocation(mainMenuWorld, 1.7, 0, 3.2, 1, 0);
   if (playableAvatar) {
     playableAvatar.root.visible = false;
     playableAvatar.head.visible = false;
@@ -1735,8 +1540,8 @@ renderer.xr.addEventListener("sessionend", () => {
 function activateVRStartAtController(controller) {
   if (!vrStart.visible) return false;
   vrMenuRaycaster.setFromXRController(controller);
-  const hit = vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0];
-  if (hit?.object?.userData?.action) hit.object.userData.action();
+  const hit = vrMenuRaycaster.intersectObjects(vrStartTargets.filter(t => t.parent?.visible !== false), false)[0];
+  if (hit?.object?.userData?.action && hit.object.parent?.visible !== false) { audio.play("click"); hit.object.userData.action(hit); }
   return true;
 }
 const vrMenuRaycaster = new THREE.Raycaster();
@@ -1761,6 +1566,7 @@ function beginDoorGrab(controller) {
   // The trigger only grabs the actual handle, not the whole door panel.
   const hit = vrMenuRaycaster.intersectObject(shopDoorHandle, false)[0];
   if (!hit || hit.distance > 3.5) return false;
+  audio.play("door");
   activeDoorGrab = {
     controller,
     startYaw: getControllerYaw(controller),
@@ -1960,6 +1766,7 @@ function setVRMenuOpen(open) {
 }
 function activateVRMenuAtController(controller) {
   if (!renderer.xr.isPresenting || !vrMenu.visible) return;
+  audio.play("click");
   vrMenuRaycaster.setFromXRController(controller);
   vrMenuRaycaster.far = Infinity;
   const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
@@ -2005,7 +1812,7 @@ function updateVRMenuPointer() {
   rightItem.rayLine.visible = true;
   vrMenuRaycaster.setFromXRController(rightItem.controller);
   const startHit = vrStart.visible
-    ? vrMenuRaycaster.intersectObjects(vrStartTargets, false)[0]
+    ? vrMenuRaycaster.intersectObjects(vrStartTargets.filter(t => t.parent?.visible !== false), false)[0]
     : null;
   const menuHit = !vrStart.visible && vrMenu.visible
     ? vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0]
@@ -2164,6 +1971,18 @@ function blocked(x, z) {
   return city.collides(x, z, player.position.y, PLAYER_RADIUS) || collidesWithMikaShop(x, z);
 }
 
+let sprinting = false;
+let previousSprintButton = false;
+let wasGrounded = true;
+function getLeftStickClick() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  for (const source of session.inputSources) {
+    // xr-standard mapping: button 3 is the thumbstick press.
+    if (source.handedness === "left" && source.gamepad) return !!source.gamepad.buttons[3]?.pressed;
+  }
+  return false;
+}
 function movePlayer(delta) {
   let stickX = 0;
   let stickY = 0;
@@ -2174,15 +1993,21 @@ function movePlayer(delta) {
     const yPressed = getLeftYButton();
     stickX = Math.abs(stick.x) > 0.12 ? stick.x : 0;
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
-    if (yPressed && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
+    if (yPressed && !previousMenuButton) { setVRMenuOpen(!vrMenu.visible); audio.play(vrMenu.visible ? "open" : "close"); }
     previousMenuButton = yPressed;
     jumpPressed = getRightAButton();
+    // Sprint: click the left stick to start running; it stops when you let go of the stick.
+    const sprintButton = getLeftStickClick();
+    if (sprintButton && !previousSprintButton) sprinting = !sprinting;
+    previousSprintButton = sprintButton;
+    if (Math.hypot(stickX, stickY) < 0.25) sprinting = false;
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
     turnAroundHead(-look.x * turnSpeed() * delta);
   } else {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
     jumpPressed = !!keys.Space;
+    sprinting = !!(keys.ShiftLeft || keys.ShiftRight) && (stickX !== 0 || stickY !== 0);
   }
   if (game?.isPanelOpen()) { stickX = 0; stickY = 0; jumpPressed = false; }
 
@@ -2195,14 +2020,18 @@ function movePlayer(delta) {
 
   // Jumping and gravity, with walkable rooftops from city.js.
   const ground = city.groundAt(player.position.x + offX, player.position.z + offZ, player.position.y);
-  if (jumpPressed && !previousJumpButton && player.position.y <= ground + 0.001) jumpVelocity = jumpPower();
+  if (jumpPressed && !previousJumpButton && player.position.y <= ground + 0.001) { jumpVelocity = jumpPower(); audio.play("jump"); }
   previousJumpButton = jumpPressed;
   jumpVelocity -= 11.5 * delta;
   player.position.y += jumpVelocity * delta;
+  let grounded = false;
   if (player.position.y < ground) {
+    if (!wasGrounded && jumpVelocity < -2) audio.play("land");
     player.position.y = ground;
     jumpVelocity = 0;
-  }
+    grounded = true;
+  } else grounded = player.position.y <= ground + 0.001;
+  wasGrounded = grounded;
 
   camera.getWorldDirection(cameraDirection);
   forward.set(cameraDirection.x, 0, cameraDirection.z);
@@ -2214,12 +2043,16 @@ function movePlayer(delta) {
   movement.addScaledVector(right, stickX);
   const movementAmount = Math.min(1, movement.length());
   if (movement.lengthSq() > 1) movement.normalize();
-  const step = movement.multiplyScalar(moveSpeed() * delta);
+  if (movementAmount < 0.1) sprinting = false;
+  const step = movement.multiplyScalar(moveSpeed() * (sprinting ? 1.65 : 1) * delta);
 
   // Resolve each axis separately so the player slides along walls instead of
   // sticking to them.
   if (step.x && !blocked(player.position.x + offX + step.x, player.position.z + offZ)) player.position.x += step.x;
   if (step.z && !blocked(player.position.x + offX, player.position.z + offZ + step.z)) player.position.z += step.z;
+  // Footsteps: wet street, rooftop gravel, or clinic tile.
+  const surface = player.position.y > 10 ? "roof" : (player.position.x > 11 && player.position.z < -72 && player.position.z > -78) ? "tile" : "street";
+  audio.footsteps(delta, grounded ? movementAmount : 0, sprinting, surface);
   return movementAmount;
 }
 
@@ -2247,7 +2080,23 @@ game = createGame({
   blockers: mikaShopBlockers,
   onStateChange: () => updateCharacterUI(),
   isInCity: () => isInCity,
-  onTeleport: () => { jumpVelocity = 0; }
+  onTeleport: () => { jumpVelocity = 0; },
+  audio
+});
+// 3D sound sources placed in the world.
+{
+  const at = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); cityWorld.add(o); return o; };
+  const A = city.anchors;
+  audio.attachLoop(at(A.sato.x - 1.6, 1.2, A.sato.z), "sizzle", { refDistance: 1.5, maxDistance: 14 });
+  audio.attachLoop(genesisCoreDisplay, "core", { refDistance: 0.8, maxDistance: 9, volume: 0.9 });
+  audio.attachLoop(at(0, 1.5, -66), "crowd", { refDistance: 4, maxDistance: 30 });
+  audio.attachLoop(at(0, 1.5, -122), "crowd", { refDistance: 4, maxDistance: 26, volume: 0.6 });
+  audio.attachLoop(at(9.5, 4.5, -75), "neon", { refDistance: 1.5, maxDistance: 10 });
+  audio.attachLoop(at(17, 0.5, -10), "vent", { refDistance: 1.2, maxDistance: 10 });
+  audio.attachLoop(game.npcSys.byId.ishida.holder, "hologram", { refDistance: 2, maxDistance: 18 });
+}
+document.addEventListener("keydown", event => {
+  if (event.code === "KeyM" && !renderer.xr.isPresenting) game.toast(audio.toggleMute() ? "Sound muted (M)" : "Sound on (M)");
 });
 updateCharacterUI();
 
@@ -2266,7 +2115,9 @@ renderer.domElement.addEventListener("mousedown", event => {
 // Developer hook: open the page with ?debug to drive the game from the console.
 if (DEBUG) {
   window.__NEON = {
-    game, state, city, player, camera, renderer, startCity,
+    game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
+    previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
+    vrTab(i) { creatorTab = i; refreshVRCreator(); },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
       player.position.set(x, y, z); player.rotation.set(0, yaw, 0);
       pitch = pitchValue; camera.rotation.x = pitchValue; jumpVelocity = 0;
@@ -2295,6 +2146,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   shopDoorHinge.rotation.y = THREE.MathUtils.damp(
     shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
   );
+  const indoorsAtMika = Math.abs(player.position.x - mikaShop.position.x + 1.5) < 1.6 && Math.abs(player.position.z - mikaShop.position.z) < 2.2;
+  audio.update(delta, { inCity: isInCity, district: city.districtAt(player.position.z, player.position.y), indoors: indoorsAtMika, height: player.position.y });
   if (isInCity) {
     city.applyAtmosphere(scene, player.position.z);
     city.update(time, delta, player.position);
@@ -2302,9 +2155,21 @@ renderer.setAnimationLoop((time, xrFrame) => {
     game.update(time, delta, vrControllerRays.map(item => item.controller));
   }
   updateVRMenuPointer();
+  updateMenuCamera(delta, time);
   if (genesisCoreModel) {
-    genesisCoreModel.rotation.y = Math.PI + Math.sin(time * 0.00045) * 0.08;
-    genesisCoreModel.position.y = 0.55 + Math.sin(time * 0.0015) * 0.025;
+    const flare = Math.max(0, 1 - (performance.now() - coreFlareTime) / 1800);
+    coreEnergyUniforms.uTime.value = time * 0.001;
+    coreEnergyUniforms.uFlare.value = flare;
+    if (genesisCoreParts) {
+      genesisCoreModel.rotation.y = Math.sin(time * 0.00035) * 0.25;
+      genesisCoreModel.position.y = CORE_BASE_Y + Math.sin(time * 0.0012) * 0.012;
+      if (genesisCoreParts.outer) genesisCoreParts.outer.rotation.z = time * 0.0006 * (1 + flare * 6);
+      if (genesisCoreParts.inner) genesisCoreParts.inner.rotation.z = -time * 0.0009 * (1 + flare * 6);
+      if (genesisCoreParts.crown) { genesisCoreParts.crown.rotation.y = time * 0.002; genesisCoreParts.crown.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08 + flare * 0.6); }
+    } else {
+      genesisCoreModel.rotation.y = Math.PI + Math.sin(time * 0.00045) * 0.08;
+      genesisCoreModel.position.y = CORE_BASE_Y + Math.sin(time * 0.0015) * 0.025;
+    }
   }
   coreDisplayRing.rotation.z = time * 0.00035;
   crossedProps.rotation.y = time * 0.00022;

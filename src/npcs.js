@@ -6,205 +6,13 @@
 // hidden and not animated.
 
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { skinify } from "./optimize.js";
+import { buildCharacter, randomAppearance } from "./character.js";
+export { buildCharacter, randomAppearance };
 
-const npcMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0.18 });
-const npcGlowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
 const hologramMaterial = new THREE.MeshBasicMaterial({
   color: 0x5ff5ff, transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false
 });
 const hitMaterial = new THREE.MeshBasicMaterial({ visible: false });
-
-const _c = new THREE.Color();
-function tinted(geo, hex) {
-  _c.set(hex);
-  const n = geo.attributes.position.count, a = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { a[i * 3] = _c.r; a[i * 3 + 1] = _c.g; a[i * 3 + 2] = _c.b; }
-  geo.setAttribute("color", new THREE.BufferAttribute(a, 3));
-  return geo;
-}
-// Collects coloured parts and merges them into one mesh.
-class Parts {
-  constructor() { this.list = []; }
-  add(geo, hex, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0, ry = 0, rz = 0) {
-    if (sx !== 1 || sy !== 1 || sz !== 1) geo.scale(sx, sy, sz);
-    if (rx) geo.rotateX(rx); if (rz) geo.rotateZ(rz); if (ry) geo.rotateY(ry);
-    geo.translate(x, y, z);
-    // strip uv/normal differences: keep position + normal + color only
-    geo.deleteAttribute("uv");
-    this.list.push(tinted(geo.index ? geo.toNonIndexed() : geo, hex));
-    return this;
-  }
-  sphere(r, hex, x, y, z, sx = 1, sy = 1, sz = 1, seg = 12) { return this.add(new THREE.SphereGeometry(r, seg, Math.max(6, seg * 0.7 | 0)), hex, x, y, z, sx, sy, sz); }
-  box(w, h, d, hex, x, y, z, rx = 0, ry = 0, rz = 0) { return this.add(new THREE.BoxGeometry(w, h, d), hex, x, y, z, 1, 1, 1, rx, ry, rz); }
-  capsule(r, len, hex, x, y, z, rx = 0, rz = 0, sz = 1) { return this.add(new THREE.CapsuleGeometry(r, len, 3, 10), hex, x, y, z, 1, 1, sz, rx, 0, rz); }
-  cyl(rt, rb, h, hex, x, y, z, seg = 12, sz = 1, rx = 0, rz = 0) { return this.add(new THREE.CylinderGeometry(rt, rb, h, seg), hex, x, y, z, 1, 1, sz, rx, 0, rz); }
-  mesh(material) {
-    if (!this.list.length) return null;
-    const g = mergeGeometries(this.list, false);
-    this.list.forEach(p => p.dispose());
-    g.computeBoundingSphere();
-    return new THREE.Mesh(g, material);
-  }
-}
-
-// ─── appearance generation ──────────────────────────────────────────────────
-const SKIN = [0xf1c7a5, 0xe0ac86, 0xc68b62, 0xa86d47, 0x7c4a2d, 0x5a3420];
-const HAIR = [0x111111, 0x2b1d14, 0x5a3a22, 0xc9c1b4, 0xd8d2c8, 0x38f0e6, 0xff4fa3, 0xb24cff, 0xffcf4a, 0x6aff9e];
-const OUTFIT = [0x232a38, 0x35304a, 0x4a2430, 0x1f3a3a, 0x5a4a3a, 0x2c2c2c, 0x6a6f7a, 0x2a4a6a, 0x7a2a2a, 0x3d5a2a, 0xc0c4cc];
-const GLOW = [0x38f0e6, 0xff4fa3, 0xb24cff, 0xffcf4a, 0x6aff9e, 0xff5a3c];
-
-export function randomAppearance(rand) {
-  const pick = arr => arr[Math.floor(rand() * arr.length)];
-  const build = rand() < 0.5 ? "male" : "female";
-  const hairStyles = build === "female" ? ["long", "bob", "bun", "ponytail", "short", "mohawk"] : ["short", "short", "buzz", "mohawk", "bald", "long", "spiky"];
-  return {
-    build, scale: 0.93 + rand() * 0.14,
-    skin: pick(SKIN), hair: pick(hairStyles), hairColor: rand() < 0.25 ? pick(HAIR.slice(5)) : pick(HAIR.slice(0, 5)),
-    top: pick(["jacket", "jacket", "hoodie", "coat", "tee", "vest"]), topColor: pick(OUTFIT), accent: pick(OUTFIT),
-    pants: pick([0x1d2230, 0x262626, 0x2e3a4a, 0x3a2f28, 0x1f1f2a, 0x4a4a52]),
-    shoes: pick([0x101010, 0xd8d8d8, 0x3a2a20, 0xff4fa3, 0x222a3a]),
-    glow: pick(GLOW),
-    hat: rand() < 0.22 ? pick(["cap", "beanie", "hood"]) : null,
-    visor: rand() < 0.2, mask: rand() < 0.16, implants: rand() < 0.35, cyberArm: rand() < 0.15,
-    backpack: rand() < 0.2, umbrella: rand() < 0.18, glasses: rand() < 0.12
-  };
-}
-
-// Build a character. Returns a Group facing +Z with animatable pivots.
-export function buildCharacter(a) {
-  const root = new THREE.Group();
-  const female = a.build === "female", kid = a.build === "kid", old = a.build === "old";
-  const W = female ? 0.9 : 1;                 // width factor
-  const sh = female ? 0.17 : 0.2;             // shoulder half-width
-  const hipY = 0.93, chestY = 1.3, headY = 1.64;
-  const body = new Parts(), glow = new Parts();
-  const coatLong = a.top === "coat" || a.top === "labcoat";
-
-  // pelvis & torso
-  body.sphere(0.15, a.pants, 0, hipY + 0.02, 0, W * 1.05, 0.75, 0.8);
-  body.cyl(sh + 0.02, female ? 0.13 : 0.15, 0.5, a.topColor, 0, 1.2, 0, 12, 0.68);
-  body.sphere(sh + 0.02, a.topColor, 0, 1.42, 0, 1, 0.45, 0.68);
-  if (female) body.sphere(0.075, a.topColor, 0, 1.3, 0.07, 2.0, 0.85, 0.9);
-  // clothing styles
-  if (a.top === "jacket" || a.top === "coat" || a.top === "labcoat") {
-    body.box(0.022, 0.42, 0.02, a.accent, 0, 1.2, 0.115);                 // zipper / placket
-    body.box(0.3 * W, 0.06, 0.2, a.accent, 0, 1.47, 0, 0.1);              // collar
-  }
-  if (coatLong) body.cyl(0.2, 0.27, 0.62, a.topColor, 0, 0.72, -0.01, 12, 0.72);
-  if (a.top === "hoodie") body.sphere(0.13, a.topColor, 0, 1.56, -0.08, 1.15, 0.9, 0.9);
-  if (a.top === "vest") { body.box(0.34 * W, 0.4, 0.2, a.accent, 0, 1.22, 0.01); }
-  if (a.top === "apron") body.box(0.3, 0.6, 0.02, 0xe8e2d6, 0, 1.05, 0.12);
-  if (a.top === "jumpsuit") body.add(new THREE.TorusGeometry(0.16, 0.035, 6, 14), a.topColor, 0, 0.98, 0, 1.0, 0.6, 0.75, Math.PI / 2);
-  if (a.top === "tee") body.box(0.3 * W, 0.05, 0.19, a.accent, 0, 1.2, 0.012);
-  // neck & head
-  body.cyl(0.05, 0.055, 0.12, a.skin, 0, 1.52, 0, 8);
-  body.sphere(0.115, a.skin, 0, headY, 0, 0.92, 1.1, 1.0);
-  body.sphere(0.075, a.skin, 0, headY - 0.065, 0.025, 1.0, 0.75, 1.0);        // jaw
-  for (const s of [-1, 1]) {
-    body.sphere(0.014, 0x15171c, s * 0.042, headY + 0.015, 0.098, 1, 1, 0.6, 6);
-    body.box(0.04, 0.008, 0.01, a.hairColor, s * 0.042, headY + 0.05, 0.1);   // brows
-  }
-  if (a.glasses) body.box(0.17, 0.035, 0.02, 0x0c0f16, 0, headY + 0.015, 0.11);
-  if (old) { body.box(0.09, 0.03, 0.02, 0xd8d2c8, 0, headY - 0.04, 0.108); } // moustache
-  // hair
-  const hc = a.hairColor;
-  switch (a.hair) {
-    case "short": body.sphere(0.122, hc, 0, headY + 0.03, -0.012, 0.95, 0.85, 1.0); break;
-    case "buzz": body.sphere(0.118, hc, 0, headY + 0.02, -0.006, 0.93, 0.9, 0.98); break;
-    case "spiky": body.sphere(0.12, hc, 0, headY + 0.035, -0.01, 0.95, 0.85, 1.0);
-      for (let i = 0; i < 6; i++) body.add(new THREE.ConeGeometry(0.03, 0.09, 5), hc, Math.sin(i) * 0.06, headY + 0.13, Math.cos(i * 2) * 0.05, 1, 1, 1, Math.cos(i) * 0.4, 0, Math.sin(i) * 0.4); break;
-    case "long": body.sphere(0.125, hc, 0, headY + 0.03, -0.015, 0.97, 0.88, 1.0); body.box(0.22, 0.32, 0.08, hc, 0, headY - 0.13, -0.085); break;
-    case "bob": body.sphere(0.13, hc, 0, headY + 0.01, -0.01, 1.0, 0.95, 1.02); break;
-    case "bun": body.sphere(0.122, hc, 0, headY + 0.03, -0.012, 0.95, 0.85, 1.0); body.sphere(0.055, hc, 0, headY + 0.1, -0.1); break;
-    case "ponytail": body.sphere(0.122, hc, 0, headY + 0.03, -0.012, 0.95, 0.85, 1.0); body.capsule(0.035, 0.2, hc, 0, headY - 0.06, -0.13, 0.25); break;
-    case "mohawk": body.sphere(0.116, 0x2a2a2a, 0, headY + 0.02, -0.006, 0.93, 0.9, 0.98);
-      glow.box(0.03, 0.08, 0.22, hc, 0, headY + 0.13, -0.01); break;
-    case "white": body.sphere(0.12, 0xd8d2c8, 0, headY + 0.025, -0.02, 0.97, 0.8, 1.0); break;
-    default: break; // bald
-  }
-  if (a.headband) body.cyl(0.123, 0.123, 0.03, a.headband, 0, headY + 0.05, 0, 14);
-  if (a.goggles) { body.cyl(0.124, 0.124, 0.025, 0x2a2a2a, 0, headY + 0.1, 0, 14);
-    for (const s of [-1, 1]) { body.cyl(0.035, 0.035, 0.03, 0x3a3a3a, s * 0.045, headY + 0.1, 0.105, 10, 1, Math.PI / 2); glow.cyl(0.026, 0.026, 0.005, a.glow, s * 0.045, headY + 0.1, 0.122, 10, 1, Math.PI / 2); } }
-  switch (a.hat) {
-    case "cap": body.sphere(0.128, a.accent, 0, headY + 0.05, -0.005, 0.98, 0.7, 1.0); body.box(0.15, 0.015, 0.12, a.accent, 0, headY + 0.055, 0.12); break;
-    case "beanie": body.sphere(0.13, a.accent, 0, headY + 0.06, -0.005, 0.97, 0.9, 1.0); break;
-    case "hood": body.sphere(0.145, a.topColor, 0, headY + 0.02, -0.02, 1.0, 1.05, 1.05); break;
-    default: break;
-  }
-  if (a.visor) glow.box(0.2, 0.035, 0.03, a.glow, 0, headY + 0.015, 0.105);
-  if (a.mask) { body.box(0.15, 0.075, 0.05, 0x15181f, 0, headY - 0.06, 0.085); glow.box(0.12, 0.008, 0.005, a.glow, 0, headY - 0.05, 0.112); }
-  if (a.implants) { glow.box(0.004, 0.06, 0.03, a.glow, 0.108, headY + 0.01, 0.02); glow.box(0.004, 0.006, 0.05, a.glow, 0.108, headY + 0.045, 0.0); }
-  if (a.backpack) { body.box(0.26, 0.34, 0.14, a.accent, 0, 1.22, -0.17); glow.box(0.2, 0.012, 0.005, a.glow, 0, 1.3, -0.243); }
-  // glowing seam on the jacket (cyberpunk detail)
-  glow.box(0.006, 0.3, 0.006, a.glow, sh * 0.6, 1.25, 0.12);
-  if (a.umbrella) {
-    body.cyl(0.008, 0.008, 1.0, 0x2a2a2a, 0.22, 1.65, 0.12, 5);
-    const canopy = new THREE.ConeGeometry(0.55, 0.28, 12, 1, true);
-    body.add(canopy, 0x1b2230, 0.22, 2.25, 0.12);
-    glow.add(new THREE.TorusGeometry(0.55, 0.008, 4, 24), a.glow, 0.22, 2.12, 0.12, 1, 1, 1, Math.PI / 2);
-  }
-
-  // torso pivot: holds the body and arms so breathing moves them together
-  const torso = new THREE.Group();
-  root.add(torso);
-  const bodyMesh = body.mesh(npcMaterial); bodyMesh.name = "NPC_BODY";
-  torso.add(bodyMesh);
-  const glowMesh = glow.mesh(npcGlowMaterial); if (glowMesh) torso.add(glowMesh);
-
-  // arms (pivot at shoulder). Right arm is raised if holding an umbrella.
-  const arms = [];
-  for (const s of [-1, 1]) {
-    const p = new Parts();
-    const cyber = a.cyberArm && s < 0;
-    const sleeve = cyber ? 0x8a93a3 : a.topColor;
-    p.sphere(0.06, sleeve, 0, -0.01, 0);
-    p.capsule(0.052, 0.22, sleeve, 0, -0.15, 0);
-    p.capsule(0.045, 0.2, cyber ? 0x6a7383 : (a.top === "tee" || a.top === "vest" || a.top === "jumpsuit" ? a.skin : sleeve), 0, -0.4, 0.02);
-    p.sphere(0.045, cyber ? 0x5a6373 : a.skin, 0, -0.56, 0.025, 0.8, 1.1, 0.65);
-    if (coatLong || a.top === "labcoat") p.cyl(0.058, 0.06, 0.04, a.accent, 0, -0.29, 0.015, 10);
-    const arm = p.mesh(npcMaterial);
-    const pivot = new THREE.Group();
-    pivot.position.set(s * (sh + 0.035), 1.43, 0);
-    pivot.add(arm);
-    if (cyber) {
-      const g = new Parts(); g.box(0.008, 0.3, 0.008, a.glow, 0, -0.38, 0.05); g.box(0.008, 0.008, 0.008, a.glow, 0, -0.2, 0.055);
-      pivot.add(g.mesh(npcGlowMaterial));
-    }
-    torso.add(pivot);
-    arms.push(pivot);
-  }
-  // Merge all parts into 2 skinned meshes; the pivots above become bones.
-  root.name = "NPC";
-  skinify(root, { metalness: 0.18, roughness: 0.66 });
-  for (const [i, pivot] of arms.entries()) pivot.rotation.z = (i ? 1 : -1) * 0.06;
-  if (a.umbrella) { arms[1].rotation.x = -1.1; arms[1].rotation.z = 0.25; }
-
-  // legs: thigh (pivot at hip) + shin with shoe (pivot at knee)
-  const hips = [], knees = [];
-  for (const s of [-1, 1]) {
-    const thigh = new Parts();
-    thigh.capsule(0.07, 0.33, a.pants, 0, -0.22, 0);
-    const hip = new THREE.Group();
-    hip.position.set(s * 0.085 * W, hipY, 0);
-    hip.add(thigh.mesh(npcMaterial));
-    const shin = new Parts();
-    shin.capsule(0.056, 0.32, a.pants, 0, -0.2, 0);
-    shin.sphere(0.06, a.shoes, 0, -0.43, 0.05, 0.9, 0.6, 1.6);
-    const knee = new THREE.Group();
-    knee.position.y = -0.44;
-    knee.add(shin.mesh(npcMaterial));
-    hip.add(knee);
-    root.add(hip);
-    hips.push(hip); knees.push(knee);
-  }
-
-  const s = (a.scale || 1) * (kid ? 0.72 : 1) * (old ? 0.96 : 1);
-  root.scale.setScalar(s);
-  root.userData.rig = { arms, hips, knees, body: torso, scale: s, hipY };
-  return root;
-}
 
 // ─── text sprites for name tags, quest markers and speech ───────────────────
 function textSprite(lines, { width = 512, height = 128, scale = 1, bg = "rgba(5,10,22,0.78)", border = "#38f0e6" } = {}) {
@@ -340,6 +148,16 @@ export function createNPCSystem(parent, rand) {
     if (!npc.model.userData.umbrella) { r.arms[0].rotation.x = -sw * 0.8; }
     if (r.arms[1].rotation.x > -1) r.arms[1].rotation.x = sw * 0.8;
     npc.model.position.y = Math.abs(Math.cos(ph)) * 0.03 * amount;
+    if (r.elbows) { r.elbows[0].rotation.x = -0.15 - Math.max(0, sw) * 0.5; if (r.arms[1].rotation.x > -1) r.elbows[1].rotation.x = -0.15 - Math.max(0, -sw) * 0.5; }
+  }
+  // Heads glance around on their own; `targetYaw` (local) overrides.
+  function animateHead(npc, t, dt, targetYaw) {
+    const head = npc.rig.head; if (!head) return;
+    let yaw = targetYaw;
+    if (yaw === null) { const k = Math.floor(t * 0.25 + npc.phase); yaw = Math.sin(k * 12.9898) * 0.6 * (Math.sin(k * 4.1) > 0.2 ? 1 : 0); }
+    yaw = Math.max(-1.0, Math.min(1.0, yaw));
+    head.rotation.y += (yaw - head.rotation.y) * (1 - Math.exp(-5 * dt));
+    head.rotation.x = Math.sin(t * 0.7 + npc.phase) * 0.03;
   }
   function animateIdle(npc, t) {
     const r = npc.rig, b = Math.sin(t * 1.6 + npc.phase);
@@ -404,8 +222,12 @@ export function createNPCSystem(parent, rand) {
       let wantYaw = npc.baseYaw;
       if (npc.talkTo) { const o = byId[npc.talkTo]?.holder; if (o) wantYaw = Math.atan2(o.position.x - h.position.x, o.position.z - h.position.z); }
       if ((npc.named || npc.id === activeTalkId) && dist < 4.5 && npc.mode !== "sit") wantYaw = Math.atan2(-dx, -dz);
-      h.rotation.y = dampAngle(h.rotation.y, wantYaw, 3, dt);
+      h.rotation.y = dampAngle(h.rotation.y, wantYaw, npc.mode === "sit" ? 0 : 3, dt);
       if (dist > 26) continue;
+      // Look at the player with the head when close (even while seated).
+      const toPlayer = Math.atan2(-dx, -dz);
+      const localLook = Math.atan2(Math.sin(toPlayer - h.rotation.y), Math.cos(toPlayer - h.rotation.y));
+      animateHead(npc, t, dt, dist < (npc.named ? 5 : 2.5) && Math.abs(localLook) < 1.8 ? localLook : null);
       if (npc.mode === "talk" || npc.id === activeTalkId) animateTalk(npc, t);
       else if (npc.mode === "sit") { const b = Math.sin(t * 1.4 + npc.phase); npc.rig.body.scale.set(1, 1 + b * 0.008, 1); npc.rig.arms[0].rotation.x = -0.5 + b * 0.04; npc.rig.arms[1].rotation.x = -0.45; }
       else if (npc.mode === "lean") { animateIdle(npc, t); npc.model.rotation.x = -0.1; npc.rig.arms[0].rotation.x = 0.2; npc.rig.arms[1].rotation.x = -0.3; npc.rig.arms[1].rotation.z = 0.4; }

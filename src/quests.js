@@ -37,6 +37,7 @@ function roundRect(ctx, x, y, w, h, r) {
 
 export function createGame(ctx) {
   const { scene, cityWorld, camera, player, renderer, city, core, mika, door, blockers, onStateChange, isInCity } = ctx;
+  const audio = ctx.audio || { play() {}, speak() {}, setMood() {} };
   const rand = mulberry32(99);
   const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), headPos = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
@@ -151,6 +152,7 @@ export function createGame(ctx) {
       return;
     }
     state.collected.push(p.id);
+    audio.play(p.type === "shard" ? "shard" : "pickup");
     if (p.credits) give(p.credits, rec.label);
     else toast(`Picked up: ${rec.label}`);
     saveGame();
@@ -172,7 +174,7 @@ export function createGame(ctx) {
     const rec = addInteractable({ id, kind: "pylon", object: group, hit, range: 3.0, label: "Tenkai Sensor Pylon", verb: "PLANT JAMMER",
       enabled: () => state.missions.m4?.status === "active" && state.missions.m4.step === 0 && !state.collected.includes(id),
       alwaysVisible: true,
-      use: () => { state.collected.push(id); saveGame(); toast("Jammer planted."); emit("interact", "pylon"); } });
+      use: () => { state.collected.push(id); saveGame(); audio.play("jammer"); toast("Jammer planted."); emit("interact", "pylon"); } });
     rec.refresh = () => { const done = state.collected.includes(id); eye.material.color.set(done ? 0x6aff9e : 0xff2a3a); ring.material.color.set(done ? 0x6aff9e : 0xff2a3a); jammer.visible = done; };
     rec.eye = eye;
   });
@@ -187,13 +189,13 @@ export function createGame(ctx) {
     const rec = addInteractable({ id, kind: "junction", object: group, hit, range: 2.8, label: "Shorting Junction Box", verb: "RESET",
       enabled: () => state.missions.s2?.status === "active" && state.missions.s2.step === 0 && !state.collected.includes(id),
       alwaysVisible: true,
-      use: () => { state.collected.push(id); saveGame(); toast("Junction box reset."); emit("interact", "junction"); } });
+      use: () => { state.collected.push(id); saveGame(); audio.play("spark"); toast("Junction box reset."); emit("interact", "junction"); } });
     rec.update = (t) => { const done = state.collected.includes(id); sparks.visible = !done && Math.sin(t * 0.03 + i) > 0.3; lamp.material.color.set(done ? 0x6aff9e : (Math.sin(t * 0.02) > 0 ? 0xff8a2a : 0x401a08)); };
   });
 
   // Genesis Core
   const coreHit = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), hitMat);
-  coreHit.position.y = 0.95;
+  coreHit.position.y = 1.08;
   core.group.add(coreHit);
   addInteractable({ id: "genesis_core", kind: "core", object: core.group, hit: coreHit, range: 3.0, label: "Genesis Core", verb: "TOUCH", alwaysVisible: true,
     enabled: () => true,
@@ -206,7 +208,7 @@ export function createGame(ctx) {
 
   // Mika's door (desktop players can't twist a handle, so F toggles it)
   if (door) addInteractable({ id: "mika_door", kind: "door", object: door.object, hit: door.hit, range: 3.0, label: "Mika's Repair door", verb: "OPEN / CLOSE",
-    alwaysVisible: true, enabled: () => true, desktopOnly: true, use: () => door.toggle() });
+    alwaysVisible: true, enabled: () => true, desktopOnly: true, use: () => { audio.play("door"); door.toggle(); } });
 
   // Freight lift between Rust Alley and the hotel roof
   const liftDefs = [
@@ -351,8 +353,9 @@ export function createGame(ctx) {
     state, flag: k => state.flags[k], setFlag: (k, v) => { state.flags[k] = v; saveGame(); },
     status, step: stepOf, count, startMission, completeStep, give: n => give(n),
     spend: n => { state.credits = Math.max(0, state.credits - n); changed(); },
-    openShop: () => { pendingShop = true; }, bark: () => AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)],
-    coreFlare: () => coreFlare()
+    openShop: () => { pendingShop = true; },
+    get name() { try { return (JSON.parse(localStorage.getItem("neon-genesis-appearance") || "{}").name || "").trim(); } catch { return ""; } }, bark: () => AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)],
+    coreFlare: () => coreFlare(), toast: (t, k) => toast(t, k), finale: () => { finaleMood = 90; }
   };
   let pendingShop = false;
 
@@ -370,7 +373,9 @@ export function createGame(ctx) {
     if (!fn) return closePanel();
     const node = fn(api);
     const options = node.options.filter(o => !o.if || o.if(api));
-    if (!panel.visible) placePanel();
+    if (!panel.visible) { placePanel(); audio.play("open"); }
+    const voice = CHARACTERS[node.speaker] ? node.speaker : (/GENESIS/.test(node.speaker) ? "GENESIS" : "narrator");
+    audio.speak(voice, node.text);
     panelState = { mode: "dialogue", node, options, nodeId };
     talkingTo = npc || talkingTo;
     panel.visible = true;
@@ -380,6 +385,7 @@ export function createGame(ctx) {
   }
   function choose(index) {
     if (!panelState) return;
+    audio.play("click");
     if (panelState.mode === "shop") return shopClick(index);
     const opt = panelState.options[index];
     if (!opt) return;
@@ -390,6 +396,7 @@ export function createGame(ctx) {
     else closePanel();
   }
   function closePanel() {
+    if (panel.visible) audio.play("close");
     panel.visible = false;
     panelState = null;
     talkingTo = null;
@@ -508,10 +515,10 @@ export function createGame(ctx) {
     const b = panelState?.buttons?.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
     return { hit, index: b ? b.index : -1 };
   }
-  function setHover(i) { if (i !== hoverIndex) { hoverIndex = i; if (panelState) drawPanel(); } }
+  function setHover(i) { if (i !== hoverIndex) { hoverIndex = i; if (i >= 0) audio.play("hover"); if (panelState) drawPanel(); } }
 
   function talkTo(npc) {
-    if (!npc.named) { npcSys.say(npc, AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)]); return; }
+    if (!npc.named) { const line = AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)]; npcSys.say(npc, line); audio.speak("citizen", line); return; }
     const node = entryFor(npc.id, api);
     if (node) openDialogue(node, npc);
   }
@@ -562,9 +569,13 @@ export function createGame(ctx) {
   camera.add(toastMesh);
   const toastQueue = [];
   let toastTimer = 0;
-  const TOAST_COLORS = { mission: "#ffcf4a", objective: "#5ff5e8", complete: "#6aff9e", credits: "#ff6fe0", warn: "#ff8a5a", info: "#9fe9ff", district: "#ffffff" };
+  const TOAST_COLORS = { chapter: "#c58bff", mission: "#ffcf4a", objective: "#5ff5e8", complete: "#6aff9e", credits: "#ff6fe0", warn: "#ff8a5a", info: "#9fe9ff", district: "#ffffff" };
+  let lastToastSound = 0;
+  const TOAST_SOUNDS = { mission: "mission", objective: "objective", complete: "complete", credits: "credits", warn: "warn", district: "district", chapter: "chapter" };
   function toast(text, kind = "info") {
     toastQueue.push({ text, kind });
+    const nowMs = performance.now();
+    if (TOAST_SOUNDS[kind] && (nowMs - lastToastSound > 900 || kind === "complete" || kind === "chapter")) { audio.play(TOAST_SOUNDS[kind]); lastToastSound = nowMs; }
     if (hud.toasts) {
       const el = document.createElement("div");
       el.className = "toast toast-" + kind; el.textContent = text;
@@ -609,6 +620,7 @@ export function createGame(ctx) {
   }
   function teleport(to, district) {
     if (fadeAnim) return;
+    audio.play("lift");
     fadeTo(1, 0.35, () => {
       player.position.copy(to);
       ctx.onTeleport?.();
@@ -618,6 +630,7 @@ export function createGame(ctx) {
   }
   function coreFlare() {
     core.flare?.();
+    audio.play("flare");
     fadeMat.color.set(0x9ffcff);
     fadeTo(0.55, 0.12, () => fadeTo(0, 0.9, () => fadeMat.color.set(0x000000)));
   }
@@ -742,25 +755,35 @@ export function createGame(ctx) {
   // ════════════════════════════════════════════════════════════════════════
   // HUD & per-frame update
   // ════════════════════════════════════════════════════════════════════════
+  const MAIN_IDS = Object.keys(MISSIONS).filter(k => MISSIONS[k].kind === "main");
+  const partOf = id => MAIN_IDS.indexOf(id) + 1;
   let lastDistrict = "";
   function updateHUD(dist) {
     const id = trackedMission();
     if (!hud.root) return;
     if (id) {
       const def = MISSIONS[id], step = currentStep(id);
-      hud.title.textContent = `${def.kind === "main" ? `CH.${def.chapter}` : "SIDE"} · ${def.title}`;
+      hud.title.textContent = `${def.kind === "main" ? `CH.1 · PART ${partOf(id)}/${MAIN_IDS.length}` : "SIDE JOB"} · ${def.title}`;
       let txt = step?.text || "";
       if (step?.done?.count) txt += ` (${count(step.done.collect || step.done.interact)}/${step.done.count})`;
       hud.text.textContent = txt;
     } else {
-      hud.title.textContent = state.flags.chapter3_done ? "FREE ROAM" : "EXPLORE";
-      hud.text.textContent = state.flags.chapter3_done ? "Chapter 4 is still being written. Explore, finish side jobs, find every shard." : "Talk to people. Somebody always needs something.";
+      const s = objectiveSummary();
+      hud.title.textContent = s.title;
+      hud.text.textContent = s.text;
     }
     if (hud.dist) hud.dist.textContent = dist != null ? `${Math.round(dist)} m` : "";
   }
   function objectiveSummary() {
     const id = trackedMission();
-    if (!id) return { title: "EXPLORE", text: "Talk to people around the city." };
+    if (!id) {
+      if (state.flags.chapter1_done) {
+        const sides = ["s1", "s2", "s3"].filter(k => status(k) !== "done").length;
+        return { title: "CHAPTER 1 COMPLETE · CHAPTER 2 COMING SOON",
+          text: sides ? `You've finished the story so far. ${sides} side job${sides > 1 ? "s" : ""} left: find Pip, Lulu or Whisper.` : "You've finished everything in this version. Chapter 2 is coming soon." };
+      }
+      return { title: "EXPLORE", text: "Talk to people around the city." };
+    }
     const step = currentStep(id);
     let txt = step?.text || "";
     if (step?.done?.count) txt += ` (${count(step.done.collect || step.done.interact)}/${step.done.count})`;
@@ -768,6 +791,7 @@ export function createGame(ctx) {
   }
 
   let hudTimer = 0;
+  let finaleMood = 0;   // seconds left of the finale music cue
   function update(time, dt, controllers) {
     if (!isInCity()) { promptSprite.visible = false; return; }
     player.getWorldPosition(tmpV2);
@@ -810,6 +834,8 @@ export function createGame(ctx) {
     // district name toast when you cross into a new area
     const district = city.districtAt(tmpV2.z, tmpV2.y);
     if (district !== lastDistrict) { if (lastDistrict) toast(district, "district"); lastDistrict = district; if (hud.district) hud.district.textContent = district; }
+    audio.setMood(finaleMood > 0 ? "finale" : ({ "THE SUMP": "sump", "RING ROAD": "ring", "NEON MILE": "mile", "SPIRE PLAZA": "plaza" }[district] || "roof"));
+    if (finaleMood > 0) finaleMood -= dt;
     updatePointing(controllers);
     updateToasts(dt);
     updateFade(dt);

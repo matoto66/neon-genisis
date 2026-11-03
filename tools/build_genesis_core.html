@@ -1,0 +1,168 @@
+<!doctype html>
+<!--
+  Genesis Core v2 builder.
+  Builds the detailed Genesis Core model with Three.js and exports it as a
+  binary glTF (genesis_core_v2.glb). Open this page through a local server
+  and click "Download GLB", or run it headless. The original Blockbench
+  model (Genisis_ core.gltf) is kept in the repo untouched as a backup.
+
+  Node names the game animates at runtime:
+    energy_core      the glowing sphere (gets an animated energy shader)
+    ring_outer       outer gyroscope ring (spins)
+    ring_inner       inner gyroscope ring (spins the other way)
+    crown            top emitter (pulses)
+    glow_*           any mesh starting with glow_ is treated as light-emitting
+-->
+<html><head><meta charset="utf-8"><title>Genesis Core builder</title>
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/" } }</script>
+</head><body style="background:#111;color:#ddd;font-family:Arial">
+<button id="dl">Download GLB</button> <span id="info"></span>
+<script type="module">
+import * as THREE from "three";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+
+const root = new THREE.Group();
+root.name = "GenesisCore";
+
+// ── materials (PBR, export cleanly to glTF) ─────────────────────────────
+const M = {
+  shell:  new THREE.MeshStandardMaterial({ name: "shell_gunmetal", color: 0x2a3140, metalness: 0.9, roughness: 0.32 }),
+  dark:   new THREE.MeshStandardMaterial({ name: "dark_alloy", color: 0x10141c, metalness: 0.85, roughness: 0.4 }),
+  trim:   new THREE.MeshStandardMaterial({ name: "bright_trim", color: 0xa9b6c8, metalness: 1.0, roughness: 0.18 }),
+  copper: new THREE.MeshStandardMaterial({ name: "copper_coil", color: 0xb06a3a, metalness: 1.0, roughness: 0.28 }),
+  rubber: new THREE.MeshStandardMaterial({ name: "cable_rubber", color: 0x16181d, metalness: 0.1, roughness: 0.7 }),
+  hazard: new THREE.MeshStandardMaterial({ name: "hazard_amber", color: 0xffb02e, metalness: 0.3, roughness: 0.45, emissive: 0x3a2200, emissiveIntensity: 1 }),
+  cyan:   new THREE.MeshStandardMaterial({ name: "glow_cyan", color: 0x7ffcff, emissive: 0x38f0e6, emissiveIntensity: 2.2, metalness: 0.2, roughness: 0.3 }),
+  violet: new THREE.MeshStandardMaterial({ name: "glow_violet", color: 0xd6a8ff, emissive: 0xa24cff, emissiveIntensity: 2.0, metalness: 0.2, roughness: 0.3 }),
+  core:   new THREE.MeshStandardMaterial({ name: "energy_core", color: 0xd8ffff, emissive: 0x38f0e6, emissiveIntensity: 3.0, metalness: 0.0, roughness: 0.15 }),
+  glass:  new THREE.MeshStandardMaterial({ name: "containment_glass", color: 0x9fe9ff, metalness: 0.0, roughness: 0.05, transparent: true, opacity: 0.18 })
+};
+
+// Merge many small parts that share a material into one mesh per group.
+function part(name, mat, list, parent = root) {
+  const geo = mergeGeometries(list.map(g => g.index ? g.toNonIndexed() : g), false);
+  const m = new THREE.Mesh(geo, mat); m.name = name; parent.add(m); return m;
+}
+const T = (g, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { g.rotateX(rx); g.rotateZ(rz); g.rotateY(ry); g.translate(x, y, z); return g; };
+const CORE_Y = 0.5;
+
+// ── BASE: octagonal pedestal with stepped plates ────────────────────────
+part("base_plates", M.shell, [
+  T(new THREE.CylinderGeometry(0.34, 0.37, 0.06, 8), 0, 0.03, 0, 0, Math.PI / 8),
+  T(new THREE.CylinderGeometry(0.30, 0.33, 0.05, 8), 0, 0.085, 0, 0, Math.PI / 8),
+  T(new THREE.CylinderGeometry(0.2, 0.27, 0.07, 8), 0, 0.145, 0, 0, Math.PI / 8)
+]);
+part("base_dark", M.dark, [
+  T(new THREE.CylinderGeometry(0.36, 0.36, 0.012, 8), 0, 0.062, 0, 0, Math.PI / 8),
+  T(new THREE.CylinderGeometry(0.15, 0.2, 0.1, 16), 0, 0.22, 0)
+]);
+// hazard stripes around the base + glowing seam
+const stripes = [];
+for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; stripes.push(T(new THREE.BoxGeometry(0.06, 0.02, 0.01), Math.sin(a) * 0.355, 0.03, Math.cos(a) * 0.355, 0, a, i % 2 ? 0.6 : -0.6)); }
+part("base_hazard", M.hazard, stripes);
+part("glow_base_ring", M.cyan, [T(new THREE.TorusGeometry(0.305, 0.006, 6, 64), 0, 0.112, 0, Math.PI / 2)]);
+// bolts
+const bolts = [];
+for (let i = 0; i < 8; i++) { const a = (i + 0.5) / 8 * Math.PI * 2; bolts.push(T(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 6), Math.sin(a) * 0.3, 0.115, Math.cos(a) * 0.3)); }
+part("base_bolts", M.trim, bolts);
+
+// ── CAGE: four curved ribs rising from the base to the crown ────────────
+const ribs = [], ribGlow = [];
+for (let i = 0; i < 4; i++) {
+  const a = i / 4 * Math.PI * 2 + Math.PI / 4;
+  const pts = [[0.2, 0.2], [0.29, 0.3], [0.32, 0.5], [0.29, 0.7], [0.18, 0.84], [0.1, 0.88]].map(([r, y]) => new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const rib = new THREE.TubeGeometry(curve, 40, 0.026, 6, false);
+  rib.scale(1, 1, 1);
+  ribs.push(rib);
+  // flat armour plate on the outside of each rib
+  const plate = T(new THREE.BoxGeometry(0.075, 0.26, 0.02), Math.sin(a) * 0.335, 0.5, Math.cos(a) * 0.335, 0, a);
+  ribs.push(plate);
+  ribGlow.push(T(new THREE.BoxGeometry(0.012, 0.2, 0.006), Math.sin(a) * 0.347, 0.5, Math.cos(a) * 0.347, 0, a));
+  // little vent slits
+  for (let k = 0; k < 3; k++) ribGlow.push(T(new THREE.BoxGeometry(0.05, 0.006, 0.006), Math.sin(a) * 0.346, 0.4 + k * 0.03, Math.cos(a) * 0.346, 0, a));
+}
+part("cage_ribs", M.shell, ribs);
+part("glow_rib_lines", M.cyan, ribGlow);
+
+// ── CROWN: top collar + emitter ─────────────────────────────────────────
+part("crown_collar", M.shell, [
+  T(new THREE.CylinderGeometry(0.13, 0.16, 0.05, 8), 0, 0.89, 0, 0, Math.PI / 8),
+  T(new THREE.CylinderGeometry(0.07, 0.11, 0.06, 8), 0, 0.94, 0, 0, Math.PI / 8)
+]);
+part("crown_trim", M.trim, [T(new THREE.TorusGeometry(0.135, 0.008, 6, 32), 0, 0.915, 0, Math.PI / 2)]);
+const crown = new THREE.Group(); crown.name = "crown"; crown.position.y = 0.99; root.add(crown);
+part("glow_crown_emitter", M.violet, [T(new THREE.OctahedronGeometry(0.035), 0, 0.02, 0), T(new THREE.TorusGeometry(0.05, 0.005, 6, 24), 0, 0, 0, Math.PI / 2)], crown);
+// antenna fins
+const fins = [];
+for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2; fins.push(T(new THREE.BoxGeometry(0.008, 0.09, 0.04), Math.sin(a) * 0.06, 0.99, Math.cos(a) * 0.06, 0, a)); }
+part("crown_fins", M.dark, fins);
+
+// ── CONTAINMENT: glass sphere + the energy core ────────────────────────
+part("containment_glass", M.glass, [T(new THREE.SphereGeometry(0.2, 32, 20), 0, CORE_Y, 0)]);
+part("energy_core", M.core, [T(new THREE.IcosahedronGeometry(0.12, 4), 0, CORE_Y, 0)]);
+// clamps that hold the glass sphere (top & bottom)
+part("core_clamps", M.dark, [
+  T(new THREE.CylinderGeometry(0.06, 0.09, 0.07, 12), 0, CORE_Y - 0.225, 0),
+  T(new THREE.CylinderGeometry(0.09, 0.06, 0.07, 12), 0, CORE_Y + 0.225, 0)
+]);
+part("glow_clamp_rings", M.cyan, [
+  T(new THREE.TorusGeometry(0.07, 0.006, 6, 32), 0, CORE_Y - 0.19, 0, Math.PI / 2),
+  T(new THREE.TorusGeometry(0.07, 0.006, 6, 32), 0, CORE_Y + 0.19, 0, Math.PI / 2)
+]);
+// copper induction coils wrapped around the lower and upper clamp
+const coils = [];
+for (const [y, r] of [[CORE_Y - 0.27, 0.095], [CORE_Y + 0.27, 0.095]]) for (let k = 0; k < 4; k++) coils.push(T(new THREE.TorusGeometry(r, 0.008, 6, 28), 0, y + (k - 1.5) * 0.017, 0, Math.PI / 2));
+part("copper_coils", M.copper, coils);
+
+// ── GYROSCOPE RINGS (animated) ─────────────────────────────────────────
+function gyroRing(name, radius, tube, tilt, notchMat) {
+  const g = new THREE.Group(); g.name = name; g.position.y = CORE_Y; g.rotation.x = tilt; root.add(g);
+  part(name + "_band", M.trim, [new THREE.TorusGeometry(radius, tube, 8, 72)], g);
+  const notches = [];
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; notches.push(T(new THREE.BoxGeometry(0.014, 0.014, tube * 3.2), Math.cos(a) * radius, Math.sin(a) * radius, 0, 0, 0, a)); }
+  part("glow_" + name + "_notches", notchMat, notches, g);
+  return g;
+}
+gyroRing("ring_outer", 0.255, 0.009, Math.PI / 2.3, M.cyan);
+gyroRing("ring_inner", 0.225, 0.007, -Math.PI / 3.2, M.violet);
+
+// ── CABLES from base into the lower clamp + side power cells ────────────
+const cables = [], cells = [], cellGlow = [];
+for (let i = 0; i < 3; i++) {
+  const a = i / 3 * Math.PI * 2;
+  const pts = [[0.23, 0.12], [0.24, 0.17], [0.16, 0.2], [0.09, 0.25]].map(([r, y]) => new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r));
+  cables.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.014, 6, false));
+  const ca = a + Math.PI / 3;
+  cells.push(T(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 10), Math.sin(ca) * 0.25, 0.19, Math.cos(ca) * 0.25));
+  cells.push(T(new THREE.CylinderGeometry(0.04, 0.04, 0.015, 10), Math.sin(ca) * 0.25, 0.255, Math.cos(ca) * 0.25));
+  cellGlow.push(T(new THREE.CylinderGeometry(0.037, 0.037, 0.05, 10, 1, true), Math.sin(ca) * 0.25, 0.18, Math.cos(ca) * 0.25));
+}
+part("power_cables", M.rubber, cables);
+part("power_cells", M.dark, cells);
+part("glow_power_cells", M.cyan, cellGlow);
+
+// ── front data plate ───────────────────────────────────────────────────
+part("front_plate", M.dark, [T(new THREE.BoxGeometry(0.16, 0.05, 0.015), 0, 0.145, 0.265, -0.3)]);
+part("glow_front_text", M.violet, [T(new THREE.BoxGeometry(0.12, 0.008, 0.004), 0, 0.152, 0.274, -0.3), T(new THREE.BoxGeometry(0.07, 0.006, 0.004), 0, 0.136, 0.279, -0.3)]);
+
+let tris = 0, meshes = 0;
+root.traverse(o => { if (o.isMesh) { meshes++; tris += o.geometry.attributes.position.count / 3; } });
+document.getElementById("info").textContent = `${meshes} meshes · ${Math.round(tris)} triangles`;
+window.__coreInfo = { meshes, tris: Math.round(tris) };
+
+window.__exportGLB = () => new Promise((resolve, reject) => {
+  new GLTFExporter().parse(root, buf => {
+    let s = ""; const b = new Uint8Array(buf);
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    resolve(btoa(s));
+  }, reject, { binary: true });
+});
+document.getElementById("dl").onclick = async () => {
+  const b64 = await window.__exportGLB();
+  const a = document.createElement("a"); a.href = "data:model/gltf-binary;base64," + b64; a.download = "genesis_core_v2.glb"; a.click();
+};
+</script></body></html>

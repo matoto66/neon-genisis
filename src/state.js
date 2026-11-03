@@ -39,6 +39,8 @@ export function loadGame() {
     }
     if (saved.missions && typeof saved.missions === "object") state.missions = saved.missions;
     if (saved.flags && typeof saved.flags === "object") state.flags = saved.flags;
+    // Chapters 1-3 were merged into Chapter 1; old saves used "chapter3_done".
+    if (state.flags.chapter3_done) { state.flags.chapter1_done = true; delete state.flags.chapter3_done; }
     for (const key of ["owned", "installed", "collected"]) {
       if (Array.isArray(saved[key])) state[key] = saved[key].filter(v => typeof v === "string");
     }

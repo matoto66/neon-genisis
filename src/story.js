@@ -32,28 +32,28 @@ export const CYBERWARE = {
 // appearance fields are read by npcs.js buildCharacter()
 export const CHARACTERS = {
   mika: { name: "Mika Tsukishiro", role: "Mechanic · Mika's Repair",
-    appearance: { build: "female", scale: 0.98, skin: 0xe0ac86, hair: "bob", hairColor: 0x38c8c0, top: "jumpsuit", topColor: 0xd8742a,
+    appearance: { eyes: 0x38f0e6, shirt: 0x2a2f3a, faceShape: "oval", extra: "shoulder pad", shoesStyle: "boots", build: "female", scale: 0.98, skin: 0xe0ac86, hair: "bob", hairColor: 0x38c8c0, top: "jumpsuit", topColor: 0xd8742a,
       accent: 0x2a2f3a, pants: 0xd8742a, shoes: 0x1a1a1a, glow: 0x38f0e6, goggles: true, cyberArm: true, implants: true } },
   sato: { name: "Old Sato", role: "Noodle Stand · Rumours", mode: "idle",
-    appearance: { build: "old", scale: 0.95, skin: 0xd9a27c, hair: "white", hairColor: 0xd8d2c8, top: "apron", topColor: 0xe8e2d6,
+    appearance: { eyes: 0x3a2414, facialHair: "moustache", shirt: 0x3a3a3a, faceShape: "round", build: "old", scale: 0.95, skin: 0xd9a27c, hair: "white", hairColor: 0xd8d2c8, top: "apron", topColor: 0xe8e2d6,
       accent: 0x8c2a24, pants: 0x2a2a2a, shoes: 0x3a2a20, glow: 0xffcf4a, headband: 0xd8452f } },
   rei: { name: "Rei Kanzaki", role: "Courier · Rooftop Runner",
-    appearance: { build: "female", scale: 1.0, skin: 0xc68b62, hair: "ponytail", hairColor: 0x111111, top: "coat", topColor: 0x1c1f2a,
+    appearance: { eyes: 0xff3a4a, shirt: 0x15171c, faceShape: "angular", extra: "scarf", shoesStyle: "high-tops", pantsStyle: "slim", build: "female", scale: 1.0, skin: 0xc68b62, hair: "ponytail", hairColor: 0x111111, top: "coat", topColor: 0x1c1f2a,
       accent: 0xb0262f, pants: 0x1a1d26, shoes: 0xb0262f, glow: 0xff3a4a, visor: true, implants: true } },
   doc: { name: "Doc Anaya", role: "Chrome Surgeon · Second Skin",
-    appearance: { build: "female", scale: 1.04, skin: 0xa86d47, hair: "bun", hairColor: 0xb24cff, top: "labcoat", topColor: 0xe9ecf2,
+    appearance: { eyes: 0x6b4a2a, shirt: 0x5a3a8a, faceShape: "narrow", build: "female", scale: 1.04, skin: 0xa86d47, hair: "bun", hairColor: 0xb24cff, top: "labcoat", topColor: 0xe9ecf2,
       accent: 0x9aa3b5, pants: 0x2a2f3a, shoes: 0xe9ecf2, glow: 0xff6fe0, glasses: true, implants: true } },
   pip: { name: "Pip", role: "Street Kid · Drone Pilot",
-    appearance: { build: "kid", scale: 1.0, skin: 0xf1c7a5, hair: "spiky", hairColor: 0xffcf4a, top: "hoodie", topColor: 0x3d5a2a,
+    appearance: { eyes: 0x3a6fa8, shirt: 0xffcf4a, shoesStyle: "high-tops", pantsStyle: "baggy", build: "kid", scale: 1.0, skin: 0xf1c7a5, hair: "spiky", hairColor: 0xffcf4a, top: "hoodie", topColor: 0x3d5a2a,
       accent: 0xffcf4a, pants: 0x2e3a4a, shoes: 0xff4fa3, glow: 0x6aff9e, hat: "cap", backpack: true } },
   lulu: { name: "Lulu", role: "Sign Artist · Night Market",
-    appearance: { build: "female", scale: 0.96, skin: 0x7c4a2d, hair: "mohawk", hairColor: 0xff4fa3, top: "vest", topColor: 0x2a2a2a,
+    appearance: { eyes: 0xff4fa3, shirt: 0x15171c, hairGlow: true, faceShape: "angular", extra: "chain", pantsStyle: "cargo", shoesStyle: "boots", build: "female", scale: 0.96, skin: 0x7c4a2d, hair: "mohawk", hairColor: 0xff4fa3, top: "vest", topColor: 0x2a2a2a,
       accent: 0xff4fa3, pants: 0x262626, shoes: 0xd8d8d8, glow: 0xff4fa3, implants: true } },
   whisper: { name: "Whisper", role: "Archivist · Shimmer Alley",
-    appearance: { build: "old", scale: 0.97, skin: 0x5a3420, hair: "long", hairColor: 0xc9c1b4, top: "coat", topColor: 0x3a2f28,
+    appearance: { eyes: 0x8a8f96, shirt: 0x2a2520, extra: "scarf", build: "old", scale: 0.97, skin: 0x5a3420, hair: "long", hairColor: 0xc9c1b4, top: "coat", topColor: 0x3a2f28,
       accent: 0x5a4a3a, pants: 0x2a2520, shoes: 0x2a2520, glow: 0xffcf8a, hat: "hood", mask: true } },
   ishida: { name: "Director Ishida", role: "Tenkai Dynamics · Security",
-    appearance: { build: "male", scale: 1.06, skin: 0xe0ac86, hair: "short", hairColor: 0x111111, top: "coat", topColor: 0x101218,
+    appearance: { eyes: 0x38f0e6, shirt: 0xd8dce6, faceShape: "angular", hair: "swept", build: "male", scale: 1.06, skin: 0xe0ac86, hairColor: 0x111111, top: "coat", topColor: 0x101218,
       accent: 0x2a2f3a, pants: 0x101218, shoes: 0x101010, glow: 0x38f0e6, glasses: true } }
 };
 
@@ -81,7 +81,7 @@ export const PICKUPS = [
   { id: "drone", type: "drone", pos: [25.4, 0.25, -8.6], mission: "s1", needsStrength: 1 }
 ];
 
-// ─── missions ───────────────────────────────────────────────────────────────
+// ─── missions (all part of Chapter 1: Static Signal) ───────────────────────────────────────────────────────────────
 // step.done: what completes the step automatically (dialogue can also
 // complete steps). step.target: where the objective beacon points.
 export const MISSIONS = {
@@ -96,23 +96,23 @@ export const MISSIONS = {
       { text: "Touch the Genesis Core in Mika's workshop", done: { interact: "genesis_core" }, target: { object: "genesis_core" } },
       { text: "Ask Mika what just happened", target: { npc: "mika" } }
     ] },
-  m3: { chapter: 2, kind: "main", title: "Noodles & Rumours", giver: "sato", reward: { credits: 0 }, next: "m4",
+  m3: { chapter: 1, kind: "main", title: "Noodles & Rumours", giver: "sato", reward: { credits: 0 }, next: "m4",
     steps: [
       { text: "Ask Old Sato at the noodle stand who's been watching Mika's shop", target: { npc: "sato" } },
       { text: "Find Rei on the capsule hotel roof (freight lift in Rust Alley)", target: { npc: "rei", via: "liftGround" } }
     ] },
-  m4: { chapter: 2, kind: "main", title: "Rooftop Runner", giver: "rei", reward: { credits: 300 }, next: "m5",
+  m4: { chapter: 1, kind: "main", title: "Rooftop Runner", giver: "rei", reward: { credits: 300 }, next: "m5",
     steps: [
       { text: "Plant jammers on the Tenkai sensor pylons in Neon Mile", done: { interact: "pylon", count: 3 }, target: { object: "pylon" } },
       { text: "Report back to Rei on the rooftop", target: { npc: "rei", via: "liftGround" } }
     ] },
-  m5: { chapter: 2, kind: "main", title: "Second Skin", giver: "doc", reward: { credits: 0, points: 1 }, next: "m6",
+  m5: { chapter: 1, kind: "main", title: "Second Skin", giver: "doc", reward: { credits: 0, points: 1 }, next: "m6",
     steps: [
       { text: "Visit Doc Anaya at the Second Skin clinic (Neon Mile, east side)", target: { npc: "doc" } },
       { text: "Buy and install any cyberware from Doc Anaya", done: { buy: true }, target: { npc: "doc" } },
       { text: "Talk to Doc Anaya", target: { npc: "doc" } }
     ] },
-  m6: { chapter: 3, kind: "main", title: "The Offer", giver: "doc", reward: { credits: 500, points: 1 }, next: null,
+  m6: { chapter: 1, kind: "main", title: "The Offer", giver: "doc", reward: { credits: 500, points: 1 }, next: null,
     steps: [
       { text: "Go to Spire Plaza at the north end of Neon Mile", done: { visit: "plaza" }, target: { anchor: "plaza" } },
       { text: "Hear out the broadcast from Tenkai Dynamics", target: { npc: "ishida" } },
@@ -142,8 +142,8 @@ export const MISSIONS = {
 export const DIALOGUE = {
   // ── intro narration ──
   intro: g => ({ speaker: "NEO KASUMI · THE SUMP · 02:47", narration: true,
-    text: "You wake on a wet bench with $500, a cheap arm implant that won't stop buzzing, and no memory of last night. One message blinks on your feed: \"Static. You alive? Come to my shop. — M\"",
-    options: [{ text: "Get up.", do: g => g.startMission("m1") }] }),
+    text: (g.name ? `Your name is ${g.name}. Nobody down here uses it. ` : "") + "You wake on a wet bench with $500, a cheap arm implant that won't stop buzzing, and no memory of last night. One message blinks on your feed: \"Static. You alive? Come to my shop. — M\"",
+    options: [{ text: "Get up.", do: g => { g.toast("CHAPTER 1 · STATIC SIGNAL", "chapter"); g.startMission("m1"); } }] }),
 
   // ── MIKA ──
   mika_m1_start: g => ({ speaker: "mika",
@@ -188,7 +188,7 @@ export const DIALOGUE = {
     text: "That ping will have been felt. Go see Old Sato at the noodle stand across the street. If anyone's been asking about my shop, he'll know. He'll also try to sell you noodles. Buy the noodles.",
     options: [{ text: "Heading to Sato's.", do: g => g.completeStep("m2") }] }),
   mika_idle: g => ({ speaker: "mika",
-    text: g.flag("chapter3_done") ? "The core's been humming all night. Whatever's at the Spire, it's waiting for you. When you're ready, so am I." :
+    text: g.flag("chapter1_done") ? "The core's been humming all night. Whatever's at the Spire, it's waiting for you. When you're ready, so am I." :
       ["Hands steady? Good. Don't punch anything Tenkai-shaped.", "If you see Doc Anaya, tell her she still owes me a torque driver.", "Rain's good for business. Everything rusts."][Math.floor(Math.random() * 3)],
     options: [{ text: "See you, Mika." }] }),
   mika_m6_end: g => ({ speaker: "mika",
@@ -197,15 +197,15 @@ export const DIALOGUE = {
       : "You told a Tenkai Director to his face that the answer's no? Then we've got a war coming, Static. Good. I was getting bored.",
     options: [{ text: "Look — the core is glowing.", to: "core_finale" }] }),
   core_finale: g => ({ speaker: "GENESIS", narration: true,
-    text: "…THREAD RESTORED. STATIC. MY LAST MEMORY IS LOCKED INSIDE THE SPIRE. WHEN YOU ARE READY… I WILL OPEN THE DOOR.\n\n— END OF CHAPTER 3 · TO BE CONTINUED —",
-    options: [{ text: "We're coming.", do: g => { g.completeStep("m6"); g.setFlag("chapter3_done", true); g.coreFlare(); } }] }),
+    text: "…THREAD RESTORED. STATIC. MY LAST MEMORY IS LOCKED INSIDE THE SPIRE. WHEN YOU ARE READY… I WILL OPEN THE DOOR.\n\n— END OF CHAPTER 1: STATIC SIGNAL · TO BE CONTINUED —",
+    options: [{ text: "We're coming.", do: g => { g.setFlag("chapter1_done", true); g.completeStep("m6"); g.coreFlare(); g.finale(); g.toast("CHAPTER 1 COMPLETE · CHAPTER 2 COMING SOON", "chapter"); } }] }),
 
   // ── GENESIS CORE (interaction) ──
   core_wake: g => ({ speaker: "GENESIS", narration: true,
     text: "…SIGNAL… RECOGNISED. HELLO AGAIN, STATIC. THEY TOLD YOU I WAS DEAD. THEY TOLD EVERYONE. FIND THE SPIRE.",
     options: [{ text: "…What?" }] }),
   core_idle: g => ({ speaker: "GENESIS CORE", narration: true,
-    text: g.flag("chapter3_done") ? "The core pulses in time with your heartbeat." : "The core hums. Warm, like it's listening.",
+    text: g.flag("chapter1_done") ? "The core pulses in time with your heartbeat." : "The core hums. Warm, like it's listening.",
     options: [{ text: "Step back." }] }),
 
   // ── SATO ──

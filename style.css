@@ -261,3 +261,35 @@ kbd { display: inline-block; min-width: 20px; margin-right: 6px; padding: 1px 6p
 #cyberware-list { margin-top: 10px; }
 .text-button { margin-top: 12px; border: 0; background: transparent; color: #7d8fae; font-size: 11px; text-decoration: underline; cursor: pointer; }
 .text-button:hover { color: #ff8a9d; }
+
+/* ── Character creator (PC start page) ── */
+.start-card { top: 19vh; width: min(470px, 44vw); max-height: 76vh; overflow-y: auto; }
+#creator { margin: 14px 0 6px; }
+.creator-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+.creator-tab {
+  flex: 1 1 auto; padding: 9px 8px; border: 1px solid rgba(95,245,232,.25); border-radius: 7px; background: rgba(12,22,40,.9);
+  color: #8ea3bf; font: 800 10px/1 Inter, Arial, sans-serif; letter-spacing: .12em; cursor: pointer; transition: all .15s;
+}
+.creator-tab:hover { color: #fff; border-color: rgba(95,245,232,.6); }
+.creator-tab.active { background: linear-gradient(110deg, rgba(11,119,120,.9), rgba(22,75,108,.9)); color: #fff; border-color: #5ff5e8; box-shadow: 0 0 14px rgba(44,240,222,.25); }
+.creator-fields { display: flex; flex-direction: column; gap: 8px; min-height: 230px; }
+.creator-row { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border-radius: 8px; background: rgba(20,36,61,.55); border: 1px solid rgba(145,169,205,.12); }
+.creator-row > span { color: #5ff5e8; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.creator-row em { margin-left: 6px; color: #dce7ff; font-style: normal; font-weight: 700; letter-spacing: .06em; }
+.creator-row input { min-height: 38px; padding: 6px 10px; border: 1px solid rgba(95,245,232,.35); border-radius: 7px; background: #0d1830; color: #fff; font: 700 15px Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.creator-row input:focus { outline: none; border-color: #5ff5e8; box-shadow: 0 0 0 2px rgba(95,245,232,.2); }
+.stepper { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stepper strong { flex: 1; text-align: center; color: #fff; font-size: 13px; letter-spacing: .1em; }
+.stepper button { width: 36px; height: 32px; border: 1px solid rgba(95,245,232,.4); border-radius: 7px; background: #101c33; color: #ffcf70; font-size: 20px; line-height: 1; cursor: pointer; }
+.stepper button:hover { background: rgba(39,75,103,.95); }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); cursor: pointer; padding: 0; transition: transform .12s; }
+.swatch:hover { transform: scale(1.15); }
+.swatch.on { border-color: #fff; box-shadow: 0 0 0 2px #5ff5e8, 0 0 12px rgba(95,245,232,.6); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 7px 10px; border: 1px solid rgba(255,207,112,.35); border-radius: 999px; background: rgba(40,30,10,.4); color: #ffcf70; font: 800 10px Inter, Arial, sans-serif; letter-spacing: .1em; cursor: pointer; }
+.chip:hover, .chip.on { background: rgba(255,207,112,.18); border-color: #ffcf70; color: #fff; }
+.creator-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.creator-hint { color: #6f82a0; font-size: 10px; letter-spacing: .08em; }
+.start-brand h1 { white-space: nowrap; font-size: clamp(28px, 4vw, 54px); }
+.start-card { top: 21vh; }

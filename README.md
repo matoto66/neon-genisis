@@ -11,9 +11,9 @@ You wake up in **the Sump** with $500, a buzzing junk-grade arm implant and no m
 Mika, the Sump's best mechanic, calls you *Static*. The Genesis Core on her workbench is the last piece of
 the old AI… and it recognises you.
 
-* **Chapter 1 — Static:** Mika's repair job, salvage capacitors, the Genesis Core wakes up.
-* **Chapter 2 — Signal Trace:** Old Sato's rumours, Rei's rooftop hideout, jamming Tenkai sensor pylons, Doc Anaya's clinic.
-* **Chapter 3 — Genesis:** Tenkai's offer at Spire Plaza. Accept or refuse — Mika remembers which.
+**Chapter 1 — Static Signal** (6 parts): Mika's repair job and the salvage capacitors, the Genesis Core
+wakes up, Old Sato's rumours, Rei's rooftop hideout and the Tenkai sensor pylons, Doc Anaya's clinic, and
+Tenkai's offer at Spire Plaza. Accept or refuse — Mika remembers which.
 * **Side jobs:** Pip's lost drone (needs Strength), Lulu's shorting junction boxes, Whisper's five GENESIS data shards.
 
 ## Controls
@@ -21,12 +21,14 @@ the old AI… and it recognises you.
 | | Quest | PC |
 |---|---|---|
 | Move | Left stick | WASD / arrows |
+| Sprint | Click the left stick (stops when you let go of the stick) | Hold Shift |
 | Turn | Right stick (smooth, turns around your head) | Mouse (click to lock) |
 | Interact / talk / grab | Point + trigger (either hand) | Look at it + **F** (or click) |
 | Dialogue choices | Point + trigger | **1–4** or click |
 | Jump | A | Space |
 | Menu (stats, cyberware, objective) | Y | E |
 | Mika's door | Grab the handle with trigger and twist | F |
+| Mute sound | — | M |
 
 ## Districts
 
@@ -57,6 +59,11 @@ src/story.js          story data: characters, dialogue, missions, cyberware, col
 src/quests.js         gameplay: mission engine, dialogue/shop board, interactions, beacons, toasts
 src/state.js          player state and saving
 src/optimize.js       draw-call reduction (skinned merging, static merging)
+src/audio.js          all sound: procedural music per district, rain/city ambience, 3D sounds, footsteps, voices
+src/character.js      character builder shared by NPCs and the player creator
+src/creator.js        character creator options, presets, randomizer, saving
+genesis_core_v2.glb   the detailed Genesis Core (Genisis_ core.gltf is kept as the fallback/backup)
+tools/                build_genesis_core.html — rebuilds genesis_core_v2.glb
 ```
 
 **Adding content:** new dialogue/missions go in `src/story.js` only. Positions for story places live in the
