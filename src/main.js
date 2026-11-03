@@ -1298,84 +1298,128 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
   return group;
 }
 
-// ── VR character terminal: tabs, option rows, randomize and play ─────────
+// ── VR character creator: one clean, flat panel drawn like the website ──
+// (Replaces the old grid of 3D boxes.) Everything is painted on a single
+// high-resolution canvas; pointing + trigger is mapped to buttons via UV.
 let creatorTab = 0;
-const termText = (ctx, text, x, y, size, color, align = "left", weight = "bold") => {
-  ctx.fillStyle = color; ctx.font = `${weight} ${size}px Arial`; ctx.textAlign = align; ctx.fillText(text, x, y); ctx.textAlign = "left";
-};
-const titleCard = addTerminalCard({
-  x: 0, y: 0.58, width: 1.72, height: 0.15, res: 1,
-  labelPainter: ctx => {
-    termText(ctx, "NEON GENESIS", 30, ctx.logicalHeight * 0.55, 56, "#55f5e8");
-    termText(ctx, "CREATE YOUR CHARACTER", 994, ctx.logicalHeight * 0.55, 30, "#b9c8d8", "right");
-    termText(ctx, (appearance.name || "UNNAMED") + "  ·  POINT + TRIGGER: LEFT SIDE = BACK, RIGHT SIDE = NEXT", 30, ctx.logicalHeight * 0.88, 20, "#7f93ab", "left", "normal");
-  }
-});
-const tabCards = creator.TABS.map((tab, i) => addTerminalCard({
-  x: -0.69 + i * 0.345, y: 0.43, width: 0.33, height: 0.09, res: 1, logicalWidth: 512,
-  action: () => { creatorTab = i; refreshVRCreator(); applyCreatorFocus(); },
-  labelPainter: ctx => {
-    const on = creatorTab === i;
-    if (on) { ctx.fillStyle = "rgba(85,245,232,0.25)"; ctx.fillRect(0, 0, ctx.logicalWidth, ctx.logicalHeight); }
-    termText(ctx, tab.label, ctx.logicalWidth / 2, ctx.logicalHeight * 0.66, 40, on ? "#ffffff" : "#8ea3bf", "center");
-  }
-}));
-const creatorRows = [];
-for (let r = 0; r < 10; r++) {
-  const col = r % 2, row = Math.floor(r / 2);
-  const card = addTerminalCard({
-    x: col ? 0.44 : -0.44, y: 0.28 - row * 0.112, width: 0.85, height: 0.098, res: 1, logicalWidth: 768,
-    action: hit => {
-      const field = creator.TABS[creatorTab].fields[r];
-      if (!field) return;
-      const dir = hit?.uv && hit.uv.x < 0.3 ? -1 : 1;
-      if (field.type === "text") creator.cycle({ ...field, type: "choice" }, dir);
-      else creator.cycle(field, dir);
-      onLookChanged();
-    },
-    labelPainter: ctx => {
-      const field = creator.TABS[creatorTab].fields[r];
-      if (!field) return;
-      const w = ctx.logicalWidth, h = ctx.logicalHeight;
-      termText(ctx, "‹", 18, h * 0.68, 46, "#ffcf70");
-      termText(ctx, "›", w - 18, h * 0.68, 46, "#ffcf70", "right");
-      termText(ctx, field.label, 56, h * 0.42, 24, "#8ea3bf");
-      termText(ctx, creator.valueText(field), 56, h * 0.82, 34, "#ffffff");
-      if (field.type === "color") { ctx.fillStyle = creator.hexCss(appearance[field.key]); ctx.fillRect(w - 130, h * 0.22, 64, h * 0.56); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(w - 130, h * 0.22, 64, h * 0.56); }
+document.querySelector("#play-button").addEventListener("click", startCity);
+const VRC_W = 1600, VRC_H = 1200;
+const vrcCanvas = document.createElement("canvas");
+vrcCanvas.width = VRC_W; vrcCanvas.height = VRC_H;
+const vrc = vrcCanvas.getContext("2d");
+const vrcTexture = new THREE.CanvasTexture(vrcCanvas);
+vrcTexture.colorSpace = THREE.SRGBColorSpace;
+vrcTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+const vrcPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.05),
+  new THREE.MeshBasicMaterial({ map: vrcTexture, transparent: true, depthWrite: false }));
+vrcPanel.position.set(0, 0.15, 0);
+vrcPanel.renderOrder = 1200;
+vrStart.add(vrcPanel);
+vrStartTargets.push(vrcPanel);
+let vrcButtons = [];
+let vrcHover = -1;
+const rr = (x, y, w, h, r) => { vrc.beginPath(); vrc.moveTo(x + r, y); vrc.arcTo(x + w, y, x + w, y + h, r); vrc.arcTo(x + w, y + h, x, y + h, r); vrc.arcTo(x, y + h, x, y, r); vrc.arcTo(x, y, x + w, y, r); vrc.closePath(); };
+const txt = (t, x, y, size, color, align = "left", weight = "bold") => { vrc.fillStyle = color; vrc.font = `${weight} ${size}px Inter, Arial, sans-serif`; vrc.textAlign = align; vrc.textBaseline = "middle"; vrc.fillText(t, x, y); };
+function vrcButton(x, y, w, h, act) { vrcButtons.push({ x, y, w, h, act }); return vrcButtons.length - 1 === vrcHover; }
+
+function drawVRCreator() {
+  vrcButtons = [];
+  vrc.clearRect(0, 0, VRC_W, VRC_H);
+  // card background, like the website's start card
+  rr(8, 8, VRC_W - 16, VRC_H - 16, 40);
+  vrc.fillStyle = "rgba(7,13,29,0.94)"; vrc.fill();
+  vrc.lineWidth = 4; vrc.strokeStyle = "rgba(95,245,232,0.55)"; vrc.stroke();
+  txt("NEW RUN", 70, 78, 26, "#5ff5e8", "left", "800");
+  txt("CREATE YOUR CHARACTER", 70, 128, 52, "#ffffff", "left", "800");
+  txt(appearance.name ? appearance.name.toUpperCase() : "UNNAMED RUNNER", VRC_W - 70, 128, 34, "#ffcf70", "right", "800");
+  // tabs
+  const tabW = (VRC_W - 140 - 4 * 14) / 5;
+  creator.TABS.forEach((t, i) => {
+    const x = 70 + i * (tabW + 14), y = 180, on = i === creatorTab;
+    const hov = vrcButton(x, y, tabW, 76, () => { creatorTab = i; applyCreatorFocus(); renderDesktopCreator(); });
+    rr(x, y, tabW, 76, 16);
+    vrc.fillStyle = on ? "#0f6f74" : hov ? "rgba(39,75,103,0.95)" : "rgba(12,22,40,0.95)"; vrc.fill();
+    vrc.lineWidth = 3; vrc.strokeStyle = on ? "#5ff5e8" : "rgba(95,245,232,0.25)"; vrc.stroke();
+    txt(t.label, x + tabW / 2, y + 39, 30, on ? "#ffffff" : "#9fb2cc", "center", "800");
+  });
+  // fields: two columns
+  const fields = creator.TABS[creatorTab].fields;
+  const colW = (VRC_W - 140 - 30) / 2, rowH = 132, top = 290;
+  fields.forEach((f, idx) => {
+    const col = fields.length > 4 ? idx % 2 : 0;
+    const row = fields.length > 4 ? Math.floor(idx / 2) : idx;
+    const w = fields.length > 4 ? colW : VRC_W - 140;
+    const x = 70 + col * (colW + 30), y = top + row * (rowH + 14);
+    rr(x, y, w, rowH, 18); vrc.fillStyle = "rgba(20,36,61,0.75)"; vrc.fill();
+    txt(f.label, x + 24, y + 32, 26, "#5ff5e8", "left", "800");
+    if (f.type === "color") {
+      txt(creator.valueText(f), x + w - 24, y + 32, 24, "#dce7ff", "right", "700");
+      const n = f.options.length, size = Math.min(54, (w - 48 - (n - 1) * 8) / n);
+      f.options.forEach((c, k) => {
+        const sx = x + 24 + k * (size + 8), sy = y + 62;
+        const hov = vrcButton(sx - 3, sy - 3, size + 6, size + 6, () => creator.setValue(f.key, c));
+        vrc.beginPath(); vrc.arc(sx + size / 2, sy + size / 2, size / 2, 0, Math.PI * 2);
+        vrc.fillStyle = creator.hexCss(c); vrc.fill();
+        const on = appearance[f.key] === c;
+        vrc.lineWidth = on ? 6 : hov ? 4 : 2; vrc.strokeStyle = on ? "#ffffff" : hov ? "#5ff5e8" : "rgba(255,255,255,0.2)"; vrc.stroke();
+      });
+    } else if (f.type === "preset") {
+      let cx = x + 24, cy = y + 62;
+      creator.PRESETS.forEach((p, k) => {
+        vrc.font = "800 24px Inter, Arial, sans-serif";
+        const cw = vrc.measureText(p.name).width + 40;
+        if (cx + cw > x + w - 20) { cx = x + 24; cy += 0; }
+        const hov = vrcButton(cx, cy, cw, 52, () => creator.applyPreset(k));
+        rr(cx, cy, cw, 52, 26); const on = creator.presetIndex === k;
+        vrc.fillStyle = on || hov ? "rgba(255,207,112,0.22)" : "rgba(40,30,10,0.5)"; vrc.fill();
+        vrc.lineWidth = 2; vrc.strokeStyle = on ? "#ffcf70" : "rgba(255,207,112,0.4)"; vrc.stroke();
+        txt(p.name, cx + cw / 2, cy + 27, 24, on ? "#ffffff" : "#ffcf70", "center", "800");
+        cx += cw + 10;
+      });
+    } else {
+      // stepper: ‹ value ›  (name cycles through a list of handles in VR)
+      const field = f.type === "text" ? { ...f, type: "choice" } : f;
+      const by = y + 58, bh = 60;
+      const hl = vrcButton(x + 24, by, 80, bh, () => creator.cycle(field, -1));
+      const hr = vrcButton(x + w - 104, by, 80, bh, () => creator.cycle(field, 1));
+      for (const [bx, hov, ch] of [[x + 24, hl, "‹"], [x + w - 104, hr, "›"]]) {
+        rr(bx, by, 80, bh, 14); vrc.fillStyle = hov ? "rgba(39,75,103,0.95)" : "#101c33"; vrc.fill();
+        vrc.lineWidth = 2; vrc.strokeStyle = "rgba(95,245,232,0.45)"; vrc.stroke();
+        txt(ch, bx + 40, by + bh / 2 + 2, 48, "#ffcf70", "center", "700");
+      }
+      txt(f.type === "text" ? (appearance.name || "NO NAME").toUpperCase() : creator.valueText(f), x + w / 2, by + bh / 2 + 2, 36, "#ffffff", "center", "800");
     }
   });
-  creatorRows.push(card);
+  // bottom buttons
+  const by = VRC_H - 140;
+  const hRand = vrcButton(70, by, 520, 92, () => creator.randomize());
+  rr(70, by, 520, 92, 20); vrc.fillStyle = hRand ? "rgba(39,75,103,0.95)" : "rgba(7,13,29,0.95)"; vrc.fill();
+  vrc.lineWidth = 3; vrc.strokeStyle = "rgba(95,245,232,0.5)"; vrc.stroke();
+  txt("⟳  RANDOMIZE", 330, by + 47, 36, "#ffffff", "center", "800");
+  const hPlay = vrcButton(VRC_W - 590, by, 520, 92, () => startCity());
+  rr(VRC_W - 590, by, 520, 92, 20);
+  const g = vrc.createLinearGradient(VRC_W - 590, 0, VRC_W - 70, 0); g.addColorStop(0, "#0b7778"); g.addColorStop(1, "#164b6c");
+  vrc.fillStyle = g; vrc.fill(); if (hPlay) { vrc.lineWidth = 5; vrc.strokeStyle = "#5ff5e8"; vrc.stroke(); }
+  txt("PLAY  ▶", VRC_W - 330, by + 47, 42, "#ffffff", "center", "800");
+  txt("Point and pull the trigger", VRC_W / 2, by + 47, 24, "#6f82a0", "center", "600");
+  vrcTexture.needsUpdate = true;
 }
-const randomCard = addTerminalCard({
-  x: -0.45, y: -0.36, width: 0.6, height: 0.13, res: 1, logicalWidth: 768,
-  action: () => { creator.randomize(); onLookChanged(); },
-  labelPainter: ctx => termText(ctx, "⟳  RANDOMIZE", ctx.logicalWidth / 2, ctx.logicalHeight * 0.64, 44, "#ffcf70", "center")
-});
-document.querySelector("#play-button").addEventListener("click", startCity);
-const confirmCard = addTerminalCard({
-  x: 0.45, y: -0.36, width: 0.6, height: 0.13, button: true, res: 1, logicalWidth: 768,
-  action: () => startCity(),
-  labelPainter: ctx => termText(ctx, "PLAY  ▶", ctx.logicalWidth / 2, ctx.logicalHeight * 0.66, 54, "#ffffff", "center")
-});
-// Side rails and a small base make the menu read like a physical terminal.
-for (const x of [-0.91, 0.91]) {
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 1.2, 0.035), terminalGlow);
-  rail.position.set(x, 0.12, -0.006);
-  vrStart.add(rail);
+function vrcIndexAt(uv) {
+  if (!uv) return -1;
+  const x = uv.x * VRC_W, y = (1 - uv.y) * VRC_H;
+  return vrcButtons.findIndex(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
 }
-const base = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.025, 0.12), terminalMetal);
-base.position.set(0, -0.47, -0.015);
-vrStart.add(base);
-const terminalLight = new THREE.PointLight(0x26d9d0, 1.1, 2.8);
-terminalLight.position.set(0, 0.08, 0.25);
-vrStart.add(terminalLight);
-
-function refreshVRCreator() {
-  titleCard.userData.refresh();
-  tabCards.forEach(c => c.userData.refresh());
-  const fields = creator.TABS[creatorTab].fields;
-  creatorRows.forEach((c, r) => { c.visible = r < fields.length; c.userData.refresh(); });
-}
+vrcPanel.userData.action = hit => {
+  const i = vrcIndexAt(hit?.uv);
+  if (i < 0) return;
+  const before = creator.TABS[creatorTab].id, act = vrcButtons[i].act;
+  act();
+  if (act.toString().includes("startCity")) return;
+  onLookChanged();
+  if (creator.TABS[creatorTab].id !== before) refreshVRCreator();
+};
+vrcPanel.userData.hover = hit => { const i = vrcIndexAt(hit?.uv); if (i !== vrcHover) { vrcHover = i; drawVRCreator(); } };
+function refreshVRCreator() { drawVRCreator(); }
 // Any change: rebuild the preview, re-tint the hands, update both UIs.
 function onLookChanged() {
   creator.saveLook();
@@ -1417,7 +1461,7 @@ creatorRoot?.addEventListener("click", event => {
 creatorRoot?.addEventListener("input", event => {
   if (event.target.id !== "creator-name") return;
   creator.setValue("name", event.target.value.replace(/[<>]/g, "").slice(0, 16));
-  titleCard.userData.refresh();
+  drawVRCreator();
 });
 // Drag on the empty part of the start screen to spin the preview.
 let previewDrag = null, previewSpin = 0;
@@ -1468,7 +1512,7 @@ function showVRIntro() {
   const menuYaw = Math.atan2(flatForward.x, -flatForward.z);
   const MENU_HEIGHT_ABOVE_FLOOR = 1.20;
   // A little extra distance gives the side-by-side character and editor room in the Quest view.
-  const MENU_DISTANCE_FROM_SPAWN = 2.10;
+  const MENU_DISTANCE_FROM_SPAWN = 1.75;
 
   // One world-space position and yaw for the root rectangle. Every card,
   // border, rail and PLAY button is a child of vrStart and shares this plane.
@@ -1486,7 +1530,7 @@ function showVRIntro() {
   // Local +Z is the menu's front, so a small +Z offset brings the model
   // slightly toward the player while keeping it beside the right edge.
   vrStart.updateMatrixWorld(true);
-  const avatarLocalX = 1.18;
+  const avatarLocalX = 1.12;
   const avatarLocalZ = 0.24;
   const towardPlayerLocal = new THREE.Vector3(
     -avatarLocalX, 0, MENU_DISTANCE_FROM_SPAWN - avatarLocalZ
@@ -1822,16 +1866,7 @@ function updateVRMenuPointer() {
     : null;
   const gamePoint = !vrStart.visible && !vrMenu.visible ? game?.cursorPoint(rightItem.controller) : null;
   const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null) || (gamePoint ? { point: gamePoint } : null);
-  const hovered = startHit?.object || null;
-  if (vrStartHovered && vrStartHovered !== hovered) {
-    vrStartHovered.material.emissive.setHex(vrStartHovered.userData.baseEmissive);
-    vrStartHovered.material.emissiveIntensity = 1.1;
-  }
-  if (hovered && hovered !== vrStartHovered) {
-    hovered.material.emissive.setHex(0x16a8a3);
-    hovered.material.emissiveIntensity = 1.8;
-  }
-  vrStartHovered = hovered;
+  vrcPanel.userData.hover(startHit?.object === vrcPanel ? startHit : null);
   rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
   if (hit) {
     vrCursor.position.copy(hit.point).addScaledVector(vrMenuRaycaster.ray.direction, -0.025);
@@ -2118,6 +2153,7 @@ if (DEBUG) {
     game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
+    vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
       player.position.set(x, y, z); player.rotation.set(0, yaw, 0);
       pitch = pitchValue; camera.rotation.x = pitchValue; jumpVelocity = 0;

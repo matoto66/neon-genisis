@@ -10,12 +10,12 @@
 
 import * as THREE from "three";
 
-const SETTINGS_KEY = "neon-genesis-audio";
+const SETTINGS_KEY = "neon-genesis-audio-v2";
 const NOTE = n => 440 * Math.pow(2, (n - 69) / 12);   // MIDI note → Hz
 
 export function createAudio(camera) {
   let ctx = null, listener = null, master, buses = {};
-  const settings = { master: 0.8, music: 0.55, sfx: 0.9, ambience: 0.7, voice: 0.8, muted: false };
+  const settings = { master: 0.45, music: 0.3, sfx: 0.55, ambience: 0.35, voice: 0.4, muted: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch {}
   const positional = [];       // { audio, object, start }
   let noiseBuffer = null;
@@ -95,7 +95,7 @@ export function createAudio(camera) {
   function startAmbience() {
     // rain = two bands of noise
     rainGain = ctx.createGain(); rainGain.gain.value = 0; rainGain.connect(buses.ambience);
-    for (const [freq, q, vol] of [[2600, 0.6, 0.11], [700, 0.8, 0.06]]) {
+    for (const [freq, q, vol] of [[2600, 0.6, 0.05], [700, 0.8, 0.03]]) {
       const s = noiseSource(true), f = ctx.createBiquadFilter(), g = ctx.createGain();
       f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q; g.gain.value = vol;
       s.connect(f); f.connect(g); g.connect(rainGain); s.start();
@@ -231,14 +231,14 @@ export function createAudio(camera) {
     mission: () => { const t = now(); [60, 64, 67, 72].forEach((n, i) => tone({ freq: NOTE(n), type: "sawtooth", t: t + i * 0.09, d: 0.5, peak: 0.05, filter: { freq: 2500 } })); },
     objective: () => { const t = now(); tone({ freq: NOTE(79), t, d: 0.15, peak: 0.08 }); tone({ freq: NOTE(84), t: t + 0.1, d: 0.3, peak: 0.08 }); },
     complete: () => { const t = now(); [[60, 64, 67], [65, 69, 72], [67, 71, 74], [72, 76, 79, 84]].forEach((c, i) => c.forEach(n => tone({ freq: NOTE(n), type: "sawtooth", t: t + i * 0.16, d: i === 3 ? 1.6 : 0.2, peak: 0.035, filter: { freq: 3000 } }))); },
-    chapter: () => { const t = now(); tone({ freq: 40, type: "sine", t, a: 0.01, d: 2.5, peak: 0.5, glide: 30 }); noiseHit({ t, d: 2, peak: 0.12, type: "lowpass", freq: 2000, glide: 200 }); [57, 64, 69, 73, 76].forEach((n, i) => tone({ freq: NOTE(n), type: "sawtooth", t: t + 0.4 + i * 0.12, a: 0.2, d: 3, peak: 0.03, filter: { freq: 1800 } })); },
+    chapter: () => { const t = now(); tone({ freq: 40, type: "sine", t, a: 0.01, d: 2.5, peak: 0.25, glide: 30 }); noiseHit({ t, d: 2, peak: 0.12, type: "lowpass", freq: 2000, glide: 200 }); [57, 64, 69, 73, 76].forEach((n, i) => tone({ freq: NOTE(n), type: "sawtooth", t: t + 0.4 + i * 0.12, a: 0.2, d: 3, peak: 0.03, filter: { freq: 1800 } })); },
     warn:    () => { const t = now(); tone({ freq: 220, type: "square", t, d: 0.12, peak: 0.06, filter: { freq: 1200 } }); tone({ freq: 196, type: "square", t: t + 0.14, d: 0.18, peak: 0.06, filter: { freq: 1200 } }); },
     district: () => { tone({ freq: NOTE(69), type: "sine", a: 0.3, d: 1.2, peak: 0.05 }); tone({ freq: NOTE(76), type: "sine", a: 0.4, d: 1.2, peak: 0.03 }); },
     lift:    () => { tone({ freq: 90, type: "sawtooth", a: 0.3, d: 1.2, peak: 0.08, glide: 160, filter: { freq: 600 } }); noiseHit({ a: 0.2, d: 1.2, peak: 0.05, type: "lowpass", freq: 600 }); },
     door:    () => { tone({ freq: 180, type: "sawtooth", a: 0.05, d: 0.5, peak: 0.05, glide: 120, filter: { freq: 900 } }); noiseHit({ d: 0.15, peak: 0.05, freq: 300 }); },
     jammer:  () => { const t = now(); for (let i = 0; i < 6; i++) tone({ freq: 400 + Math.random() * 1600, type: "square", t: t + i * 0.04, d: 0.03, peak: 0.04 }); tone({ freq: NOTE(84), t: t + 0.3, d: 0.3, peak: 0.07 }); },
     spark:   () => { noiseHit({ d: 0.06, peak: 0.12, type: "highpass", freq: 5000 }); noiseHit({ t: now() + 0.08, d: 0.04, peak: 0.08, type: "highpass", freq: 6000 }); },
-    flare:   () => { const t = now(); noiseHit({ t, a: 0.6, d: 0.4, peak: 0.15, freq: 300, glide: 6000, q: 3 }); tone({ freq: 55, t: t + 0.9, d: 2.5, peak: 0.5, glide: 35 }); [69, 76, 81, 88].forEach((n, i) => tone({ freq: NOTE(n), type: "sine", t: t + 0.9 + i * 0.05, d: 2.5, peak: 0.06 })); },
+    flare:   () => { const t = now(); noiseHit({ t, a: 0.6, d: 0.4, peak: 0.15, freq: 300, glide: 6000, q: 3 }); tone({ freq: 55, t: t + 0.9, d: 2.5, peak: 0.25, glide: 35 }); [69, 76, 81, 88].forEach((n, i) => tone({ freq: NOTE(n), type: "sine", t: t + 0.9 + i * 0.05, d: 2.5, peak: 0.06 })); },
     jump:    () => { noiseHit({ d: 0.08, peak: 0.05, freq: 600 }); },
     land:    () => { noiseHit({ d: 0.1, peak: 0.12, type: "lowpass", freq: 400 }); tone({ freq: 70, d: 0.12, peak: 0.12, glide: 40 }); }
   };
