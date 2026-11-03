@@ -1,16 +1,28 @@
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { buildCity, createNeonEnvironment } from "./city.js";
+import { createGame } from "./quests.js";
+import { skinify, mergeStatic } from "./optimize.js";
+import { CYBERWARE } from "./story.js";
+import {
+  state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
+  isActive, toggleInstall, moveSpeed, turnSpeed, jumpVelocity as jumpPower, totalPoints, MAX_STAT
+} from "./state.js";
 
-const status = document.querySelector("#status");
+loadGame();
+const DEBUG = new URLSearchParams(location.search).has("debug");
+let game = null; // gameplay layer (missions, NPCs, dialogue) — created below
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x080b18);
-scene.fog = new THREE.Fog(0x080b18, 28, 145);
+const menuBackground = new THREE.Color(0x080b18);
+const menuFog = new THREE.Fog(0x080b18, 28, 145);
+scene.background = menuBackground;
+scene.fog = menuFog;
 
 const player = new THREE.Group();
 scene.add(player);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 700);
 camera.rotation.order = "YXZ";
 // First-person view: the camera sits at eye height inside the character.
 camera.position.set(0, 1.65, 0);
@@ -22,6 +34,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
+// Fixed foveated rendering: renders the edges of each eye at lower resolution
+// on Quest, a large GPU saving you can't see through the lenses.
+renderer.xr.setFoveation(1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
@@ -66,196 +81,13 @@ for (const [id, key] of [["body-type","bodyType"],["hat-style","hatStyle"],["hat
 }
 setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 20000);
 
-scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x171020, 1.35));
-const moonLight = new THREE.DirectionalLight(0x8cbcff, 1.4);
-moonLight.position.set(-5, 24, 8);
-scene.add(moonLight);
-
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(180, 180),
-  new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9, metalness: 0.25 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.03;
-scene.add(floor);
-
-// The old editor-style ground grid is intentionally removed; the street
-// surface, sidewalks and road markings now define the city floor.
-
-// Procedural city blocks: varied towers, lit windows on every side, and a
-// broad street corridor so the player is surrounded by the city at spawn.
-// Efficient city construction: window panes are batched into a few instanced
-// meshes so the Quest does not have to draw thousands of separate objects.
-const windowBatches = { cyan: [], purple: [], dark: [] };
-const windowGeometry = new THREE.PlaneGeometry(0.58, 0.86);
-const windowDummy = new THREE.Object3D();
-function queueWindow(kind, x, y, z, rotationY) {
-  windowDummy.position.set(x, y, z);
-  windowDummy.rotation.set(0, rotationY, 0);
-  windowDummy.updateMatrix();
-  windowBatches[kind].push(windowDummy.matrix.clone());
-}
-
-function makeBuilding(x, z, width, height, depth, color, signColor, seed = 1) {
-  const building = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.86, metalness: 0.42 })
-  );
-  building.position.set(x, height / 2, z);
-  scene.add(building);
-
-  // Roof lip and narrow facade ribs give the towers more architectural depth.
-  const roofLip = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.22, 0.18, depth + 0.22),
-    new THREE.MeshStandardMaterial({ color: 0x30384a, roughness: 0.58, metalness: 0.7 })
-  );
-  roofLip.position.set(x, height + 0.08, z);
-  scene.add(roofLip);
-
-  let n = seed >>> 0;
-  const random = () => { n = (n * 1664525 + 1013904223) >>> 0; return n / 4294967296; };
-  const addFacadeWindows = (count, spacing, positionFor, rotationY) => {
-    for (let row = 1.35; row < height - 1; row += 1.75) {
-      for (let col = 0; col < count; col++) {
-        const roll = random();
-        const kind = roll < 0.26 ? "dark" : (roll < 0.68 ? "cyan" : "purple");
-        const p = positionFor(col, spacing, row);
-        queueWindow(kind, p.x, p.y, p.z, rotationY);
-      }
-    }
-  };
-  const frontCount = Math.max(2, Math.floor(width / 1.15));
-  const sideCount = Math.max(2, Math.floor(depth / 1.15));
-  addFacadeWindows(frontCount, 1.15, (col, spacing, y) => ({
-    x: x - (frontCount - 1) * spacing / 2 + col * spacing,
-    y, z: z + depth / 2 + 0.025
-  }), 0);
-  addFacadeWindows(frontCount, 1.15, (col, spacing, y) => ({
-    x: x + (frontCount - 1) * spacing / 2 - col * spacing,
-    y, z: z - depth / 2 - 0.025
-  }), Math.PI);
-  addFacadeWindows(sideCount, 1.15, (col, spacing, y) => ({
-    x: x + width / 2 + 0.025,
-    y, z: z + (sideCount - 1) * spacing / 2 - col * spacing
-  }), Math.PI / 2);
-  addFacadeWindows(sideCount, 1.15, (col, spacing, y) => ({
-    x: x - width / 2 - 0.025,
-    y, z: z - (sideCount - 1) * spacing / 2 + col * spacing
-  }), -Math.PI / 2);
-
-  const sign = new THREE.Mesh(
-    new THREE.BoxGeometry(Math.min(width * 0.72, 4.8), 0.2, 0.12),
-    new THREE.MeshBasicMaterial({ color: signColor })
-  );
-  sign.position.set(x, Math.min(height - 1, height * 0.68), z + depth / 2 + 0.09);
-  scene.add(sign);
-}
-
-let citySeed = 73;
-const cityRandom = () => { citySeed = (citySeed * 16807) % 2147483647; return (citySeed - 1) / 2147483646; };
-const towerColors = [0x17243a, 0x202039, 0x182b36, 0x292039, 0x1b293d];
-const neonColors = [0x28e6dc, 0xb24cff, 0xff4fa3, 0x4c9dff];
-
-// A street corridor gives the starting view a clear sense of scale and depth.
-for (let side of [-1, 1]) {
-  for (let i = 0; i < 5; i++) {
-    const z = -25 + i * 12;
-    const width = 7 + cityRandom() * 3;
-    const depth = 8 + cityRandom() * 3;
-    const height = 13 + cityRandom() * 18;
-    makeBuilding(side * (10.5 + cityRandom() * 1.5), z, width, height, depth,
-      towerColors[Math.floor(cityRandom() * towerColors.length)],
-      neonColors[Math.floor(cityRandom() * neonColors.length)],
-      300 + side * 100 + i);
-  }
-}
-
-// Distant skyline wraps around the player instead of leaving empty black space.
-for (let ring = 0; ring < 3; ring++) {
-  const radius = 36 + ring * 22;
-  const count = 16 + ring * 8;
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (ring % 2) * 0.11;
-    const x = Math.sin(angle) * radius + (cityRandom() - 0.5) * 7;
-    const z = Math.cos(angle) * radius + (cityRandom() - 0.5) * 7;
-    const width = 7 + cityRandom() * 6;
-    const depth = 7 + cityRandom() * 6;
-    const height = 18 + cityRandom() * (ring === 0 ? 24 : 42);
-    makeBuilding(x, z, width, height, depth,
-      towerColors[Math.floor(cityRandom() * towerColors.length)],
-      neonColors[Math.floor(cityRandom() * neonColors.length)],
-      500 + ring * 37 + i);
-  }
-}
-
-// One draw call per window color, rather than one draw call per window.
-const windowMaterials = {
-  cyan: new THREE.MeshBasicMaterial({ color: 0x43c9d2, side: THREE.DoubleSide }),
-  purple: new THREE.MeshBasicMaterial({ color: 0x9b67e8, side: THREE.DoubleSide }),
-  dark: new THREE.MeshBasicMaterial({ color: 0x101a2a, side: THREE.DoubleSide })
-};
-for (const kind of Object.keys(windowBatches)) {
-  const matrices = windowBatches[kind];
-  const instances = new THREE.InstancedMesh(windowGeometry, windowMaterials[kind], matrices.length);
-  matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix));
-  instances.instanceMatrix.needsUpdate = true;
-  scene.add(instances);
-}
-
-// Wet-looking asphalt, raised sidewalks, curb strips and lane markings.
-const road = new THREE.Mesh(
-  new THREE.PlaneGeometry(15, 125),
-  new THREE.MeshStandardMaterial({ color: 0x090f1b, roughness: 0.28, metalness: 0.34 })
-);
-road.rotation.x = -Math.PI / 2;
-road.position.set(0, 0.006, -8);
-scene.add(road);
-const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0x252d3b, roughness: 0.92, metalness: 0.12 });
-for (const x of [-9.3, 9.3]) {
-  const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.18, 125), sidewalkMat);
-  sidewalk.position.set(x, 0.07, -8);
-  scene.add(sidewalk);
-  const curb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 125), new THREE.MeshStandardMaterial({ color: 0x667080, roughness: 0.82 }));
-  curb.position.set(x + (x < 0 ? 1.55 : -1.55), 0.12, -8);
-  scene.add(curb);
-}
-const laneMat = new THREE.MeshBasicMaterial({ color: 0xb1a76c });
-for (let z = -66; z < 55; z += 8) {
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.014, 3.8), laneMat);
-  dash.position.set(0, 0.018, z);
-  scene.add(dash);
-}
-
-// Street lamps with restrained colored pools of light.
-const lampMat = new THREE.MeshStandardMaterial({ color: 0x26364a, metalness: 0.8, roughness: 0.35 });
-for (let z = -54; z <= 42; z += 16) {
-  for (const x of [-8.1, 8.1]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 4.8, 8), lampMat);
-    pole.position.set(x, 2.4, z);
-    scene.add(pole);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 0.07), lampMat);
-    arm.position.set(x + (x < 0 ? 0.35 : -0.35), 4.65, z);
-    scene.add(arm);
-    const glow = new THREE.PointLight(x < 0 ? 0x38dce8 : 0xb35bff, 2.4, 13);
-    glow.position.set(x + (x < 0 ? 0.65 : -0.65), 4.35, z);
-    scene.add(glow);
-  }
-}
-const neonRing = new THREE.Mesh(
-  new THREE.TorusGeometry(2.2, 0.045, 12, 96),
-  new THREE.MeshBasicMaterial({ color: 0x38f5df })
-);
-neonRing.position.set(0, 3.4, -12);
-scene.add(neonRing);
-const signLight = new THREE.PointLight(0x3cebdc, 18, 18);
-signLight.position.set(0, 4, -11);
-scene.add(signLight);
-const marker = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32),
-  new THREE.MeshBasicMaterial({ color: 0x3cebdc })
-);
-marker.position.set(0, 0.08, 1);
-scene.add(marker);
+// The city of Neo Kasumi (districts, collision, signage, props, rain) is
+// built in city.js as a handful of merged meshes for Quest performance.
+const city = buildCity(scene, renderer);
+// A small neon environment map gives metal, glass and wet streets coloured
+// reflections without any extra real-time lights.
+scene.environment = createNeonEnvironment(renderer);
+scene.environmentIntensity = 0.6;
 
 // Keep the city as a separate world. The title screen renders a different
 // environment until the player explicitly chooses PLAY.
@@ -271,7 +103,10 @@ cityWorld.visible = false;
 // city, built from lightweight Three.js geometry so it works on Quest.
 const mikaShop = new THREE.Group();
 mikaShop.name = "MIKAS_REPAIR_SHOP";
-mikaShop.position.set(-3.8, 0, -4.8);
+// Ground-floor storefront on the west side of the Sump's main street, facing
+// the road (+X). Local +Z is the shop front, so rotating by 90° turns it.
+mikaShop.position.set(-11, 0, -4.8);
+mikaShop.rotation.y = Math.PI / 2;
 cityWorld.add(mikaShop);
 
 const shopWallMaterial = new THREE.MeshStandardMaterial({
@@ -304,6 +139,37 @@ addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, -2.08, 1.48, -1.48);
 addShopBox(mikaShop, 0.20, 2.9, 3.1, shopWallMaterial, 2.08, 1.48, -1.48);
 addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 2.95, -1.45);
 addShopBox(mikaShop, 4.2, 0.18, 0.20, shopWallMaterial, 0, 0.12, -2.95);
+// Back wall and roof close the workshop (previously open at the back).
+addShopBox(mikaShop, 4.36, 3.05, 0.2, shopWallMaterial, 0, 1.525, -3.05);
+addShopBox(mikaShop, 4.4, 0.16, 3.4, shopWallMaterial, 0, 3.06, -1.5);
+const mikaShopBlockers = [];
+mikaShop.traverse(o => { if (o.isMesh) mikaShopBlockers.push(o); });
+
+// Workshop interior: workbench, pegboard, parts shelves, screens and lamps.
+const benchMat = new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.7, metalness: 0.4 });
+const partMat = new THREE.MeshStandardMaterial({ color: 0x7d8796, roughness: 0.4, metalness: 0.85 });
+const crateMat = new THREE.MeshStandardMaterial({ color: 0x5c4a35, roughness: 0.85 });
+const screenMat = new THREE.MeshBasicMaterial({ color: 0x1fd6c9 });
+const warnMat = new THREE.MeshBasicMaterial({ color: 0xffb02e });
+addShopBox(mikaShop, 0.75, 0.08, 1.9, benchMat, -1.55, 0.92, -1.75);                 // bench top
+for (const z of [-0.9, -2.6]) addShopBox(mikaShop, 0.65, 0.9, 0.08, benchMat, -1.55, 0.45, z);
+addShopBox(mikaShop, 0.05, 1.2, 1.9, new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.8 }), -1.95, 1.75, -1.75); // pegboard
+for (let i = 0; i < 6; i++) addShopBox(mikaShop, 0.04, 0.25 + (i % 3) * 0.1, 0.05, partMat, -1.9, 1.6 + (i % 2) * 0.35, -1.0 - i * 0.28);
+addShopBox(mikaShop, 0.35, 0.22, 0.3, partMat, -1.5, 1.07, -1.3);                    // vice
+addShopBox(mikaShop, 0.5, 0.32, 0.03, screenMat, -1.75, 1.3, -2.35).rotation.y = 0.5; // diagnostic screen
+addShopBox(mikaShop, 0.12, 0.12, 0.6, partMat, -1.4, 1.02, -2.0).rotation.z = 0.3;   // spare robotic forearm
+for (let i = 0; i < 4; i++) {                                                         // shelves on the back wall
+  addShopBox(mikaShop, 1.7, 0.05, 0.35, benchMat, 0.9, 0.7 + i * 0.6, -2.75);
+  for (let k = 0; k < 3; k++) addShopBox(mikaShop, 0.32, 0.25, 0.28, k % 2 ? crateMat : partMat, 0.35 + k * 0.55, 0.86 + i * 0.6, -2.75);
+}
+addShopBox(mikaShop, 0.03, 0.03, 3.0, warnMat, 2.0, 2.85, -1.5);                     // hazard trim
+const mikaLamp = addShopBox(mikaShop, 0.5, 0.05, 0.2, new THREE.MeshBasicMaterial({ color: 0xfff2d6 }), -1.4, 2.6, -1.75);
+// Extra interior colliders (local shop coordinates): bench, shelves, core stand.
+const shopInteriorBoxes = [
+  { minX: -1.98, maxX: -1.15, minZ: -2.75, maxZ: -0.75 },
+  { minX: -0.1, maxX: 1.98, minZ: -2.98, maxZ: -2.55 },
+  { minX: -0.62, maxX: 0.62, minZ: -2.25, maxZ: -1.0 }
+];
 
 for (const x of [-0.82, 0.82]) {
   addShopBox(mikaShop, 0.09, 2.72, 0.12, shopTrimMaterial, x, 1.36, 0.16);
@@ -331,6 +197,11 @@ const shopDoorHandle = new THREE.Mesh(
 shopDoorHandle.position.set(1.27, 1.25, 0.15);
 shopDoorLeaf.add(shopDoorHandle);
 let shopDoorTarget = 0;
+shopDoorLeaf.traverse(o => { if (o.isMesh) mikaShopBlockers.push(o); });
+// Invisible, slightly thicker box over the door so desktop players can aim F at it.
+const shopDoorAim = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 0.3), new THREE.MeshBasicMaterial({ visible: false }));
+shopDoorAim.position.set(0.74, 1.26, 0.05);
+shopDoorLeaf.add(shopDoorAim);
 const shopDoorHitObjects = [shopDoorLeaf];
 shopDoorLeaf.traverse(object => {
   if (object.isMesh) shopDoorHitObjects.push(object);
@@ -347,8 +218,12 @@ const shopWallBoxes = [
   { minX:  1.98, maxX:  2.18, minZ: -3.03, maxZ: 0.07 }  // right side wall
 ];
 function playerOverlapsShopBox(worldX, worldZ, box) {
-  const localX = worldX - mikaShop.position.x;
-  const localZ = worldZ - mikaShop.position.z;
+  // Convert the world position into the shop's rotated local space.
+  const ox = worldX - mikaShop.position.x;
+  const oz = worldZ - mikaShop.position.z;
+  const c = Math.cos(mikaShop.rotation.y), s = Math.sin(mikaShop.rotation.y);
+  const localX = ox * c - oz * s;
+  const localZ = ox * s + oz * c;
   const closestX = THREE.MathUtils.clamp(localX, box.minX, box.maxX);
   const closestZ = THREE.MathUtils.clamp(localZ, box.minZ, box.maxZ);
   const dx = localX - closestX;
@@ -359,9 +234,12 @@ function collidesWithMikaShop(worldX, worldZ) {
   if (shopWallBoxes.some(box => playerOverlapsShopBox(worldX, worldZ, box))) {
     return true;
   }
+  if (shopInteriorBoxes.some(box => playerOverlapsShopBox(worldX, worldZ, box))) return true;
+  // back wall
+  if (playerOverlapsShopBox(worldX, worldZ, { minX: -2.18, maxX: 2.18, minZ: -3.15, maxZ: -2.95 })) return true;
   // The closed door fills the doorway. Once it is opened past 0.92 radians,
   // its leaf is considered clear of the walking path.
-  if (Math.abs(shopDoorHinge.rotation.y) < 0.92) {
+  if (shopDoorHinge.rotation.y > -0.92 && shopDoorHinge.rotation.y < 0.5) {
     const doorBox = { minX: -0.78, maxX: 0.75, minZ: 0.10, maxZ: 0.28 };
     if (playerOverlapsShopBox(worldX, worldZ, doorBox)) return true;
   }
@@ -403,7 +281,7 @@ hintContext.strokeRect(3, 3, 506, 90);
 hintContext.fillStyle = "#f0fdff";
 hintContext.font = "bold 30px Arial";
 hintContext.textAlign = "center";
-hintContext.fillText("GRAB HANDLE + TWIST TO OPEN", 256, 59);
+hintContext.fillText("GRAB HANDLE + TWIST  ·  PC: F", 256, 59);
 const hintTexture = new THREE.CanvasTexture(hintCanvas);
 hintTexture.colorSpace = THREE.SRGBColorSpace;
 const shopHint = new THREE.Mesh(
@@ -413,7 +291,7 @@ const shopHint = new THREE.Mesh(
 shopHint.position.set(0, 3.88, 0.18);
 mikaShop.add(shopHint);
 
-const shopLight = new THREE.PointLight(0x31e9dd, 2.2, 7);
+const shopLight = new THREE.PointLight(0x31e9dd, 3.2, 8);
 shopLight.position.set(0, 2.4, 1.0);
 mikaShop.add(shopLight);
 
@@ -450,6 +328,65 @@ const coreDisplayRing = new THREE.Mesh(
 coreDisplayRing.rotation.x = Math.PI / 2;
 coreDisplayRing.position.y = 0.54;
 genesisCoreDisplay.add(coreDisplayRing);
+
+// Display atmosphere: a soft light, a holographic projection cone, two slow
+// orbit rings and drifting energy motes around the core.
+const coreLight = new THREE.PointLight(0x38f0e6, 9, 6, 1.4);
+coreLight.position.set(0, 1.25, 0.2);
+genesisCoreDisplay.add(coreLight);
+const coreBeamMat = new THREE.MeshBasicMaterial({ color: 0x38f0e6, transparent: true, opacity: 0.1,
+  blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const coreBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.6, 1.5, 24, 1, true), coreBeamMat);
+coreBeam.position.y = 1.3;
+genesisCoreDisplay.add(coreBeam);
+const coreOrbitMat = new THREE.MeshBasicMaterial({ color: 0x8ffcff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+const coreOrbitA = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.008, 6, 64), coreOrbitMat);
+const coreOrbitB = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.006, 6, 64), coreOrbitMat);
+coreOrbitA.position.y = coreOrbitB.position.y = 1.15;
+genesisCoreDisplay.add(coreOrbitA, coreOrbitB);
+const MOTES = 36;
+const motePositions = new Float32Array(MOTES * 3);
+const moteGeometry = new THREE.BufferGeometry();
+moteGeometry.setAttribute("position", new THREE.BufferAttribute(motePositions, 3));
+const coreMotes = new THREE.Points(moteGeometry, new THREE.PointsMaterial({ color: 0x9ffcff, size: 0.025,
+  transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+coreMotes.frustumCulled = false;
+genesisCoreDisplay.add(coreMotes);
+// Hazard-striped floor ring and a small plaque in front of the stand.
+const corePlaqueCanvas = document.createElement("canvas");
+corePlaqueCanvas.width = 512; corePlaqueCanvas.height = 128;
+{
+  const c = corePlaqueCanvas.getContext("2d");
+  c.fillStyle = "#0a1220"; c.fillRect(0, 0, 512, 128);
+  c.strokeStyle = "#38f0e6"; c.lineWidth = 4; c.strokeRect(4, 4, 504, 120);
+  c.fillStyle = "#9ffcff"; c.font = "bold 40px Arial"; c.textAlign = "center"; c.fillText("GENESIS CORE", 256, 58);
+  c.fillStyle = "#6f8aa8"; c.font = "22px Arial"; c.fillText("SALVAGE LOT 0-71 · DO NOT TOUCH (MIKA)", 256, 98);
+}
+const corePlaqueTexture = new THREE.CanvasTexture(corePlaqueCanvas);
+corePlaqueTexture.colorSpace = THREE.SRGBColorSpace;
+const corePlaque = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.15), new THREE.MeshBasicMaterial({ map: corePlaqueTexture }));
+corePlaque.position.set(0, 0.3, 0.79);
+corePlaque.rotation.x = -0.35;
+genesisCoreDisplay.add(corePlaque);
+let coreFlareTime = -10;
+function flareGenesisCore() { coreFlareTime = performance.now(); }
+function animateGenesisCore(time) {
+  const flare = Math.max(0, 1 - (performance.now() - coreFlareTime) / 1800);
+  coreLight.intensity = 9 + Math.sin(time * 0.003) * 1.5 + flare * 40;
+  coreBeamMat.opacity = 0.08 + Math.sin(time * 0.002) * 0.03 + flare * 0.35;
+  coreOrbitA.rotation.set(Math.PI / 2 + Math.sin(time * 0.0007) * 0.4, time * 0.0009, 0);
+  coreOrbitB.rotation.set(Math.PI / 2.6, -time * 0.0006, Math.cos(time * 0.0005) * 0.3);
+  const s = 1 + flare * 0.5;
+  coreOrbitA.scale.setScalar(s); coreOrbitB.scale.setScalar(s);
+  for (let i = 0; i < MOTES; i++) {
+    const a = time * 0.0004 * (1 + (i % 5) * 0.2) + i * 1.7;
+    const r = 0.35 + (i % 7) * 0.06 + flare * 0.4;
+    motePositions[i * 3] = Math.cos(a) * r;
+    motePositions[i * 3 + 1] = 0.75 + ((time * 0.00015 + i * 0.13) % 1) * 1.1;
+    motePositions[i * 3 + 2] = Math.sin(a) * r;
+  }
+  moteGeometry.attributes.position.needsUpdate = true;
+}
 
 let genesisCoreModel = null;
 const genesisCoreLoader = new GLTFLoader();
@@ -704,49 +641,58 @@ const showcaseLight = new THREE.PointLight(0x43dfe6, 8, 7);
 showcaseLight.position.set(0, 2.2, 2.2);
 mainMenuWorld.add(showcaseLight);
 
-// Character save data: 3 points to distribute between the three attributes.
-let character = { strength: 0, health: 0, compatibility: 0 };
-let credits = 500;
-try {
-  const saved = JSON.parse(localStorage.getItem("neon-genesis-save") || "null");
-  if (saved?.character) {
-    const c = saved.character;
-    const values = [c.strength, c.health, c.compatibility];
-    if (values.every(v => Number.isInteger(v) && v >= 0 && v <= 3) &&
-        values.reduce((a, b) => a + b, 0) <= 3) character = { ...c };
-  }
-  if (Number.isInteger(saved?.credits) && saved.credits >= 0) credits = saved.credits;
-} catch {}
-
-function saveGame() {
-  try { localStorage.setItem("neon-genesis-save", JSON.stringify({ character, credits })); } catch {}
-}
-const pointsLeft = () => 3 - character.strength - character.health - character.compatibility;
-const gradeNames = ["BASIC", "STANDARD", "ADVANCED", "ELITE"];
+// Character, credits, cyberware and story progress live in state.js and are
+// saved automatically on this device. `character` is the live stats object.
+const character = state.character;
 
 function updateCharacterUI() {
   document.querySelector("#points-left").textContent = pointsLeft();
+  document.querySelector("#points-total").textContent = totalPoints();
   document.querySelector("#strength-value").textContent = character.strength;
   document.querySelector("#health-value").textContent = character.health;
   document.querySelector("#compatibility-value").textContent = character.compatibility;
-  document.querySelector("#max-health").textContent = 100 + character.health * 25;
+  document.querySelector("#max-health").textContent = maxHealth();
   document.querySelector("#cyber-grade").textContent = gradeNames[character.compatibility];
-  document.querySelector("#credits").textContent = "$" + credits.toLocaleString();
-  document.querySelector("#shop-credits").textContent = "$" + credits.toLocaleString();
+  document.querySelector("#credits").textContent = "$" + state.credits.toLocaleString();
+  document.querySelector("#shop-credits").textContent = "$" + state.credits.toLocaleString();
   document.querySelectorAll("[data-stat][data-change]").forEach(button => {
     const stat = button.dataset.stat;
     const change = Number(button.dataset.change);
-    button.disabled = change > 0 ? pointsLeft() <= 0 : character[stat] <= 0;
+    button.disabled = change > 0 ? (pointsLeft() <= 0 || character[stat] >= MAX_STAT) : character[stat] <= 0;
   });
+  // Cyberware list in the desktop menu
+  const list = document.querySelector("#cyberware-list");
+  if (list) {
+    document.querySelector("#slot-count").textContent = `${state.installed.length} / ${slotCount()}`;
+    list.innerHTML = "";
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    if (!owned.length) list.innerHTML = '<p class="panel-note">No cyberware yet. Doc Anaya runs the Second Skin clinic in Neon Mile.</p>';
+    for (const id of owned) {
+      const w = CYBERWARE[id];
+      const row = document.createElement("div");
+      row.className = "ware-row";
+      const installed = state.installed.includes(id);
+      const inactive = installed && !isActive(id);
+      row.innerHTML = `<div><strong>${w.name}</strong><p>${w.desc}${inactive ? " <em>(needs COMPATIBILITY " + w.req + ")</em>" : ""}</p></div>`;
+      const btn = document.createElement("button");
+      btn.className = "ui-button" + (installed ? " accent" : "");
+      btn.textContent = installed ? "REMOVE" : "INSTALL";
+      btn.addEventListener("click", () => { const r = toggleInstall(id); if (r === "no-slots") game?.toast("No free slots. Raise COMPATIBILITY or remove something.", "warn"); updateCharacterUI(); });
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  }
+  const obj = game?.objectiveSummary();
+  if (obj) {
+    document.querySelector("#menu-objective-title").textContent = obj.title;
+    document.querySelector("#menu-objective-text").textContent = obj.text;
+  }
+  if (vrMenu?.visible) drawVRMenu();
 }
 
 document.querySelectorAll("[data-stat][data-change]").forEach(button => {
   button.addEventListener("click", () => {
-    const stat = button.dataset.stat;
-    const change = Number(button.dataset.change);
-    if (change > 0 && pointsLeft() > 0 && character[stat] < 3) character[stat]++;
-    if (change < 0 && character[stat] > 0) character[stat]--;
-    saveGame();
+    changeStat(button.dataset.stat, Number(button.dataset.change));
     updateCharacterUI();
   });
 });
@@ -779,6 +725,10 @@ function toggleGameMenu() {
   else openGameMenu();
 }
 document.addEventListener("keydown", event => {
+  if (game && isInCity && !renderer.xr.isPresenting) {
+    if (game.handleKey(event.code)) { event.preventDefault(); return; }
+    if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
+  }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
     toggleGameMenu();
@@ -790,7 +740,7 @@ document.querySelector("#shop-toggle").addEventListener("click", () => showPanel
 document.querySelectorAll("[data-close]").forEach(button => {
   button.addEventListener("click", () => { document.getElementById(button.dataset.close).hidden = true; });
 });
-updateCharacterUI();
+// (updateCharacterUI runs once the game systems exist, further below.)
 
 // A true 3D menu for immersive VR. The normal HTML menu remains for desktop,
 // because browser DOM overlays are not consistently displayed in Quest VR.
@@ -844,6 +794,8 @@ function startCity() {
   shopPanel.hidden = true;
   player.position.set(0, 0, 7);
   player.rotation.set(0, 0, 0);
+  // Desktop: you look straight down the street toward Mika's shop and the
+  // Spire. In VR the headset decides where you look.
   jumpVelocity = 0;
   previousJumpButton = false;
   shopDoorTarget = 0;
@@ -860,6 +812,10 @@ function startCity() {
   }
   if (firstPersonHands) firstPersonHands.visible = !renderer.xr.isPresenting;
   startStatus.textContent = "City loaded. Welcome to Neon Genesis.";
+  document.body.classList.add("in-city");
+  city.applyAtmosphere(scene, player.position.z);
+  updateCharacterUI();
+  game.beginSession();
 }
 
 const appearanceChoices = {
@@ -1221,7 +1177,7 @@ function createRobotHand(parent, side = 1) {
     color: 0x31eee1, emissive: 0x087d7c, emissiveIntensity: 1.1,
     metalness: 0.55, roughness: 0.24
   });
-  const arasakaRed = new THREE.MeshStandardMaterial({
+  const circuitRed = new THREE.MeshStandardMaterial({
     color: 0xf02c49, emissive: 0x8f071e, emissiveIntensity: 1.25,
     metalness: 0.58, roughness: 0.22
   });
@@ -1244,7 +1200,7 @@ function createRobotHand(parent, side = 1) {
     );
     const line = new THREE.Mesh(
       new THREE.TubeGeometry(curve, Math.max(14, points.length * 8), radius, 6, false),
-      arasakaRed
+      circuitRed
     );
     line.frustumCulled = false;
     hand.add(line);
@@ -1277,7 +1233,7 @@ function createRobotHand(parent, side = 1) {
     jacketAccent, 0, -0.004, 0.048);
   palmInset.rotation.z = -0.08;
   add(hand, new THREE.BoxGeometry(0.030, 0.006, 0.004),
-    arasakaRed, 0, 0.004, 0.055);
+    circuitRed, 0, 0.004, 0.055);
   // Split red light channels form a sharp, angular corporate circuit pattern.
   addHandCircuit([
     [-0.045, -0.034, 0.053], [-0.018, -0.015, 0.058],
@@ -1306,11 +1262,11 @@ function createRobotHand(parent, side = 1) {
     jointMaterial, 0, -0.008, 0);
   add(wrist, new THREE.CylinderGeometry(0.059, 0.059, 0.022, 20),
     jacketAccent, 0, -0.010, 0);
-  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, arasakaRed);
+  addRing(wrist, 0.057, 0.004, 0, -0.010, 0.002, circuitRed);
   add(wrist, new THREE.BoxGeometry(0.057, 0.035, 0.012),
     alloy, 0, -0.045, 0.045);
   add(wrist, new THREE.BoxGeometry(0.028, 0.006, 0.004),
-    arasakaRed, 0, -0.045, 0.054);
+    circuitRed, 0, -0.045, 0.054);
 
   const fingerJoints = [];
   const fingerRoots = [];
@@ -1349,10 +1305,10 @@ function createRobotHand(parent, side = 1) {
       armorPlate.rotation.z = (index - 1.5) * -0.035;
 
       add(segmentParent, new THREE.BoxGeometry(radius * 0.48, length * 0.34, 0.005),
-        arasakaRed, 0, length * 0.52, radius * 0.68 + 0.008);
+        circuitRed, 0, length * 0.52, radius * 0.68 + 0.008);
       const armorSlash = add(segmentParent,
         new THREE.BoxGeometry(radius * 1.28, length * 0.075, 0.004),
-        arasakaRed, 0, length * 0.76, radius * 0.68 + 0.010);
+        circuitRed, 0, length * 0.76, radius * 0.68 + 0.010);
       armorSlash.rotation.z = (index - 1.5) * 0.055;
 
       const nextJoint = new THREE.Group();
@@ -1392,7 +1348,7 @@ function createRobotHand(parent, side = 1) {
   add(thumbTipPivot, new THREE.BoxGeometry(0.014, 0.020, 0.009),
     jacketAccent, 0, 0.018, 0.008);
   add(thumbTipPivot, new THREE.BoxGeometry(0.004, 0.024, 0.004),
-    arasakaRed, 0, 0.018, 0.014);
+    circuitRed, 0, 0.018, 0.014);
 
   // Side actuators and thin cables make the hand look engineered, not a glove.
   for (const sideSign of [-1, 1]) {
@@ -1400,7 +1356,7 @@ function createRobotHand(parent, side = 1) {
       jointMaterial, sideSign * 0.068, 0.005, -0.012);
     actuator.rotation.z = sideSign * -0.08;
     add(hand, new THREE.BoxGeometry(0.010, 0.065, 0.008),
-      arasakaRed, sideSign * 0.068, 0.005, 0.010);
+      circuitRed, sideSign * 0.068, 0.005, 0.010);
   }
 
   hand.userData.fingerRoots = fingerRoots;
@@ -1416,6 +1372,8 @@ function createRobotHand(parent, side = 1) {
     thumbTipPivot.rotation.x = -grip * 0.3;
   };
   hand.userData.setGrip(0.08);
+  // ~115 parts → 2 GPU-skinned meshes. Finger joints stay animatable as bones.
+  skinify(hand, { metalness: 0.82, roughness: 0.28, frustumCulled: false });
   return hand;
 }
 
@@ -1750,6 +1708,10 @@ renderer.xr.addEventListener("sessionstart", () => {
   vrSessionIntroActive = false;
 });
 renderer.xr.addEventListener("sessionend", () => {
+  game?.onExit();
+  document.body.classList.remove("in-city");
+  scene.fog = menuFog;
+  scene.background = menuBackground;
   vrSessionIntroActive = false;
   vrStart.visible = false;
   vrStartReady = false;
@@ -1795,6 +1757,7 @@ function wrapAngle(angle) {
 function beginDoorGrab(controller) {
   if (!isInCity || vrMenu.visible || !renderer.xr.isPresenting) return false;
   vrMenuRaycaster.setFromXRController(controller);
+  vrMenuRaycaster.far = Infinity;
   // The trigger only grabs the actual handle, not the whole door panel.
   const hit = vrMenuRaycaster.intersectObject(shopDoorHandle, false)[0];
   if (!hit || hit.distance > 3.5) return false;
@@ -1812,10 +1775,12 @@ function updateDoorGrab() {
   const twist = wrapAngle(currentYaw - activeDoorGrab.startYaw);
   // Twist left/right to swing the hinged door. Clamp before it turns through
   // the frame, and keep the handle attached to the moving door.
+  // Outward (negative) swings fully open; inward stops at 0.55 rad so the
+  // leaf can't pass through the Genesis Core display behind it.
   shopDoorTarget = THREE.MathUtils.clamp(
     activeDoorGrab.startDoorAngle + twist,
     -1.48,
-    1.48
+    0.55
   );
 }
 function endDoorGrab(controller) {
@@ -1869,9 +1834,11 @@ for (let i = 0; i < 2; i++) {
     controller.userData.handedness = undefined;
   });
   controller.addEventListener("selectstart", () => {
-    if (controller.userData.handedness === "right" && isInCity && !vrMenu.visible) {
-      beginDoorGrab(controller);
-    }
+    if (!isInCity || vrMenu.visible || vrStart.visible) return;
+    // Physical door handle first, then NPCs / pickups / dialogue buttons.
+    if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
+    if (beginDoorGrab(controller)) return;
+    game?.onTrigger(controller);
   });
   controller.addEventListener("selectend", () => {
     endDoorGrab(controller);
@@ -1888,49 +1855,47 @@ for (let i = 0; i < 2; i++) {
 }
 
 let vrMenuPage = "character";
+const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
 function drawVRMenu() {
   const ctx = vrMenuContext;
   ctx.clearRect(0, 0, 1024, 768);
-  ctx.fillStyle = "rgba(5, 10, 25, 0.97)";
+  ctx.fillStyle = "rgba(5, 10, 25, 0.96)";
   ctx.fillRect(0, 0, 1024, 768);
   ctx.strokeStyle = "#5ff5e8";
   ctx.lineWidth = 5;
   ctx.strokeRect(5, 5, 1014, 758);
   ctx.fillStyle = "#5ff5e8";
   ctx.font = "bold 28px Arial";
-  ctx.fillText("NEON GENESIS  /  NIGHT MARKET", 54, 58);
+  ctx.fillText("NEON GENESIS  /  " + (city.districtAt(player.position.z, player.position.y)), 54, 58);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 25px Arial";
-  ctx.fillText("CREDITS  $" + credits.toLocaleString(), 690, 58);
+  ctx.fillText("CREDITS  $" + state.credits.toLocaleString(), 760, 58);
   ctx.fillStyle = "#14243d";
   ctx.fillRect(50, 92, 440, 66);
   ctx.fillRect(534, 92, 440, 66);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 25px Arial";
-  ctx.fillText("CHARACTER", 175, 134);
-  ctx.fillText("CYBERWARE SHOP", 650, 134);
+  ctx.fillText("CHARACTER", 205, 134);
+  ctx.fillText("CYBERWARE", 690, 134);
   ctx.strokeStyle = vrMenuPage === "character" ? "#5ff5e8" : "#33445f";
   ctx.lineWidth = 4;
   ctx.strokeRect(50, 92, 440, 66);
-  ctx.strokeStyle = vrMenuPage === "shop" ? "#5ff5e8" : "#33445f";
+  ctx.strokeStyle = vrMenuPage === "cyberware" ? "#5ff5e8" : "#33445f";
   ctx.strokeRect(534, 92, 440, 66);
 
   if (vrMenuPage === "character") {
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 38px Arial";
-    ctx.fillText("YOUR CHARACTER", 60, 225);
     ctx.fillStyle = "#aab6cf";
     ctx.font = "24px Arial";
-    ctx.fillText("Unspent attribute points: " + pointsLeft(), 60, 272);
+    ctx.fillText(`Unspent attribute points: ${pointsLeft()} (of ${totalPoints()})    MAX HEALTH ${maxHealth()}    GRADE ${gradeNames[character.compatibility]}`, 60, 205);
     const rows = [
-      ["STRENGTH", "Improves movement speed", "strength"],
+      ["STRENGTH", "Faster movement, lets you shift heavy objects", "strength"],
       ["HEALTH", "Adds 25 maximum health per point", "health"],
-      ["CYBERWARE COMPATIBILITY", "Unlocks higher cyberware grades", "compatibility"]
+      ["CYBERWARE COMPATIBILITY", "More cyberware slots and higher-grade chrome", "compatibility"]
     ];
     rows.forEach((row, i) => {
-      const y = 315 + i * 132;
+      const y = 280 + i * 125;
       ctx.fillStyle = "#13233b";
-      ctx.fillRect(55, y - 38, 914, 112);
+      ctx.fillRect(55, y - 40, 914, 108);
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 27px Arial";
       ctx.fillText(row[0], 80, y);
@@ -1948,25 +1913,39 @@ function drawVRMenu() {
       ctx.fillText("−", 811, y + 18);
       ctx.fillText("+", 902, y + 18);
     });
-    ctx.fillStyle = "#5ff5e8";
-    ctx.font = "bold 23px Arial";
-    ctx.fillText("MAX HEALTH: " + (100 + character.health * 25), 65, 735);
-    ctx.fillText("CYBERWARE GRADE: " + gradeNames[character.compatibility], 490, 735);
   } else {
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 38px Arial";
-    ctx.fillText("CYBERWARE SHOP", 60, 235);
     ctx.fillStyle = "#aab6cf";
-    ctx.font = "25px Arial";
-    ctx.fillText("The first cyberware stock is still being designed.", 60, 300);
-    ctx.fillText("Your credits are saved: $" + credits.toLocaleString(), 60, 355);
-    ctx.fillStyle = "#5ff5e8";
-    ctx.font = "bold 28px Arial";
-    ctx.fillText("UPGRADES COMING SOON", 60, 455);
+    ctx.font = "24px Arial";
+    ctx.fillText(`Slots used ${state.installed.length} / ${slotCount()}  ·  Buy more chrome from Doc Anaya (Neon Mile)`, 60, 185);
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    if (!owned.length) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "26px Arial";
+      ctx.fillText("No cyberware installed yet. Your arm implant is stock GEN-0.", 60, 260);
+    }
+    owned.forEach((id, i) => {
+      const w = CYBERWARE[id], y = VR_WARE_TOP + i * VR_WARE_ROW;
+      const installed = state.installed.includes(id);
+      ctx.fillStyle = "#13233b"; ctx.fillRect(55, y, 914, VR_WARE_ROW - 8);
+      ctx.fillStyle = installed ? (isActive(id) ? "#6aff9e" : "#ffb02e") : "#ffffff";
+      ctx.font = "bold 25px Arial"; ctx.fillText(w.name, 78, y + 30);
+      ctx.fillStyle = "#aab6cf"; ctx.font = "18px Arial";
+      ctx.fillText(w.desc.length > 70 ? w.desc.slice(0, 68) + "…" : w.desc, 78, y + 56);
+      ctx.fillStyle = installed ? "#5a2a3a" : "#20465a"; ctx.fillRect(790, y + 10, 165, 48);
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 22px Arial"; ctx.fillText(installed ? "REMOVE" : "INSTALL", 822, y + 42);
+    });
   }
+  // Current objective strip
+  const obj = game?.objectiveSummary();
+  ctx.fillStyle = "#1a1530"; ctx.fillRect(50, 650, 924, 80);
+  ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 22px Arial";
+  ctx.fillText("OBJECTIVE · " + (obj?.title || "EXPLORE").toUpperCase(), 70, 682);
+  ctx.fillStyle = "#ffffff"; ctx.font = "21px Arial";
+  const text = obj?.text || "";
+  ctx.fillText(text.length > 80 ? text.slice(0, 78) + "…" : text, 70, 714);
   ctx.fillStyle = "#ff789d";
-  ctx.font = "bold 22px Arial";
-  ctx.fillText("Y  /  CLOSE MENU", 770, 720);
+  ctx.font = "bold 20px Arial";
+  ctx.fillText("Y · CLOSE", 870, 682);
   vrMenuTexture.needsUpdate = true;
 }
 
@@ -1982,28 +1961,29 @@ function setVRMenuOpen(open) {
 function activateVRMenuAtController(controller) {
   if (!renderer.xr.isPresenting || !vrMenu.visible) return;
   vrMenuRaycaster.setFromXRController(controller);
+  vrMenuRaycaster.far = Infinity;
   const hit = vrMenuRaycaster.intersectObject(vrMenuPanel, false)[0];
   if (!hit?.uv) return;
   const x = hit.uv.x * 1024;
   const y = (1 - hit.uv.y) * 768;
   if (y >= 92 && y <= 158) {
     if (x >= 50 && x <= 490) vrMenuPage = "character";
-    else if (x >= 534 && x <= 974) vrMenuPage = "shop";
+    else if (x >= 534 && x <= 974) vrMenuPage = "cyberware";
   } else if (vrMenuPage === "character") {
-    const rows = [
-      { stat: "strength", y1: 277, y2: 389 },
-      { stat: "health", y1: 409, y2: 521 },
-      { stat: "compatibility", y1: 541, y2: 653 }
-    ];
-    for (const row of rows) {
-      if (y >= row.y1 && y <= row.y2 && x >= 780 && x <= 965) {
-        const change = x < 875 ? -1 : 1;
-        if (change > 0 && pointsLeft() > 0 && character[row.stat] < 3) character[row.stat]++;
-        if (change < 0 && character[row.stat] > 0) character[row.stat]--;
-        saveGame();
+    for (let i = 0; i < 3; i++) {
+      const rowY = 280 + i * 125;
+      if (y >= rowY - 40 && y <= rowY + 68 && x >= 780 && x <= 965) {
+        changeStat(["strength", "health", "compatibility"][i], x < 875 ? -1 : 1);
         updateCharacterUI();
         break;
       }
+    }
+  } else {
+    const owned = Object.keys(CYBERWARE).filter(id => state.owned.includes(id));
+    const i = Math.floor((y - VR_WARE_TOP) / VR_WARE_ROW);
+    if (i >= 0 && i < owned.length && x >= 780 && x <= 965) {
+      if (toggleInstall(owned[i]) === "no-slots") game?.toast("No free slots. Raise COMPATIBILITY or remove something.", "warn");
+      updateCharacterUI();
     }
   }
   drawVRMenu();
@@ -2033,7 +2013,8 @@ function updateVRMenuPointer() {
   const doorHit = isInCity && !vrMenu.visible
     ? vrMenuRaycaster.intersectObjects(shopDoorHitObjects, false)[0]
     : null;
-  const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null);
+  const gamePoint = !vrStart.visible && !vrMenu.visible ? game?.cursorPoint(rightItem.controller) : null;
+  const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null) || (gamePoint ? { point: gamePoint } : null);
   const hovered = startHit?.object || null;
   if (vrStartHovered && vrStartHovered !== hovered) {
     vrStartHovered.material.emissive.setHex(vrStartHovered.userData.baseEmissive);
@@ -2070,7 +2051,7 @@ function rotateView(dx, dy) {
 const isQuestBrowser = /OculusBrowser|Quest/i.test(navigator.userAgent);
 renderer.domElement.addEventListener("click", () => {
   // Quest Browser uses its own hand/controller cursor; do not capture it.
-  if (!isQuestBrowser && !renderer.xr.isPresenting &&
+  if (!isQuestBrowser && !renderer.xr.isPresenting && !game?.isPanelOpen() &&
       document.pointerLockElement !== renderer.domElement) {
     try {
       const request = renderer.domElement.requestPointerLock?.();
@@ -2165,9 +2146,28 @@ function getRightAButton() {
   return !!rightSource?.gamepad?.buttons[4]?.pressed;
 }
 
+const headWorld = new THREE.Vector3();
+const headAfterTurn = new THREE.Vector3();
+const PLAYER_RADIUS = 0.31;
+// Smooth turning pivots around your head, not the centre of your play space,
+// so turning while standing off-centre doesn't swing you sideways.
+function turnAroundHead(angle) {
+  if (!angle) return;
+  camera.getWorldPosition(headWorld);
+  player.rotation.y += angle;
+  player.updateMatrixWorld(true);
+  camera.getWorldPosition(headAfterTurn);
+  player.position.x += headWorld.x - headAfterTurn.x;
+  player.position.z += headWorld.z - headAfterTurn.z;
+}
+function blocked(x, z) {
+  return city.collides(x, z, player.position.y, PLAYER_RADIUS) || collidesWithMikaShop(x, z);
+}
+
 function movePlayer(delta) {
   let stickX = 0;
   let stickY = 0;
+  let jumpPressed = false;
   if (renderer.xr.isPresenting) {
     const stick = getLeftStick();
     const look = getRightStickAndMenuButton();
@@ -2176,49 +2176,104 @@ function movePlayer(delta) {
     stickY = Math.abs(stick.y) > 0.12 ? stick.y : 0;
     if (yPressed && !previousMenuButton) setVRMenuOpen(!vrMenu.visible);
     previousMenuButton = yPressed;
-
-    const jumpPressed = getRightAButton();
-    if (jumpPressed && !previousJumpButton && player.position.y <= 0.001) {
-      jumpVelocity = 4.4;
-    }
-    previousJumpButton = jumpPressed;
-    jumpVelocity -= 11.5 * delta;
-    player.position.y += jumpVelocity * delta;
-    if (player.position.y < 0) {
-      player.position.y = 0;
-      jumpVelocity = 0;
-    }
-
+    jumpPressed = getRightAButton();
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
-    player.rotation.y -= look.x * 2.2 * delta;
+    turnAroundHead(-look.x * turnSpeed() * delta);
   } else {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+    jumpPressed = !!keys.Space;
   }
+  if (game?.isPanelOpen()) { stickX = 0; stickY = 0; jumpPressed = false; }
+
+  // Head offset inside the play space (room-scale): collisions are tested
+  // where your head actually is, so you can't lean or step through walls
+  // with the stick.
+  camera.getWorldPosition(headWorld);
+  const offX = renderer.xr.isPresenting ? headWorld.x - player.position.x : 0;
+  const offZ = renderer.xr.isPresenting ? headWorld.z - player.position.z : 0;
+
+  // Jumping and gravity, with walkable rooftops from city.js.
+  const ground = city.groundAt(player.position.x + offX, player.position.z + offZ, player.position.y);
+  if (jumpPressed && !previousJumpButton && player.position.y <= ground + 0.001) jumpVelocity = jumpPower();
+  previousJumpButton = jumpPressed;
+  jumpVelocity -= 11.5 * delta;
+  player.position.y += jumpVelocity * delta;
+  if (player.position.y < ground) {
+    player.position.y = ground;
+    jumpVelocity = 0;
+  }
+
   camera.getWorldDirection(cameraDirection);
-  forward.set(cameraDirection.x, 0, cameraDirection.z).normalize();
+  forward.set(cameraDirection.x, 0, cameraDirection.z);
+  if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
+  forward.normalize();
   right.crossVectors(forward, up).normalize();
   movement.set(0, 0, 0);
   movement.addScaledVector(forward, -stickY);
   movement.addScaledVector(right, stickX);
   const movementAmount = Math.min(1, movement.length());
   if (movement.lengthSq() > 1) movement.normalize();
-  const step = movement.clone().multiplyScalar((3.2 + character.strength * 0.18) * delta);
+  const step = movement.multiplyScalar(moveSpeed() * delta);
 
-  // Resolve each axis separately so the player slides along the wall instead
-  // of getting stuck, while the wider wall colliders close tiny gaps.
-  const nextX = player.position.x + step.x;
-  if (!collidesWithMikaShop(nextX, player.position.z)) {
-    player.position.x = nextX;
-  }
-  const nextZ = player.position.z + step.z;
-  if (!collidesWithMikaShop(player.position.x, nextZ)) {
-    player.position.z = nextZ;
-  }
+  // Resolve each axis separately so the player slides along walls instead of
+  // sticking to them.
+  if (step.x && !blocked(player.position.x + offX + step.x, player.position.z + offZ)) player.position.x += step.x;
+  if (step.z && !blocked(player.position.x + offX, player.position.z + offZ + step.z)) player.position.z += step.z;
   return movementAmount;
 }
 
-startStatus.textContent = "City systems are ready. Press Y to open or close the in-game menu.";
+startStatus.textContent = state.introSeen
+  ? "Save found — you'll continue where you left off. Y opens the menu in VR, E on PC."
+  : "City systems are ready. Y opens the menu in VR, E on PC.";
+
+// Merge the workshop's static pieces (walls, bench, shelves…) by material.
+// The door, Genesis Core display and signs keep their own meshes.
+const mergedShop = mergeStatic(mikaShop, [shopDoorHinge, genesisCoreDisplay, shopSign, shopHint]);
+mikaShopBlockers.length = 0;
+mikaShopBlockers.push(...mergedShop);
+shopDoorLeaf.traverse(o => { if (o.isMesh && o !== shopDoorAim) mikaShopBlockers.push(o); });
+
+// ── gameplay layer: NPCs, missions, dialogue, shop ────────────────────────
+mikaShop.updateMatrixWorld(true);
+game = createGame({
+  scene, cityWorld, camera, player, renderer, city,
+  core: { group: genesisCoreDisplay, flare: flareGenesisCore },
+  mika: { position: new THREE.Vector3(1.35, 0, -0.85).applyMatrix4(mikaShop.matrixWorld), yaw: Math.PI / 2 },
+  door: {
+    object: shopDoorLeaf, hit: shopDoorAim,
+    toggle: () => { shopDoorTarget = Math.abs(shopDoorHinge.rotation.y) > 0.5 ? 0 : -1.4; }
+  },
+  blockers: mikaShopBlockers,
+  onStateChange: () => updateCharacterUI(),
+  isInCity: () => isInCity,
+  onTeleport: () => { jumpVelocity = 0; }
+});
+updateCharacterUI();
+
+document.querySelector("#reset-button")?.addEventListener("click", () => {
+  if (!confirm("Erase your saved progress on this device and start a new story?")) return;
+  resetGame();
+  location.reload();
+});
+
+renderer.domElement.addEventListener("mousedown", event => {
+  if (renderer.xr.isPresenting || event.button !== 0 || !isInCity) return;
+  if (game.isPanelOpen()) game.desktopClick();
+  else if (document.pointerLockElement === renderer.domElement) game.desktopInteract();
+});
+
+// Developer hook: open the page with ?debug to drive the game from the console.
+if (DEBUG) {
+  window.__NEON = {
+    game, state, city, player, camera, renderer, startCity,
+    teleport(x, y, z, yaw = 0, pitchValue = 0) {
+      player.position.set(x, y, z); player.rotation.set(0, yaw, 0);
+      pitch = pitchValue; camera.rotation.x = pitchValue; jumpVelocity = 0;
+    },
+    stats() { const i = renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures, programs: i.programs?.length }; }
+  };
+}
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -2240,14 +2295,18 @@ renderer.setAnimationLoop((time, xrFrame) => {
   shopDoorHinge.rotation.y = THREE.MathUtils.damp(
     shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
   );
+  if (isInCity) {
+    city.applyAtmosphere(scene, player.position.z);
+    city.update(time, delta, player.position);
+    animateGenesisCore(time);
+    game.update(time, delta, vrControllerRays.map(item => item.controller));
+  }
   updateVRMenuPointer();
   if (genesisCoreModel) {
     genesisCoreModel.rotation.y = Math.PI + Math.sin(time * 0.00045) * 0.08;
     genesisCoreModel.position.y = 0.55 + Math.sin(time * 0.0015) * 0.025;
   }
   coreDisplayRing.rotation.z = time * 0.00035;
-  neonRing.rotation.z = time * 0.00025;
-  marker.material.color.setHSL(0.48 + Math.sin(time * 0.002) * 0.04, 0.9, 0.58);
   crossedProps.rotation.y = time * 0.00022;
   crossedProps.position.y = 1.72 + Math.sin(time * 0.0012) * 0.045;
   platformRing.rotation.y = time * 0.00018;

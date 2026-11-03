@@ -1,0 +1,87 @@
+// NEON GENESIS — player state & saving (localStorage, this device only).
+// Save format v2 keeps the original { character, credits } fields so older
+// saves load without losing anything.
+
+import { CYBERWARE } from "./story.js";
+
+const SAVE_KEY = "neon-genesis-save";
+export const MAX_STAT = 5;
+export const BASE_POINTS = 3;
+export const gradeNames = ["BASIC", "STANDARD", "ADVANCED", "ELITE", "PROTOTYPE", "GENESIS"];
+
+export const state = {
+  version: 2,
+  character: { strength: 0, health: 0, compatibility: 0 },
+  bonusPoints: 0,              // extra attribute points earned from story chapters
+  credits: 500,
+  missions: {},                // id -> { status: "active"|"done", step, progress }
+  flags: {},                   // story choices & facts
+  owned: [],                   // cyberware ids bought
+  installed: [],               // cyberware ids installed (limited by slots)
+  collected: [],               // pickup ids already taken
+  introSeen: false,
+  tracked: null
+};
+
+export function loadGame() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "null");
+    if (!saved) return false;
+    if (Number.isInteger(saved.credits) && saved.credits >= 0) state.credits = saved.credits;
+    if (Number.isInteger(saved.bonusPoints) && saved.bonusPoints >= 0) state.bonusPoints = Math.min(saved.bonusPoints, 9);
+    const c = saved.character;
+    if (c) {
+      const values = [c.strength, c.health, c.compatibility];
+      if (values.every(v => Number.isInteger(v) && v >= 0 && v <= MAX_STAT) &&
+          values.reduce((a, b) => a + b, 0) <= BASE_POINTS + state.bonusPoints) {
+        state.character = { strength: c.strength, health: c.health, compatibility: c.compatibility };
+      }
+    }
+    if (saved.missions && typeof saved.missions === "object") state.missions = saved.missions;
+    if (saved.flags && typeof saved.flags === "object") state.flags = saved.flags;
+    for (const key of ["owned", "installed", "collected"]) {
+      if (Array.isArray(saved[key])) state[key] = saved[key].filter(v => typeof v === "string");
+    }
+    state.owned = state.owned.filter(id => CYBERWARE[id]);
+    state.installed = state.installed.filter(id => state.owned.includes(id));
+    state.introSeen = !!saved.introSeen;
+    state.tracked = typeof saved.tracked === "string" ? saved.tracked : null;
+    return true;
+  } catch { return false; }
+}
+
+export function saveGame() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch {}
+}
+
+export function resetGame() {
+  try { localStorage.removeItem(SAVE_KEY); } catch {}
+}
+
+export const totalPoints = () => BASE_POINTS + state.bonusPoints;
+export const pointsLeft = () => totalPoints() - state.character.strength - state.character.health - state.character.compatibility;
+
+export function changeStat(stat, change) {
+  const c = state.character;
+  if (change > 0 && pointsLeft() > 0 && c[stat] < MAX_STAT) c[stat]++;
+  if (change < 0 && c[stat] > 0) c[stat]--;
+  saveGame();
+}
+
+// Cyberware works only while installed AND supported by your compatibility.
+export const slotCount = () => 2 + state.character.compatibility;
+export const isActive = id => state.installed.includes(id) && (CYBERWARE[id]?.req ?? 99) <= state.character.compatibility;
+export const effectiveStrength = () => state.character.strength + (isActive("kinetic_tendons") ? 1 : 0);
+export const maxHealth = () => 100 + state.character.health * 25 + (isActive("subdermal_weave") ? 40 : 0);
+export const moveSpeed = () => (3.2 + state.character.strength * 0.18) *
+  (isActive("kinetic_tendons") ? 1.15 : 1) * (isActive("reflex_lattice") ? 1.1 : 1);
+export const turnSpeed = () => 2.2 * (isActive("reflex_lattice") ? 1.25 : 1);
+export const jumpVelocity = () => 4.4 * (isActive("hydraulic_calves") ? 1.22 : 1);
+export const creditMultiplier = () => isActive("neural_bridge") ? 1.2 : 1;
+
+export function toggleInstall(id) {
+  if (!state.owned.includes(id)) return "not-owned";
+  if (state.installed.includes(id)) { state.installed = state.installed.filter(x => x !== id); saveGame(); return "removed"; }
+  if (state.installed.length >= slotCount()) return "no-slots";
+  state.installed.push(id); saveGame(); return "installed";
+}
