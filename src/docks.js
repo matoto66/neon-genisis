@@ -27,12 +27,12 @@ export function buildDocks(root, city) {
   const rand = (() => { let s = 4242; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; })();
 
   // ── ground: road continues into a concrete yard, then wooden piers ───────
-  box(solid, 66, 0.1, 12, 79, -0.05, -46, 0x23262d);                       // road into the yard
-  box(solid, 64, 0.2, 70, 80, -0.1, -46, 0x3a3d44);                        // concrete yard
-  for (let x = 50; x < 112; x += 4) box(solid, 0.08, 0.02, 70, x, 0.005, -46, 0x2e3138);   // slab seams
+  box(solid, 66, 0.1, 12, 79, -0.047, -46, 0x23262d);                      // road into the yard (top at +0.003)
+  box(solid, 64, 0.2, 70, 80, -0.12, -46, 0x3a3d44);                       // concrete yard (top at -0.02)
+  for (let x = 50; x < 112; x += 4) box(solid, 0.08, 0.02, 70, x, -0.012, -46, 0x2e3138);  // slab seams (just above the yard)
   box(solid, 12, 0.3, 26, 118, -0.15, -30, 0x4a3a2c);                      // north pier (timber)
   box(solid, 12, 0.3, 26, 118, -0.15, -66, 0x4a3a2c);                      // south pier
-  for (let z = -78; z < -17; z += 1.2) box(solid, 11.8, 0.02, 0.06, 118, 0.006, z, 0x2a2018);  // plank gaps
+  for (const pz of [-30, -66]) for (let z = pz - 12.5; z < pz + 12.5; z += 1.2) box(solid, 11.8, 0.02, 0.06, 118, 0.012, z, 0x2a2018);  // plank gaps (only on the piers)
   // yellow safety lines and hazard edge
   for (let z = -80; z <= -12; z += 4) box(glow, 0.12, 0.02, 2, 111.7, 0.02, z, 0xffb02e);
   // bollards along the edge

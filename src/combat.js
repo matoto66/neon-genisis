@@ -124,6 +124,35 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     wrist.position.set(0, -0.12, 0.05); wrist.rotation.set(-0.3, 0, 0);
   }
 
+  // Edge Fins: a hard-light blade on the back of each wrist, shown while you make a fist.
+  const bladeMat = new THREE.MeshBasicMaterial({ color: 0xff4fd8, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+  const bladeGeo = (() => { const sh = new THREE.Shape(); sh.moveTo(-0.012, 0); sh.lineTo(0.012, 0); sh.lineTo(0.004, 0.42); sh.lineTo(-0.004, 0.46); sh.closePath();
+    const g = new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false }); g.translate(0, 0, -0.003); return g; })();
+  function bladeFor(hand) {
+    if (!hand.userData.blade) {
+      const b = new THREE.Group();
+      const m = new THREE.Mesh(bladeGeo, bladeMat); b.add(m);
+      const g = halo(0xff4fd8, 0.18); g.position.y = 0.2; g.scale.set(0.12, 0.5, 1); b.add(g);
+      b.position.set(0, 0.02, 0.05); b.visible = false; hand.add(b);
+      hand.userData.blade = b;
+    }
+    return hand.userData.blade;
+  }
+  // Chrono Spike: cyan wash over your view while time is slowed.
+  const tintMat = new THREE.MeshBasicMaterial({ color: 0x38f0e6, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false, toneMapped: false, map: vigTex });
+  const tint = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), tintMat);
+  tint.position.z = -0.31; tint.renderOrder = 9989; tint.visible = false; camera.add(tint);
+  let chronoT = 0, chronoCd = 0;
+  function useChrono() {
+    if (!isActive("chrono_spike") || dead) return false;
+    if (chronoCd > 0) { game.toast(`Chrono Spike recharging (${Math.ceil(chronoCd)} s)`); return false; }
+    chronoT = 5; chronoCd = 30;
+    head.setFromMatrixPosition(camera.matrixWorld); burst(head, 0x38f0e6, 30, 3, 0);
+    game.toast("CHRONO SPIKE", "objective");
+    haptic?.("both", 0.6, 200);
+    return true;
+  }
+
   // ── enemies ─────────────────────────────────────────────────────────────
   function makeDrone(type) {
     const g = new THREE.Group();
@@ -327,6 +356,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       const toHead = handPos.distanceTo(head);
       if (h.grip > 0.6 && toHead < 0.42) fistsUp++;
       if (h.side === "left") attachWrist(h.object);
+      const blades = isActive("edge_fins") && h.grip > 0.6;
+      bladeFor(h.object).visible = blades;
       if (h.grip < 0.6 || speed < 2.0) continue;
       // world-space punch direction
       const dir = handVel.clone().transformDirection(player.matrixWorld);
@@ -335,12 +366,12 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         const si = h.side === "left" ? 0 : 1;
         if (e.hitCd[si] > 0) continue;
         hitCenter(e, tmp);
-        const reach = e.def.radius + 0.14 + (e.type === "enforcer" ? 0.15 : 0);
+        const reach = e.def.radius + 0.14 + (e.type === "enforcer" ? 0.15 : 0) + (blades ? 0.3 : 0);
         const dy = e.type === "enforcer" ? Math.max(0, Math.abs(handPos.y - tmp.y) - 0.45) : 0;   // tall hit capsule for people
         tmp2.set(handPos.x - tmp.x, 0, handPos.z - tmp.z);
         if (Math.hypot(tmp2.length(), dy, e.type === "enforcer" ? 0 : handPos.y - tmp.y) > reach) continue;
-        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1);
-        damageEnemy(e, dmg, dir, { stun: arc ? 1.0 : 0.15, color: arc ? 0x5ff5ff : 0xffcf4a });
+        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1) * (blades ? 1.4 : 1);
+        damageEnemy(e, dmg, dir, { stun: arc ? 1.0 : 0.15, color: blades ? 0xff4fd8 : arc ? 0x5ff5ff : 0xffcf4a });
         e.hitCd[si] = 0.35;
         haptic?.(h.side, Math.min(1, 0.4 + speed * 0.1), 70);
       }
@@ -357,39 +388,44 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     for (const e of enemies) { e.hitCd[0] -= dt; e.hitCd[1] -= dt; }
     guarding = desktop ? !!desktop.guard : fistsUp >= 2;
 
+    // Chrono Spike: enemies and their shots run at quarter speed.
+    chronoT = Math.max(0, chronoT - dt); chronoCd = Math.max(0, chronoCd - dt);
+    const edt = dt * (chronoT > 0 ? 0.25 : 1);
+    tintMat.opacity = chronoT > 0 ? 0.22 + Math.sin(t * 6) * 0.04 : Math.max(0, tintMat.opacity - dt);
+    tint.visible = tintMat.opacity > 0.01;
     // ── enemies think and move ─────────────────────────────────────────
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       const g = e.group;
       if (e.dead) {
-        e.deadT += dt;
+        e.deadT += edt;
         if (e.type === "enforcer") { g.rotation.x = Math.max(-Math.PI / 2, -e.deadT * 3); g.position.y = Math.min(0, -(e.deadT - 1.5) * 0.6); }
-        else { e.vel.y -= 9.8 * dt; g.position.addScaledVector(e.vel, dt); g.rotation.z += dt * 6; if (g.position.y < 0.15) { g.position.y = 0.15; e.vel.set(0, 0, 0); } }
+        else { e.vel.y -= 9.8 * edt; g.position.addScaledVector(e.vel, edt); g.rotation.z += edt * 6; if (g.position.y < 0.15) { g.position.y = 0.15; e.vel.set(0, 0, 0); } }
         if (e.deadT > 3.5) { despawn(e); enemies.splice(i, 1); }
         continue;
       }
-      e.t += dt; e.cooldown -= dt;
+      e.t += edt; e.cooldown -= edt;
       const toP = tmp.subVectors(player.position, g.position); toP.y = 0;
       const dist = toP.length(); toP.normalize();
       // knockback decays
-      g.position.addScaledVector(e.vel, dt); e.vel.multiplyScalar(Math.exp(-4 * dt));
-      if (e.stun > 0) { e.stun -= dt; g.rotation.z = Math.sin(t * 30) * 0.15; continue; } else g.rotation.z = 0;
+      g.position.addScaledVector(e.vel, edt); e.vel.multiplyScalar(Math.exp(-4 * edt));
+      if (e.stun > 0) { e.stun -= edt; g.rotation.z = Math.sin(t * 30) * 0.15; continue; } else g.rotation.z = 0;
       if (dist > 30 || dead) continue;
       const faceYaw = Math.atan2(toP.x, toP.z);
-      g.rotation.y += Math.atan2(Math.sin(faceYaw - g.rotation.y), Math.cos(faceYaw - g.rotation.y)) * (1 - Math.exp(-6 * dt));
+      g.rotation.y += Math.atan2(Math.sin(faceYaw - g.rotation.y), Math.cos(faceYaw - g.rotation.y)) * (1 - Math.exp(-6 * edt));
 
       if (e.type === "scav") {
         // rush in, ram, back off
         const want = e.cooldown > 0 ? 3.5 : 0.5;
         const move = dist > want ? 1 : -0.6;
-        step(e, toP, e.def.speed * move * dt);
+        step(e, toP, e.def.speed * move * edt);
         g.position.y = e.def.hover + Math.sin(t * 4 + e.phase) * 0.1 + (head.y - 1.65) * 0.3;
         if (dist < 0.9 && e.cooldown <= 0 && Math.abs(g.position.y - torso.y) < 0.9) { hurt(e.def.damage); e.cooldown = 1.6; e.vel.addScaledVector(toP, -6); burst(g.position, 0xffb02e, 10, 2); }
       } else if (e.type === "sentry") {
         // keep 5-8 m away, strafe, shoot slow bolts with a visible charge-up
         const strafe = new THREE.Vector3(-toP.z, 0, toP.x).multiplyScalar(Math.sin(t * 0.7 + e.phase));
         const dir = dist < 5 ? toP.clone().negate() : dist > 8 ? toP.clone() : strafe;
-        step(e, dir, e.def.speed * dt);
+        step(e, dir, e.def.speed * edt);
         g.position.y = e.def.hover + Math.sin(t * 2 + e.phase) * 0.15;
         const charging = e.cooldown < 0.6 && dist < 18;
         e.eyeMat.color.setHex(charging ? 0xffffff : 0xff3a4a); e.glow.scale.setScalar(charging ? 3.4 : 2.4);
@@ -402,7 +438,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         // enforcer: walk up, wind up the baton (glows), swing
         const r = e.rig;
         if (e.windup > 0) {
-          e.windup -= dt;
+          e.windup -= edt;
           r.arms[1].rotation.x = -2.4 * (1 - e.windup / 0.7); r.elbows[1].rotation.x = -0.8;
           e.baton.material.color.setHex(Math.sin(t * 40) > 0 ? 0xffffff : 0xff3a4a);
           if (e.windup <= 0) {
@@ -412,7 +448,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
             e.baton.material.color.setHex(0xff3a4a);
           }
         } else if (dist > 1.3) {
-          step(e, toP, e.def.speed * dt);
+          step(e, toP, e.def.speed * edt);
           const ph = t * 7.5 + e.phase, sw = Math.sin(ph) * 0.45;
           r.hips[0].rotation.x = sw; r.hips[1].rotation.x = -sw;
           r.knees[0].rotation.x = Math.max(0, -sw) * 0.8; r.knees[1].rotation.x = Math.max(0, sw) * 0.8;
@@ -429,8 +465,9 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     // ── bolts ─────────────────────────────────────────────────────────
     for (let i = bolts.length - 1; i >= 0; i--) {
       const b = bolts[i];
-      b.life -= dt;
-      b.mesh.position.addScaledVector(b.vel, dt);
+      const bdt = b.friendly ? dt : edt;
+      b.life -= bdt;
+      b.mesh.position.addScaledVector(b.vel, bdt);
       let hit = b.life <= 0 || b.mesh.position.y < 0.05 || city.collides(b.mesh.position.x, b.mesh.position.z, b.mesh.position.y - 1, 0.05);
       if (!hit && b.friendly) {
         for (const e of enemies) {
@@ -493,7 +530,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   }
 
   return {
-    update, firePulse, desktopPunch, useMedPatch, spawn,
+    update, firePulse, desktopPunch, useMedPatch, spawn, useChrono,
     get hp() { return hp; }, get energy() { return energy; }, get guarding() { return guarding; }, get dead() { return dead; },
     get inFight() { return enemies.some(e => !e.dead && e.group.position.distanceTo(player.position) < 25); },
     enemies, resetHealth() { hp = maxHealth(); }, debugHurt(n) { hurt(n); }

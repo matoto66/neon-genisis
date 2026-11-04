@@ -31,6 +31,10 @@ export const CYBERWARE = {
     desc: "Raise both fists to your face to guard: blocks 90% of damage (70% without it)." },
   pulse_capacitor: { name: "Pulse Emitter", price: 600, req: 1, slot: "GEN-0 Arm", cat: "combat",
     desc: "Unlocks the palm blast: pull the trigger with an open hand to fire an energy shot (3 charges)." },
+  edge_fins:       { name: "Edge Fins", price: 700, req: 2, slot: "Forearms", cat: "combat",
+    desc: "Hard-light blades slide out of your wrists when you make a fist: longer reach, +40% damage." },
+  chrono_spike:    { name: "Chrono Spike", price: 900, req: 3, slot: "Nervous System", cat: "combat",
+    desc: "Press B (V on PC): the world slows to a crawl for 5 seconds. 30 s cooldown." },
   genesis_link:    { name: "GENESIS Link", price: 0, req: 5, slot: "???", locked: true,
     desc: "Not for sale. Doc says the parts don't exist yet. The core disagrees." }
 };

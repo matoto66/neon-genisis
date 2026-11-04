@@ -52,6 +52,9 @@ renderer.xr.enabled = true;
 // on Quest, a large GPU saving you can't see through the lenses.
 renderer.xr.setFoveation(1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Filmic tone mapping: richer, more realistic light and colour (as in films and modern games).
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
 document.body.appendChild(renderer.domElement);
 
 const gameUI = document.querySelector("#game-ui");
@@ -769,13 +772,13 @@ const CONTROLS_VR = [
   ["Move", "Left stick"], ["Sprint", "Click left stick"], ["Turn", "Right stick"], ["Jump", "A"],
   ["Interact / talk / grab", "Point + trigger"], ["Dialogue choice", "Point + trigger"],
   ["Make a fist / punch", "Squeeze grip + swing"], ["Palm blast (needs Pulse Emitter)", "Trigger, open hand"],
-  ["Guard", "Both fists up at face"], ["Med patch", "X"],
+  ["Guard", "Both fists up at face"], ["Med patch", "X"], ["Chrono Spike (cyberware)", "B"],
   ["Menu", "Y"], ["Mika's door", "Grab handle + twist"]
 ];
 const CONTROLS_PC = [
   ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
   ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm blast (Pulse Emitter)", "Right click"],
-  ["Guard", "Hold C"], ["Med patch", "Q"], ["Menu", "E"], ["Mute sound", "M"]
+  ["Guard", "Hold C"], ["Med patch", "Q"], ["Chrono Spike", "V"], ["Menu", "E"], ["Mute sound", "M"]
 ];
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
@@ -817,6 +820,7 @@ document.addEventListener("keydown", event => {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
+    if (event.code === "KeyV") { combat.useChrono(); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -2151,7 +2155,19 @@ window.addEventListener("blur", () => { for (const key of Object.keys(keys)) key
 
 let previousMenuButton = false;
 let previousXButton = false;
+let previousBButton = false;
 let desktopJab = 0;
+let uiToneTimer = 0;
+function keepUIUntoned() {
+  scene.traverse(o => {
+    for (const m of [].concat(o.material || [])) {
+      if (m.userData.toneChecked) continue;
+      m.userData.toneChecked = true;
+      // canvas-drawn UI: sprites, overlays and transparent text panels
+      if (m.map?.isCanvasTexture && (o.isSprite || m.depthTest === false || m.transparent)) { m.toneMapped = false; m.needsUpdate = true; }
+    }
+  });
+}
 let previousJumpButton = false;
 let jumpVelocity = 0;
 const clock = new THREE.Clock();
@@ -2418,7 +2434,8 @@ renderer.domElement.addEventListener("mousedown", event => {
 // Developer hook: open the page with ?debug to drive the game from the console.
 if (DEBUG) {
   window.__NEON = {
-    game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
+    game, state, city, player, camera, renderer, startCity, THREE, scene,
+    setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
     intro, replayIntro, worlds, get combat() { return combat; }, docks, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
@@ -2457,12 +2474,17 @@ renderer.setAnimationLoop((time, xrFrame) => {
     const xPressed = !!getGamepad("left")?.buttons?.[4]?.pressed;   // X: med patch
     if (xPressed && !previousXButton && isInCity) combat.useMedPatch();
     previousXButton = xPressed;
+    const bPressed = !!getGamepad("right")?.buttons?.[5]?.pressed;  // B: Chrono Spike
+    if (bPressed && !previousBButton && isInCity) combat.useChrono();
+    previousBButton = bPressed;
   }
   if (desktopJab > 0) {
     desktopJab = Math.max(0, desktopJab - delta * 4);
     const r = firstPersonHands?.children[1];
     if (r) { r.userData.setGrip?.(1); r.position.z = -0.72 - Math.sin(desktopJab * Math.PI) * 0.35; }
   }
+  // Menus, dialogue boards and labels skip tone mapping so text stays crisp.
+  if ((uiToneTimer -= delta) <= 0) { uiToneTimer = 1.5; keepUIUntoned(); }
   if (isInCity && !intro.active && combat) {
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(time);

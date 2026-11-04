@@ -241,7 +241,8 @@ export function buildCity(scene, renderer) {
     colliders.push({ minX, maxX, minZ, maxZ, minY, maxY });
 
   // ── lights: two global lights + a few local "key" lights only ──────────
-  root.add(new THREE.HemisphereLight(0x8fa8ff, 0x2a1834, 1.55));
+  const hemi = new THREE.HemisphereLight(0x8fa8ff, 0x2a1834, 1.55);
+  root.add(hemi);
   const moon = new THREE.DirectionalLight(0x9fc4ff, 1.15);
   moon.position.set(-30, 60, 20);
   root.add(moon);
@@ -920,17 +921,48 @@ export function buildCity(scene, renderer) {
   skyline(-60, 60, 50, 95, 10, 25, 70);
   skyline(-90, 90, -175, -230, 12, 60, 160);
 
-  // ── sky dome: deep night with city light glow at the horizon ────────────
-  const skyGeo = new THREE.SphereGeometry(520, 32, 16);
-  const sc = [], top = new THREE.Color(0x02030a), mid = new THREE.Color(0x0b0a1c), hor = new THREE.Color(0x2a1236);
-  const pos = skyGeo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i) / 520;
-    const c = y > 0.25 ? mid.clone().lerp(top, Math.min(1, (y - 0.25) / 0.6)) : hor.clone().lerp(mid, Math.max(0, y / 0.25));
-    sc.push(c.r, c.g, c.b);
-  }
-  skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(sc, 3));
-  const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  // ── sky: gradient + stars + sun/moon + slow clouds, driven by the
+  //    day/night cycle (see dayNight below). One shader, no textures.
+  const skyUniforms = { uDay: { value: 0 }, uSunDir: { value: new THREE.Vector3(0, -1, 0) }, uTime: { value: 0 } };
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(520, 48, 24), new THREE.ShaderMaterial({
+    uniforms: skyUniforms, side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec3 vDir; uniform float uDay; uniform vec3 uSunDir; uniform float uTime;
+      float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+      float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        float a = hash(vec3(i, 1.0)), b = hash(vec3(i + vec2(1, 0), 1.0)), c = hash(vec3(i + vec2(0, 1), 1.0)), d = hash(vec3(i + vec2(1, 1), 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
+      float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+      void main() {
+        vec3 d = normalize(vDir);
+        float h = d.y;
+        // night: near-black blue with a purple/pink glow from the city below
+        vec3 nightTop = vec3(0.008, 0.012, 0.04), nightHor = vec3(0.17, 0.05, 0.2);
+        // day: dim, hazy blue-grey (the city is always smoggy)
+        vec3 dayTop = vec3(0.16, 0.24, 0.36), dayHor = vec3(0.46, 0.47, 0.5);
+        float g = smoothstep(-0.05, 0.55, h);
+        vec3 col = mix(mix(nightHor, nightTop, g), mix(dayHor, dayTop, g), uDay);
+        col += vec3(0.35, 0.08, 0.25) * pow(1.0 - clamp(h, 0.0, 1.0), 8.0) * (1.0 - uDay) * 0.6;   // neon smog glow
+        // stars (night only, above the horizon), gently twinkling
+        vec3 sp = floor(d * 260.0);
+        float star = step(0.9975, hash(sp)) * smoothstep(0.05, 0.3, h) * (1.0 - uDay);
+        col += vec3(0.85, 0.9, 1.0) * star * (0.6 + 0.4 * sin(uTime * 2.0 + hash(sp) * 30.0));
+        // sun (warm, soft) and moon (opposite side)
+        float s = dot(d, uSunDir);
+        col += vec3(1.0, 0.82, 0.6) * (smoothstep(0.9993, 0.9997, s) * 2.0 + pow(max(s, 0.0), 60.0) * 0.35) * smoothstep(-0.08, 0.05, uSunDir.y);
+        float m = dot(d, -uSunDir);
+        col += vec3(0.75, 0.82, 0.95) * (smoothstep(0.9994, 0.9997, m) * 1.4 + pow(max(m, 0.0), 120.0) * 0.25) * smoothstep(-0.08, 0.05, -uSunDir.y);
+        // slow clouds over the upper sky
+        if (h > 0.02) {
+          vec2 cp = d.xz / (h + 0.15) * 1.6 + vec2(uTime * 0.004, uTime * 0.002);
+          float c = smoothstep(0.48, 0.78, fbm(cp));
+          vec3 cloudCol = mix(vec3(0.16, 0.07, 0.16), vec3(0.62, 0.62, 0.66), uDay);   // lit pink by the city at night
+          col = mix(col, cloudCol, c * 0.7 * smoothstep(0.02, 0.25, h));
+        }
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  }));
   sky.name = "SKY";
   sky.renderOrder = -10;
   root.add(sky);
@@ -1021,25 +1053,59 @@ export function buildCity(scene, renderer) {
     return "SPIRE PLAZA";
   }
 
-  // Fog colour & density drift between districts.
-  const fogSump = new THREE.Color(0x1a1826), fogMile = new THREE.Color(0x1a0f2c);
+  // ── day / night cycle ───────────────────────────────────────────────
+  // One full day = 24 minutes (about 12 night, 12 day). Daylight is kept dim
+  // and hazy: Neo Kasumi never gets a clear sunny sky.
+  const CYCLE_SECONDS = 24 * 60, DAY_MAX = 0.62;
+  let phaseOffset = 0.72;                                   // start in the evening
+  const dayNight = { day: 0, phase: 0 };
+  const sunDir = new THREE.Vector3();
+  const nightHemi = new THREE.Color(0x8fa8ff), dayHemi = new THREE.Color(0xc4cede);
+  const nightSun = new THREE.Color(0x9fc4ff), daySun = new THREE.Color(0xffe0bd);
+  const facadeBase = Object.fromEntries(Object.entries(facadeMats).map(([k, m]) => [k, m.emissiveIntensity]));
+  function updateDayNight(seconds) {
+    const phase = (seconds / CYCLE_SECONDS + phaseOffset) % 1;          // 0.25 = noon, 0.75 = midnight
+    const elev = Math.sin(phase * Math.PI * 2);
+    sunDir.set(Math.cos(phase * Math.PI * 2), elev, -0.35).normalize();
+    const day = THREE.MathUtils.smoothstep(elev, -0.12, 0.3) * DAY_MAX;
+    dayNight.day = day; dayNight.phase = phase;
+    skyUniforms.uDay.value = day / DAY_MAX * 0.85;
+    skyUniforms.uSunDir.value.copy(sunDir);
+    skyUniforms.uTime.value = seconds;
+    hemi.intensity = 1.55 + day * 1.9;
+    hemi.color.copy(nightHemi).lerp(dayHemi, day / DAY_MAX);
+    moon.intensity = 1.15 + day * 2.4;
+    moon.color.copy(nightSun).lerp(daySun, day / DAY_MAX);
+    moon.position.copy(elev > 0 ? sunDir : sunDir.clone().negate()).multiplyScalar(80);
+    // lit windows and fake light pools matter less in daylight
+    for (const [k, m] of Object.entries(facadeMats)) m.emissiveIntensity = facadeBase[k] * (1 - day * 0.95);
+    poolMat.opacity = 1 - day * 1.1;
+  }
+  updateDayNight(0);
+
+  // Fog colour & density drift between districts (and with daylight).
+  const fogSump = new THREE.Color(0x1a1826), fogMile = new THREE.Color(0x1a0f2c), fogDay = new THREE.Color(0x515a6a);
   const fogTmp = new THREE.Color();
   function applyAtmosphere(sceneRef, z) {
     const t = THREE.MathUtils.clamp((-z - 20) / 50, 0, 1);
-    fogTmp.copy(fogSump).lerp(fogMile, t);
+    fogTmp.copy(fogSump).lerp(fogMile, t).lerp(fogDay, dayNight.day / DAY_MAX);
+    sceneRef.environmentIntensity = 0.6 + dayNight.day * 0.6;
     if (!sceneRef.fog) sceneRef.fog = new THREE.Fog(fogTmp, 14, 150);
     sceneRef.fog.color.copy(fogTmp);
     sceneRef.fog.near = THREE.MathUtils.lerp(10, 18, t);
     sceneRef.fog.far = THREE.MathUtils.lerp(120, 165, t);
+    sceneRef.fog.far *= 1 + dayNight.day * 0.6;   // see further in daylight
     sceneRef.background = fogTmp;
   }
 
   function update(time, dt, playerPos) {
+    updateDayNight(performance.now() / 1000);
     for (const fn of animated) fn(time, dt);
     if (playerPos) updateRain(dt, playerPos.x, playerPos.y, playerPos.z);
   }
 
-  return { root, colliders, floors, anchors, sidewalkPaths, collides, groundAt, districtAt, applyAtmosphere, update };
+  return { root, colliders, floors, anchors, sidewalkPaths, collides, groundAt, districtAt, applyAtmosphere, update, dayNight,
+    setTimeOfDay(phase) { phaseOffset = (phase - (performance.now() / 1000 / CYCLE_SECONDS) % 1 + 2) % 1; updateDayNight(performance.now() / 1000); } };
 }
 
 // A small dark "neon city" environment map so metal & glass pick up coloured
