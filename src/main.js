@@ -763,13 +763,13 @@ document.querySelectorAll("[data-stat][data-change]").forEach(button => {
 const CONTROLS_VR = [
   ["Move", "Left stick"], ["Sprint", "Click left stick"], ["Turn", "Right stick"], ["Jump", "A"],
   ["Interact / talk / grab", "Point + trigger"], ["Dialogue choice", "Point + trigger"],
-  ["Make a fist / punch", "Squeeze grip + swing"], ["Palm pulse (shoot)", "Trigger, open hand"],
+  ["Make a fist / punch", "Squeeze grip + swing"], ["Palm blast (needs Pulse Emitter)", "Trigger, open hand"],
   ["Guard", "Both fists up at face"], ["Med patch", "X"],
   ["Menu", "Y"], ["Mika's door", "Grab handle + twist"]
 ];
 const CONTROLS_PC = [
   ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
-  ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm pulse", "Right click"],
+  ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm blast (Pulse Emitter)", "Right click"],
   ["Guard", "Hold C"], ["Med patch", "Q"], ["Menu", "E"], ["Mute sound", "M"]
 ];
 const characterPanel = document.querySelector("#character-panel");
@@ -2376,7 +2376,7 @@ const hpFill = document.querySelector("#hp-fill"), hpText = document.querySelect
 let lastHpText = "";
 function updateHealthHUD() {
   if (!hpWrap) return;
-  const max = maxHealth(), text = `${Math.ceil(combat.hp)} / ${max} · PULSE ${Math.floor(combat.energy * 3)} · ✚ ${state.items?.med_patch || 0}${combat.guarding ? " · GUARD" : ""}`;
+  const max = maxHealth(), text = `${Math.ceil(combat.hp)} / ${max}${isActive("pulse_capacitor") ? ` · PULSE ${Math.floor(combat.energy * 3)}` : ""} · ✚ ${state.items?.med_patch || 0}${combat.guarding ? " · GUARD" : ""}`;
   hpWrap.hidden = !(combat.inFight || combat.hp < max - 0.5);
   if (text === lastHpText) return;
   lastHpText = text;

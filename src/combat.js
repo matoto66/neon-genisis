@@ -99,7 +99,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   wrist.renderOrder = 900; wrist.visible = false;
   let wristParent = null, lastWristKey = "";
   function drawWrist() {
-    const max = maxHealth(), key = `${Math.ceil(hp)}|${max}|${Math.floor(energy * 3)}|${state.items.med_patch || 0}|${guarding}`;
+    const pulseOn = isActive("pulse_capacitor");
+    const max = maxHealth(), key = `${Math.ceil(hp)}|${max}|${Math.floor(energy * 3)}|${state.items.med_patch || 0}|${guarding}|${pulseOn}`;
     if (key === lastWristKey) return; lastWristKey = key;
     const c = wctx; c.clearRect(0, 0, 512, 160);
     c.fillStyle = "rgba(5,10,22,0.88)"; c.beginPath(); c.roundRect(4, 4, 504, 152, 22); c.fill();
@@ -108,8 +109,10 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     c.fillStyle = "#1c2433"; c.fillRect(24, 26, 464, 38);
     c.fillStyle = f > 0.5 ? "#6aff9e" : f > 0.25 ? "#ffcf4a" : "#ff3a4a"; c.fillRect(24, 26, 464 * f, 38);
     c.fillStyle = "#fff"; c.font = "bold 28px Arial"; c.textBaseline = "middle"; c.fillText(`HP ${Math.ceil(hp)} / ${max}`, 34, 46);
-    for (let i = 0; i < 3; i++) { c.fillStyle = energy * 3 >= i + 1 ? "#38f0e6" : "#1c3a44"; c.fillRect(24 + i * 92, 86, 84, 44); }
-    c.fillStyle = "#9fe9ff"; c.font = "bold 22px Arial"; c.fillText("PULSE", 310, 108);
+    if (pulseOn) {
+      for (let i = 0; i < 3; i++) { c.fillStyle = energy * 3 >= i + 1 ? "#38f0e6" : "#1c3a44"; c.fillRect(24 + i * 92, 86, 84, 44); }
+      c.fillStyle = "#9fe9ff"; c.font = "bold 22px Arial"; c.fillText("PULSE", 310, 108);
+    } else { c.fillStyle = "#6f82a0"; c.font = "bold 22px Arial"; c.fillText(guarding ? "GUARDING" : "FISTS", 34, 108); }
     c.fillStyle = "#ff8ad8"; c.font = "bold 26px Arial"; c.fillText(`✚ ${state.items.med_patch || 0}`, 412, 108);
     wristTex.needsUpdate = true;
   }
@@ -305,7 +308,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     regenDelay -= dt;
     const inFight = enemies.some(e => !e.dead && e.group.position.distanceTo(player.position) < 25);
     if (regenDelay <= 0 && !inFight) hp = Math.min(maxHealth(), hp + dt * 6);
-    energy = Math.min(1, energy + dt * 0.22 * (isActive("pulse_capacitor") ? 1.6 : 1));
+    energy = Math.min(1, energy + dt * 0.3);
 
     // ── hands: fists, punches, guard ───────────────────────────────────
     player.updateMatrixWorld();
@@ -458,14 +461,20 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   }
 
   /** Palm pulse from a controller (or the camera on PC). Returns true if fired. */
+  let lockedHintAt = 0;
   function firePulse(originObject, forwardFrom) {
+    // The palm blast is cyberware: fists only until you buy the Pulse Emitter.
+    if (!isActive("pulse_capacitor")) {
+      if (performance.now() - lockedHintAt > 15000 && enemies.some(e => !e.dead)) { lockedHintAt = performance.now(); game.toast("Palm blast locked: buy the Pulse Emitter from Doc Anaya.", "warn"); }
+      return false;
+    }
     if (dead || energy < 0.33) { if (!dead) game.toast("Pulse recharging…"); return false; }
     energy -= 0.33;
     const from = new THREE.Vector3(), dir = new THREE.Vector3(0, 0, -1);
     originObject.getWorldPosition(from);
     dir.applyQuaternion((forwardFrom || originObject).getWorldQuaternion(new THREE.Quaternion())).normalize();
     from.addScaledVector(dir, 0.12);
-    fireBolt(from, dir, true, 14 * (isActive("pulse_capacitor") ? 1.5 : 1), 22);
+    fireBolt(from, dir, true, 16, 22);
     flash(from, 0x5ff5ff, 0.5);
     return true;
   }

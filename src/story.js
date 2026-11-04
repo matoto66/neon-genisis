@@ -29,8 +29,8 @@ export const CYBERWARE = {
     desc: "Your fists crackle with current: +50% punch damage, and hits stun enemies." },
   aegis_plating:   { name: "Aegis Forearm Plating", price: 380, req: 1, slot: "Arms", cat: "combat",
     desc: "Raise both fists to your face to guard: blocks 90% of damage (70% without it)." },
-  pulse_capacitor: { name: "Pulse Capacitor", price: 520, req: 2, slot: "GEN-0 Arm", cat: "combat",
-    desc: "Open-palm pulse shots hit 50% harder and recharge 60% faster." },
+  pulse_capacitor: { name: "Pulse Emitter", price: 600, req: 1, slot: "GEN-0 Arm", cat: "combat",
+    desc: "Unlocks the palm blast: pull the trigger with an open hand to fire an energy shot (3 charges)." },
   genesis_link:    { name: "GENESIS Link", price: 0, req: 5, slot: "???", locked: true,
     desc: "Not for sale. Doc says the parts don't exist yet. The core disagrees." }
 };
