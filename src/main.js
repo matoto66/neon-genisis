@@ -820,7 +820,7 @@ document.addEventListener("keydown", event => {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
-    if (event.code === "KeyV") { combat.useChrono(); return; }
+    if (event.code === "KeyV") { if (combat.useChrono()) audio.play("flare"); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -2475,7 +2475,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
     if (xPressed && !previousXButton && isInCity) combat.useMedPatch();
     previousXButton = xPressed;
     const bPressed = !!getGamepad("right")?.buttons?.[5]?.pressed;  // B: Chrono Spike
-    if (bPressed && !previousBButton && isInCity) combat.useChrono();
+    if (bPressed && !previousBButton && isInCity && combat.useChrono()) audio.play("flare");
     previousBButton = bPressed;
   }
   if (desktopJab > 0) {
@@ -2498,7 +2498,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   audio.update(delta, { inCity: isInCity, district: city.districtAt(player.position.z, player.position.y, player.position.x), indoors: indoorsAtMika, height: player.position.y });
   if (isInCity) {
     city.applyAtmosphere(scene, player.position.z);
-    city.update(time, delta, player.position);
+    city.update(time, delta * (combat?.timeScale ?? 1), player.position);   // rain nearly freezes in Chrono Spike
     animateGenesisCore(time);
     game.update(time, delta, vrControllerRays.map(item => item.controller));
   }

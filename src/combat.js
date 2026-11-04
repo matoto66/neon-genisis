@@ -14,6 +14,7 @@
 
 import * as THREE from "three";
 import { buildCharacter } from "./character.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { state, saveGame, maxHealth, effectiveStrength, isActive, XP_REWARDS } from "./state.js";
 
 const ENEMY_TYPES = {
@@ -143,11 +144,68 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   const tint = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), tintMat);
   tint.position.z = -0.31; tint.renderOrder = 9989; tint.visible = false; camera.add(tint);
   let chronoT = 0, chronoCd = 0;
+  const CHRONO_TIME = 5, CHRONO_SCALE = 0.05;      // the world runs at 5% speed: almost frozen, still moving
+  // Effect 1: a shockwave sphere that ripples out from you (and back in when time resumes).
+  const waveMat = new THREE.MeshBasicMaterial({ color: 0x7ffcff, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: true, toneMapped: false });
+  const wave = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), waveMat);
+  wave.visible = false; root.add(wave);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x38f0e6, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.visible = false; root.add(ring);
+  let waveT = -1, waveOut = true;
+  function startWave(out) { waveT = 0; waveOut = out; head.setFromMatrixPosition(camera.matrixWorld); wave.position.copy(head); ring.position.set(head.x, player.position.y + 0.05, head.z); }
+  // Effect 2: scanlines + a cyan/magenta "chromatic" edge over your view while slowed.
+  const scanTex = (() => { const c = document.createElement("canvas"); c.width = 4; c.height = 256; const x = c.getContext("2d");
+    for (let y = 0; y < 256; y += 4) { x.fillStyle = "rgba(160,255,250,0.55)"; x.fillRect(0, y, 4, 1); } const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 3); return t; })();
+  const scanMat = new THREE.MeshBasicMaterial({ map: scanTex, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const scan = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), scanMat);
+  scan.position.z = -0.305; scan.renderOrder = 9988; scan.visible = false; camera.add(scan);
+  const fringeMat = new THREE.MeshBasicMaterial({ map: vigTex, color: 0xff4fd8, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const fringe = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), fringeMat);
+  fringe.position.set(0.012, 0, -0.32); fringe.renderOrder = 9987; fringe.visible = false; camera.add(fringe);
+  // Effect 3: frozen enemies leave fading cyan afterimages.
+  const ghosts = [];
+  function updateChronoFx(dt, t) {
+    if (waveT >= 0) {
+      waveT += dt;
+      const k = Math.min(1, waveT / (waveOut ? 0.7 : 0.45));
+      const r = waveOut ? 0.3 + k * 22 : 22 * (1 - k) + 0.3;
+      wave.scale.setScalar(r); ring.scale.setScalar(r);
+      wave.visible = ring.visible = true;
+      waveMat.opacity = 0.55 * (1 - k); ringMat.opacity = 0.9 * (1 - k);
+      if (k >= 1) { waveT = -1; wave.visible = ring.visible = false; }
+    }
+    const on = chronoT > 0;
+    const ending = on && chronoT < 0.6;
+    scanTex.offset.y = (scanTex.offset.y + dt * 0.02) % 1;
+    scanMat.opacity = on ? (ending ? 0.08 + Math.random() * 0.12 : 0.1 + Math.sin(t * 3) * 0.02) : Math.max(0, scanMat.opacity - dt * 0.6);
+    fringeMat.opacity = on ? 0.32 + Math.sin(t * 2.2) * 0.06 : Math.max(0, fringeMat.opacity - dt * 0.8);
+    scan.visible = scanMat.opacity > 0.005; fringe.visible = fringeMat.opacity > 0.005;
+    // afterimages: every 0.15 s copy each living enemy's silhouette as a fading hologram
+    if (on && (ghostTimer -= dt) <= 0) {
+      ghostTimer = 0.15;
+      for (const e of enemies) {
+        if (e.dead || ghosts.length > 40) continue;
+        const g = cloneSkinned(e.group);   // own skeleton, so the afterimage stays frozen in place
+        g.traverse(o => { if (o.isMesh || o.isSprite) { o.material = ghostMat.clone(); } });
+        root.add(g); ghosts.push({ g, life: 0.9 });
+      }
+    }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const gh = ghosts[i]; gh.life -= dt;
+      gh.g.traverse(o => { if (o.material) o.material.opacity = Math.max(0, gh.life) * 0.35; });
+      if (gh.life <= 0) { root.remove(gh.g); ghosts.splice(i, 1); }
+    }
+  }
+  let ghostTimer = 0;
+  const ghostMat = new THREE.MeshBasicMaterial({ color: 0x5ff5ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   function useChrono() {
     if (!isActive("chrono_spike") || dead) return false;
+    if (chronoT > 0) return false;
     if (chronoCd > 0) { game.toast(`Chrono Spike recharging (${Math.ceil(chronoCd)} s)`); return false; }
-    chronoT = 5; chronoCd = 30;
+    chronoT = CHRONO_TIME; chronoCd = CHRONO_TIME + 5;          // 5 s cooldown after the slow-mo ends
     head.setFromMatrixPosition(camera.matrixWorld); burst(head, 0x38f0e6, 30, 3, 0);
+    startWave(true);
     game.toast("CHRONO SPIKE", "objective");
     haptic?.("both", 0.6, 200);
     return true;
@@ -296,9 +354,10 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     // particles & flashes
     for (let k = 0; k < PN; k++) {
       if (pLife[k] <= 0) { if (pPos[k * 3 + 1] > -50) pPos[k * 3 + 1] = -100; continue; }
-      pLife[k] -= dt;
-      pVel[k * 3 + 1] -= 6 * dt;
-      pPos[k * 3] += pVel[k * 3] * dt; pPos[k * 3 + 1] += pVel[k * 3 + 1] * dt; pPos[k * 3 + 2] += pVel[k * 3 + 2] * dt;
+      const pdt = dt * (chronoT > 0 ? CHRONO_SCALE * 3 : 1);
+      pLife[k] -= pdt;
+      pVel[k * 3 + 1] -= 6 * pdt;
+      pPos[k * 3] += pVel[k * 3] * pdt; pPos[k * 3 + 1] += pVel[k * 3 + 1] * pdt; pPos[k * 3 + 2] += pVel[k * 3 + 2] * pdt;
     }
     pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
     for (const f of flashes) if (f.t > 0) { f.t -= dt; f.s.material.opacity = Math.max(0, f.t / 0.18); if (f.t <= 0) f.s.visible = false; }
@@ -389,9 +448,12 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     guarding = desktop ? !!desktop.guard : fistsUp >= 2;
 
     // Chrono Spike: enemies and their shots run at quarter speed.
+    const wasSlow = chronoT > 0;
     chronoT = Math.max(0, chronoT - dt); chronoCd = Math.max(0, chronoCd - dt);
-    const edt = dt * (chronoT > 0 ? 0.25 : 1);
-    tintMat.opacity = chronoT > 0 ? 0.22 + Math.sin(t * 6) * 0.04 : Math.max(0, tintMat.opacity - dt);
+    if (wasSlow && chronoT <= 0) { startWave(false); haptic?.("both", 0.4, 120); }   // time snaps back
+    const edt = dt * (chronoT > 0 ? CHRONO_SCALE : 1);
+    tintMat.opacity = chronoT > 0 ? 0.26 + Math.sin(t * 6) * 0.04 : Math.max(0, tintMat.opacity - dt);
+    updateChronoFx(dt, t);
     tint.visible = tintMat.opacity > 0.01;
     // ── enemies think and move ─────────────────────────────────────────
     for (let i = enemies.length - 1; i >= 0; i--) {
@@ -532,6 +594,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   return {
     update, firePulse, desktopPunch, useMedPatch, spawn, useChrono,
     get hp() { return hp; }, get energy() { return energy; }, get guarding() { return guarding; }, get dead() { return dead; },
+    get timeScale() { return chronoT > 0 ? CHRONO_SCALE : 1; },
     get inFight() { return enemies.some(e => !e.dead && e.group.position.distanceTo(player.position) < 25); },
     enemies, resetHealth() { hp = maxHealth(); }, debugHurt(n) { hurt(n); }
   };

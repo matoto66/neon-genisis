@@ -454,6 +454,11 @@ export function createGame(ctx) {
     panel.visible = true; hoverIndex = -1;
     drawPanel(); onPanelOpen();
   }
+  // TEST MODE: everything at Second Skin costs $0. Set to false to restore prices.
+  const FREE_SHOP = true;
+  const priceOf = item => FREE_SHOP ? 0 : item.price;
+  const priceLabel = item => FREE_SHOP ? "GET · FREE" : `BUY $${item.price}`;
+
   // Shop tabs keep each page to a handful of readable rows.
   const SHOP_TABS = [{ id: "supplies", label: "SUPPLIES" }, { id: "chrome", label: "CHROME" }, { id: "combat", label: "COMBAT" }];
   function shopItems(cat) {
@@ -482,8 +487,8 @@ export function createGame(ctx) {
         c.fillStyle = hov ? "rgba(255,111,224,0.16)" : "rgba(40,22,48,0.9)"; roundRect(c, 32, y, PANEL_W - 64, rowH - 6, 12); c.fill();
         c.fillStyle = "#ffffff"; c.font = "bold 25px Arial"; c.fillText(`${w.name}  ·  YOU HAVE ${have}`, 50, y + 30);
         c.fillStyle = "#b8c4d8"; c.font = "18px Arial"; c.fillText(w.desc, 50, y + 56);
-        c.fillStyle = have >= w.max ? "#56607a" : state.credits >= w.price ? "#a0287a" : "#56607a"; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
-        c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(have >= w.max ? "FULL" : `BUY $${w.price}`, PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
+        c.fillStyle = have >= w.max ? "#56607a" : state.credits >= priceOf(w) ? "#a0287a" : "#56607a"; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
+        c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(have >= w.max ? "FULL" : priceLabel(w), PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
         s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 6, index: i });
         return;
       }
@@ -502,7 +507,7 @@ export function createGame(ctx) {
       else if (installed) { label = "INSTALLED"; col = "#2a8a6a"; }
       else if (owned) { label = "INSTALL"; col = "#2a6a8a"; }
       else if (lockedReq) { label = `COMPAT ${w.req}`; col = "#56607a"; }
-      else { label = `BUY $${w.price}`; col = state.credits >= w.price ? "#a0287a" : "#56607a"; }
+      else { label = priceLabel(w); col = state.credits >= priceOf(w) ? "#a0287a" : "#56607a"; }
       c.fillStyle = col; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
       c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(label, PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
       s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 6, index: i });
@@ -524,8 +529,8 @@ export function createGame(ctx) {
       const cdef = CONSUMABLES[id]; state.items = state.items || {};
       const have = state.items[id] || 0;
       if (have >= cdef.max) s.message = `You can only carry ${cdef.max}.`;
-      else if (state.credits < cdef.price) s.message = "Not enough credits.";
-      else { state.credits -= cdef.price; state.items[id] = have + 1; s.message = `Bought a ${cdef.name}. You have ${have + 1}.`; }
+      else if (state.credits < priceOf(cdef)) s.message = "Not enough credits.";
+      else { state.credits -= priceOf(cdef); state.items[id] = have + 1; s.message = `Bought a ${cdef.name}. You have ${have + 1}.`; }
       changed(); drawPanel(); return;
     }
     const w = CYBERWARE[id];
@@ -536,9 +541,9 @@ export function createGame(ctx) {
       s.message = r === "installed" ? `${w.name} installed.` : r === "removed" ? `${w.name} removed.` : "No free slots. Remove something or raise COMPATIBILITY.";
       if (r === "installed") emit("buy", id);
     } else if (w.req > state.character.compatibility) s.message = `Your body can't take it yet: COMPATIBILITY ${w.req} needed.`;
-    else if (state.credits < w.price) s.message = "Not enough credits.";
+    else if (state.credits < priceOf(w)) s.message = "Not enough credits.";
     else {
-      state.credits -= w.price;
+      state.credits -= priceOf(w);
       state.owned.push(id);
       const r = toggleInstall(id);
       s.message = r === "installed" ? `Installed ${w.name}.` : `Bought ${w.name}. No free slot — install it from your menu.`;

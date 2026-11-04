@@ -34,7 +34,7 @@ export const CYBERWARE = {
   edge_fins:       { name: "Edge Fins", price: 700, req: 2, slot: "Forearms", cat: "combat",
     desc: "Hard-light blades slide out of your wrists when you make a fist: longer reach, +40% damage." },
   chrono_spike:    { name: "Chrono Spike", price: 900, req: 3, slot: "Nervous System", cat: "combat",
-    desc: "Press B (V on PC): the world slows to a crawl for 5 seconds. 30 s cooldown." },
+    desc: "Press B (V on PC): the world almost freezes for 5 seconds while you keep moving. 5 s cooldown." },
   genesis_link:    { name: "GENESIS Link", price: 0, req: 5, slot: "???", locked: true,
     desc: "Not for sale. Doc says the parts don't exist yet. The core disagrees." }
 };
