@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, PICKUPS, AMBIENT_BARKS, entryFor } from "./story.js";
 import { state, saveGame, creditMultiplier, effectiveStrength, slotCount, isActive, toggleInstall } from "./state.js";
 import { createNPCSystem } from "./npcs.js";
+import { createGuide, guideSettings } from "./guide.js";
 
 const PANEL_W = 1024, PANEL_H = 768;
 const SPEAKER_COLORS = { mika: "#38f0e6", sato: "#ffcf7a", rei: "#ff4f6d", doc: "#ff6fe0", pip: "#9fff6a", lulu: "#ff4fa3", whisper: "#ffcf8a", ishida: "#8fd8ff" };
@@ -532,6 +533,7 @@ export function createGame(ctx) {
   cityWorld.add(beacon);
   const beaconRing = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.04, 6, 32), new THREE.MeshBasicMaterial({ color: 0xffcf4a, fog: false }));
   beaconRing.rotation.x = Math.PI / 2; beacon.add(beaconRing); beaconRing.position.y = -34.9;
+  const guide = createGuide(cityWorld);
   const distLabel = textPlate("", "#ffcf4a"); distLabel.visible = false; cityWorld.add(distLabel);
   let lastDistText = "";
   const shardBeaconMat = new THREE.MeshBasicMaterial({ color: 0xc58bff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
@@ -549,7 +551,8 @@ export function createGame(ctx) {
     if (t.npc) {
       const npc = npcSys.byId[t.npc];
       if (!npc) return null;
-      if (t.via && npc.holder.position.y > 10 && tmpV2.y < 10) return A[t.via];
+      // The beam points at the lift; the path guide routes through it instead.
+      if (t.via && guideSettings.guide !== "path" && npc.holder.position.y > 10 && tmpV2.y < 10) return A[t.via];
       return npc.holder.position;
     }
     if (t.anchor) return A[t.anchor];
@@ -816,13 +819,13 @@ export function createGame(ctx) {
     if (target) {
       dist = Math.hypot(target.x - tmpV2.x, target.z - tmpV2.z);
       const sameLevel = Math.abs(target.y - tmpV2.y) < 5;
-      beacon.visible = dist > 3.5 || !sameLevel;
+      beacon.visible = guideSettings.guide !== "path" && (dist > 3.5 || !sameLevel);
       beacon.position.set(target.x, target.y + 35, target.z);
       const main = MISSIONS[trackedMission()]?.kind === "main";
       beaconMat.color.set(main ? 0xffcf4a : 0x5ff5e8); beaconRing.material.color.copy(beaconMat.color);
       beaconMat.opacity = 0.22 + Math.sin(time * 0.004) * 0.08;
       // Wayfinder optic: floating distance read-out above the target
-      distLabel.visible = isActive("wayfinder") && beacon.visible;
+      distLabel.visible = isActive("wayfinder") && (dist > 3.5 || !sameLevel);
       if (distLabel.visible) {
         const txt = `${Math.round(dist)} m`;
         if (txt !== lastDistText) { lastDistText = txt; const c = distLabel.material.map.image.getContext("2d"); c.clearRect(0, 0, 512, 96); c.fillStyle = "rgba(5,10,22,0.85)"; roundRect(c, 4, 4, 504, 88, 14); c.fill(); c.strokeStyle = "#ffcf4a"; c.lineWidth = 4; c.stroke(); c.fillStyle = "#fff"; c.font = "bold 48px Arial"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(txt, 256, 50); distLabel.material.map.needsUpdate = true; }
@@ -830,6 +833,7 @@ export function createGame(ctx) {
         const s = THREE.MathUtils.clamp(dist * 0.05, 0.8, 4); distLabel.scale.set(1.6 * s, 0.3 * s, 1);
       }
     } else { beacon.visible = false; distLabel.visible = false; }
+    guide.update(time, tmpV2, target && (Math.hypot(target.x - tmpV2.x, target.z - tmpV2.z) > 2.2 || Math.abs(target.y - tmpV2.y) > 4) ? target : null, MISSIONS[trackedMission()]?.kind === "main");
     for (const { b, p } of shardBeacons) b.visible = isActive("wayfinder") && p.enabled();
     // district name toast when you cross into a new area
     const district = city.districtAt(tmpV2.z, tmpV2.y);

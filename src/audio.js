@@ -93,15 +93,7 @@ export function createAudio(camera) {
   // ── ambience: rain + city drone + distant traffic ───────────────────────
   let rainGain, cityGain, trafficFilter;
   function startAmbience() {
-    // rain = two bands of noise
-    rainGain = ctx.createGain(); rainGain.gain.value = 0;
-    const rainSoften = ctx.createBiquadFilter(); rainSoften.type = "lowpass"; rainSoften.frequency.value = 3200;
-    rainGain.connect(rainSoften); rainSoften.connect(buses.ambience);
-    for (const [freq, q, vol] of [[1700, 0.5, 0.022], [600, 0.8, 0.016]]) {
-      const s = noiseSource(true), f = ctx.createBiquadFilter(), g = ctx.createGain();
-      f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q; g.gain.value = vol;
-      s.connect(f); f.connect(g); g.connect(rainGain); s.start();
-    }
+    // (Rain sound removed at the player's request; the visual rain stays.)
     // low city rumble with slowly moving filter (traffic swells)
     cityGain = ctx.createGain(); cityGain.gain.value = 0; cityGain.connect(buses.ambience);
     const brown = noiseSource(true, makeNoise(4, true));
@@ -303,9 +295,7 @@ export function createAudio(camera) {
   function update(dt, { inCity, district, indoors, height }) {
     if (!ctx) return;
     if (!started && inCity) { started = true; startAmbience(); }
-    if (rainGain) {
-      const rain = !inCity ? 0 : indoors ? 0.25 : 1;
-      rainGain.gain.setTargetAtTime(rain, now(), 0.4);
+    if (cityGain) {
       cityGain.gain.setTargetAtTime(!inCity ? 0 : indoors ? 0.35 : district === "NEON MILE" ? 1 : 0.8, now(), 0.6);
     }
   }

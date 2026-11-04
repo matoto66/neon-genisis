@@ -7,6 +7,7 @@ import { skinify, mergeStatic } from "./optimize.js";
 import { createAudio } from "./audio.js";
 import { buildCharacter } from "./character.js";
 import * as creator from "./creator.js";
+import { guideSettings, setGuideStyle } from "./guide.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -749,12 +750,24 @@ document.querySelectorAll("[data-stat][data-change]").forEach(button => {
   });
 });
 
+// Controls shown on the Settings page (PC menu and VR wrist menu).
+const CONTROLS_VR = [
+  ["Move", "Left stick"], ["Sprint", "Click left stick"], ["Turn", "Right stick"], ["Jump", "A"],
+  ["Interact / talk / grab", "Point + trigger"], ["Dialogue choice", "Point + trigger"],
+  ["Menu", "Y"], ["Mika's door", "Grab handle + twist"]
+];
+const CONTROLS_PC = [
+  ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
+  ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Menu", "E"], ["Mute sound", "M"]
+];
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
+const settingsPanel = document.querySelector("#settings-panel");
 function showPanel(panel) {
   const wasOpen = !panel.hidden;
   characterPanel.hidden = true;
   shopPanel.hidden = true;
+  settingsPanel.hidden = true;
   if (!wasOpen) panel.hidden = false;
 }
 
@@ -770,6 +783,7 @@ function closeGameMenu() {
   gameUI.classList.add("menu-closed");
   characterPanel.hidden = true;
   shopPanel.hidden = true;
+  settingsPanel.hidden = true;
   if (!renderer.xr.isPresenting) renderer.domElement.requestPointerLock?.();
 }
 function toggleGameMenu() {
@@ -789,6 +803,19 @@ document.addEventListener("keydown", event => {
 });
 document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
 document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
+document.querySelector("#settings-toggle").addEventListener("click", () => showPanel(settingsPanel));
+// Settings: objective guide style + the controls list (same data as the VR menu).
+function updateSettingsUI() {
+  document.querySelectorAll("[data-guide]").forEach(b => b.classList.toggle("on", b.dataset.guide === guideSettings.guide));
+  const note = document.querySelector("#guide-note");
+  if (note) note.textContent = guideSettings.guide === "path" ? "A dotted line floats along the streets to your objective." : "A tall light beam stands over your objective.";
+  if (vrMenu?.visible) drawVRMenu();
+}
+document.querySelectorAll("[data-guide]").forEach(b => b.addEventListener("click", () => { setGuideStyle(b.dataset.guide); updateSettingsUI(); }));
+for (const [id, list] of [["#controls-vr", CONTROLS_VR], ["#controls-pc", CONTROLS_PC]]) {
+  const el = document.querySelector(id);
+  if (el) el.innerHTML = list.map(([a, k]) => `<div class="control-row"><span>${a}</span><kbd>${k}</kbd></div>`).join("");
+}
 document.querySelectorAll("[data-close]").forEach(button => {
   button.addEventListener("click", () => { document.getElementById(button.dataset.close).hidden = true; });
 });
@@ -1706,6 +1733,7 @@ for (let i = 0; i < 2; i++) {
 
 let vrMenuPage = "character";
 const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
+const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "settings", label: "SETTINGS" }];
 function drawVRMenu() {
   const ctx = vrMenuContext;
   ctx.clearRect(0, 0, 1024, 768);
@@ -1720,18 +1748,19 @@ function drawVRMenu() {
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 25px Arial";
   ctx.fillText("CREDITS  $" + state.credits.toLocaleString(), 760, 58);
-  ctx.fillStyle = "#14243d";
-  ctx.fillRect(50, 92, 440, 66);
-  ctx.fillRect(534, 92, 440, 66);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 25px Arial";
-  ctx.fillText("CHARACTER", 205, 134);
-  ctx.fillText("CYBERWARE", 690, 134);
-  ctx.strokeStyle = vrMenuPage === "character" ? "#5ff5e8" : "#33445f";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(50, 92, 440, 66);
-  ctx.strokeStyle = vrMenuPage === "cyberware" ? "#5ff5e8" : "#33445f";
-  ctx.strokeRect(534, 92, 440, 66);
+  VR_TABS.forEach((t, i) => {
+    const x = 50 + i * 308;
+    ctx.fillStyle = vrMenuPage === t.id ? "#0f5f66" : "#14243d";
+    ctx.fillRect(x, 92, 292, 66);
+    ctx.strokeStyle = vrMenuPage === t.id ? "#5ff5e8" : "#33445f";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x, 92, 292, 66);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 25px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(t.label, x + 146, 134);
+    ctx.textAlign = "left";
+  });
 
   if (vrMenuPage === "character") {
     ctx.fillStyle = "#aab6cf";
@@ -1763,6 +1792,28 @@ function drawVRMenu() {
       ctx.fillText("−", 811, y + 18);
       ctx.fillText("+", 902, y + 18);
     });
+  } else if (vrMenuPage === "settings") {
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial";
+    ctx.fillText("OBJECTIVE GUIDE", 60, 200);
+    for (const [i, opt, label] of [[0, "beam", "SKY BEAM"], [1, "path", "PATH LINE"]]) {
+      const x = 330 + i * 320, on = guideSettings.guide === opt;
+      ctx.fillStyle = on ? "#0f6f74" : "#20465a"; ctx.fillRect(x, 168, 300, 56);
+      ctx.strokeStyle = on ? "#5ff5e8" : "#33445f"; ctx.lineWidth = 3; ctx.strokeRect(x, 168, 300, 56);
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
+      ctx.fillText((on ? "● " : "") + label, x + 150, 205); ctx.textAlign = "left";
+    }
+    ctx.fillStyle = "#aab6cf"; ctx.font = "19px Arial";
+    ctx.fillText(guideSettings.guide === "path" ? "A dotted line floats along the streets to your objective." : "A tall light beam stands over your objective.", 60, 254);
+    for (const [col, title, list] of [[0, "QUEST CONTROLS", CONTROLS_VR], [1, "PC CONTROLS", CONTROLS_PC]]) {
+      const x = 60 + col * 470;
+      ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 22px Arial"; ctx.fillText(title, x, 300);
+      list.forEach(([action, key], i) => {
+        const y = 338 + i * 38;
+        ctx.fillStyle = "#13233b"; ctx.fillRect(x - 6, y - 26, 440, 34);
+        ctx.fillStyle = "#dce7ff"; ctx.font = "19px Arial"; ctx.fillText(action, x + 4, y);
+        ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 19px Arial"; ctx.textAlign = "right"; ctx.fillText(key, x + 426, y); ctx.textAlign = "left";
+      });
+    }
   } else {
     ctx.fillStyle = "#aab6cf";
     ctx.font = "24px Arial";
@@ -1818,8 +1869,13 @@ function activateVRMenuAtController(controller) {
   const x = hit.uv.x * 1024;
   const y = (1 - hit.uv.y) * 768;
   if (y >= 92 && y <= 158) {
-    if (x >= 50 && x <= 490) vrMenuPage = "character";
-    else if (x >= 534 && x <= 974) vrMenuPage = "cyberware";
+    const i = Math.floor((x - 50) / 308);
+    if (i >= 0 && i < VR_TABS.length && x - 50 - i * 308 <= 292) vrMenuPage = VR_TABS[i].id;
+  } else if (vrMenuPage === "settings") {
+    if (y >= 168 && y <= 224 && x >= 330 && x <= 950) {
+      setGuideStyle(x < 640 ? "beam" : "path");
+      updateSettingsUI();
+    }
   } else if (vrMenuPage === "character") {
     for (let i = 0; i < 3; i++) {
       const rowY = 280 + i * 125;
@@ -2133,6 +2189,7 @@ game = createGame({
 document.addEventListener("keydown", event => {
   if (event.code === "KeyM" && !renderer.xr.isPresenting) game.toast(audio.toggleMute() ? "Sound muted (M)" : "Sound on (M)");
 });
+updateSettingsUI();
 updateCharacterUI();
 
 document.querySelector("#reset-button")?.addEventListener("click", () => {
@@ -2153,6 +2210,7 @@ if (DEBUG) {
     game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
+    wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
       player.position.set(x, y, z); player.rotation.set(0, yaw, 0);
