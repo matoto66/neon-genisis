@@ -8,6 +8,7 @@ import { createAudio } from "./audio.js";
 import { buildCharacter } from "./character.js";
 import * as creator from "./creator.js";
 import { guideSettings, setGuideStyle } from "./guide.js";
+import { createIntro } from "./intro.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -91,6 +92,9 @@ for (const child of [...scene.children]) {
 }
 scene.add(cityWorld);
 cityWorld.visible = false;
+// Story intro (holographic slides). Created after the city is grouped so it
+// stays a separate world. See intro.js.
+const intro = createIntro({ scene, camera, renderer, getLook: () => appearance });
 
 // SECTOR 09 — Mika's repair shop entrance. This is a real 3D doorway in the
 // city, built from lightweight Three.js geometry so it works on Quest.
@@ -791,6 +795,11 @@ function toggleGameMenu() {
   else openGameMenu();
 }
 document.addEventListener("keydown", event => {
+  if (intro.active && !renderer.xr.isPresenting) {
+    if (["Space", "Enter", "KeyF", "ArrowRight"].includes(event.code)) { event.preventDefault(); intro.next(); }
+    if (event.code === "Escape") intro.skip();
+    return;
+  }
   if (game && isInCity && !renderer.xr.isPresenting) {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
@@ -812,6 +821,15 @@ function updateSettingsUI() {
   if (vrMenu?.visible) drawVRMenu();
 }
 document.querySelectorAll("[data-guide]").forEach(b => b.addEventListener("click", () => { setGuideStyle(b.dataset.guide); updateSettingsUI(); }));
+function replayIntro() {
+  if (!isInCity || intro.active) return;
+  closeGameMenu();
+  setVRMenuOpen(false);
+  game.closePanel();
+  if (document.pointerLockElement) document.exitPointerLock?.();
+  intro.play(() => {}, [cityWorld]);
+}
+document.querySelector("#replay-intro")?.addEventListener("click", replayIntro);
 for (const [id, list] of [["#controls-vr", CONTROLS_VR], ["#controls-pc", CONTROLS_PC]]) {
   const el = document.querySelector(id);
   if (el) el.innerHTML = list.map(([a, k]) => `<div class="control-row"><span>${a}</span><kbd>${k}</kbd></div>`).join("");
@@ -855,8 +873,21 @@ let vrStartReady = false;
 let vrStartHovered = null;
 let isInCity = false;
 
+// PLAY: a brand-new story first shows the holographic story intro.
 function startCity() {
   creator.saveLook();
+  if (!state.introSeen && !intro.active) {
+    startScreen.classList.add("hidden");
+    vrStart.visible = false;
+    characterPreview.visible = false;
+    vrStartReady = true;
+    vrCursor.visible = false;
+    intro.play(enterCity, [mainMenuWorld, cityWorld]);
+    return;
+  }
+  enterCity();
+}
+function enterCity() {
   isInCity = true;
   cityWorld.visible = true;
   mainMenuWorld.visible = false;
@@ -1500,7 +1531,7 @@ const MENU_VIEWS = { body: { x: 0.95, y: 0, z: 5.7, pitch: -0.1 }, face: { x: 1.
 let menuView = MENU_VIEWS.body;
 function applyCreatorFocus() { menuView = ["face", "hair"].includes(creator.TABS[creatorTab].id) ? MENU_VIEWS.face : MENU_VIEWS.body; }
 function updateMenuCamera(delta, time) {
-  if (isInCity || renderer.xr.isPresenting) return;
+  if (isInCity || renderer.xr.isPresenting || intro.active) return;
   const k = 1 - Math.exp(-4 * delta);
   player.position.x += (menuView.x - player.position.x) * k;
   player.position.y += (menuView.y - player.position.y) * k;
@@ -1711,6 +1742,7 @@ for (let i = 0; i < 2; i++) {
     controller.userData.handedness = undefined;
   });
   controller.addEventListener("selectstart", () => {
+    if (intro.active) { intro.triggerDown(); return; }
     if (!isInCity || vrMenu.visible || vrStart.visible) return;
     // Physical door handle first, then NPCs / pickups / dialogue buttons.
     if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
@@ -1718,9 +1750,11 @@ for (let i = 0; i < 2; i++) {
     game?.onTrigger(controller);
   });
   controller.addEventListener("selectend", () => {
+    if (intro.active) { intro.triggerUp(); return; }
     endDoorGrab(controller);
   });
   controller.addEventListener("select", () => {
+    if (intro.active) return;
     if (controller.userData.handedness === "right") {
       if (vrStart.visible) activateVRStartAtController(controller);
       else if (vrMenu.visible) activateVRMenuAtController(controller);
@@ -1802,6 +1836,9 @@ function drawVRMenu() {
       ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
       ctx.fillText((on ? "● " : "") + label, x + 150, 205); ctx.textAlign = "left";
     }
+    ctx.fillStyle = "#3a2a5a"; ctx.fillRect(740, 236, 210, 40);
+    ctx.strokeStyle = "#b24cff"; ctx.lineWidth = 2; ctx.strokeRect(740, 236, 210, 40);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center"; ctx.fillText("▶ REPLAY INTRO", 845, 263); ctx.textAlign = "left";
     ctx.fillStyle = "#aab6cf"; ctx.font = "19px Arial";
     ctx.fillText(guideSettings.guide === "path" ? "A dotted line floats along the streets to your objective." : "A tall light beam stands over your objective.", 60, 254);
     for (const [col, title, list] of [[0, "QUEST CONTROLS", CONTROLS_VR], [1, "PC CONTROLS", CONTROLS_PC]]) {
@@ -1875,6 +1912,9 @@ function activateVRMenuAtController(controller) {
     if (y >= 168 && y <= 224 && x >= 330 && x <= 950) {
       setGuideStyle(x < 640 ? "beam" : "path");
       updateSettingsUI();
+    } else if (y >= 236 && y <= 276 && x >= 740 && x <= 950) {
+      replayIntro();
+      return;
     }
   } else if (vrMenuPage === "character") {
     for (let i = 0; i < 3; i++) {
@@ -2199,6 +2239,7 @@ document.querySelector("#reset-button")?.addEventListener("click", () => {
 });
 
 renderer.domElement.addEventListener("mousedown", event => {
+  if (intro.active && !renderer.xr.isPresenting && event.button === 0) { intro.next(); return; }
   if (renderer.xr.isPresenting || event.button !== 0 || !isInCity) return;
   if (game.isPanelOpen()) game.desktopClick();
   else if (document.pointerLockElement === renderer.domElement) game.desktopInteract();
@@ -2210,6 +2251,7 @@ if (DEBUG) {
     game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
+    intro, replayIntro,
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2228,7 +2270,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const delta = Math.min(clock.getDelta(), 0.05);
   // Initialize only after this frame has updated Three.js' tracked XR camera.
   const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
-  const movementAmount = isInCity ? movePlayer(delta) : 0;
+  const movementAmount = isInCity && !intro.active ? movePlayer(delta) : 0;
+  intro.update(time, delta);
   updateAvatarHeightFromHeadset(xrFrame, delta);
   animatePlayableAvatar(movementAmount, time * 0.001);
   for (let handIndex = 0; handIndex < vrControllerRays.length; handIndex++) {

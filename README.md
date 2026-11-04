@@ -62,6 +62,8 @@ src/optimize.js       draw-call reduction (skinned merging, static merging)
 src/audio.js          all sound: procedural music per district, rain/city ambience, 3D sounds, footsteps, voices
 src/character.js      character builder shared by NPCs and the player creator
 src/creator.js        character creator options, presets, randomizer, saving
+src/intro.js          holographic story intro (plays on a new story; replay from Settings)
+src/guide.js          objective guide: sky beam or dotted path line along the streets
 genesis_core_v2.glb   the detailed Genesis Core (Genisis_ core.gltf is kept as the fallback/backup)
 tools/                build_genesis_core.html — rebuilds genesis_core_v2.glb
 ```
