@@ -1,10 +1,10 @@
-// NEON GENESIS — story intro: holographic slides (~45 seconds).
+// NEON GENESIS — story intro: holographic slides, advanced by the player.
 //
 // You stand in a dark holographic space. Six beats tell the backstory, each
 // with a floating panel and a glowing hologram above it. Nothing moves the
 // player, so it stays comfortable in VR.
 //
-// Controls: trigger / Space / click = next beat, hold trigger or Escape = skip.
+// Controls: trigger / Space / click = next beat (no timer), hold trigger or Escape = skip.
 
 import * as THREE from "three";
 import { buildCharacter } from "./character.js";
@@ -23,7 +23,6 @@ const BEATS = [
   { kicker: "TONIGHT", title: "SOMETHING WOKE UP", holo: "core",
     text: "Mika the mechanic found a piece of GENESIS on a scrap barge. When you walked into her shop, it flickered. Find out why — before Tenkai does." }
 ];
-const BEAT_SECONDS = 7.2;
 
 export function createIntro({ scene, camera, renderer, getLook }) {
   const root = new THREE.Group();
@@ -81,8 +80,15 @@ export function createIntro({ scene, camera, renderer, getLook }) {
     wrap(shown, W - 160).slice(0, 6).forEach((l, k) => ctx.fillText(l, 80, 280 + k * 72));
     // progress dots + hint
     BEATS.forEach((_, k) => { ctx.beginPath(); ctx.arc(80 + k * 34, H - 70, k === i ? 10 : 7, 0, Math.PI * 2); ctx.fillStyle = k <= i ? "#ffcf4a" : "rgba(255,255,255,0.25)"; ctx.fill(); });
-    ctx.textAlign = "right"; ctx.fillStyle = "#7f93ab"; ctx.font = "600 28px Inter, Arial, sans-serif";
-    ctx.fillText(renderer.xr.isPresenting ? "TRIGGER: NEXT   ·   HOLD TRIGGER: SKIP" : "SPACE / CLICK: NEXT   ·   ESC: SKIP", W - 80, H - 60);
+    ctx.textAlign = "right";
+    if (reveal >= 1) {
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() * 0.005);
+      ctx.fillStyle = `rgba(255,207,74,${pulse})`; ctx.font = "800 34px Inter, Arial, sans-serif";
+      const last = i === BEATS.length - 1;
+      ctx.fillText(renderer.xr.isPresenting ? (last ? "PULL TRIGGER TO BEGIN  ▶" : "PULL TRIGGER FOR NEXT  ▶") : (last ? "CLICK / SPACE TO BEGIN  ▶" : "CLICK / SPACE FOR NEXT  ▶"), W - 80, H - 110);
+    }
+    ctx.fillStyle = "#7f93ab"; ctx.font = "600 26px Inter, Arial, sans-serif";
+    ctx.fillText(renderer.xr.isPresenting ? "HOLD TRIGGER TO SKIP THE INTRO" : "ESC TO SKIP THE INTRO", W - 80, H - 58);
     ctx.textAlign = "left";
     tex.needsUpdate = true;
   }
@@ -180,7 +186,11 @@ export function createIntro({ scene, camera, renderer, getLook }) {
     fadeMat.opacity = 1; fadeSphere.visible = true; fade = 1;
     setBeat(0);
   }
-  function next() { if (!active || ending) return; if (beat < BEATS.length - 1) setBeat(beat + 1); else finish(); }
+  function next() {
+    if (!active || ending) return;
+    if (beatTime < 2.4) { beatTime = 2.4; drawPanel(beat, 1); return; }   // finish the typing first
+    if (beat < BEATS.length - 1) setBeat(beat + 1); else finish();
+  }
   function finish() {
     if (ending) return;
     ending = true;
@@ -215,8 +225,7 @@ export function createIntro({ scene, camera, renderer, getLook }) {
     if (fade > 0) { fade = Math.max(0, fade - dt * 1.5); fadeMat.opacity = fade; fadeSphere.visible = fade > 0; }
     beatTime += dt;
     const reveal = Math.min(1, beatTime / 2.4);
-    if (reveal < 1 || Math.floor(beatTime * 10) % 5 === 0) drawPanel(beat, reveal);
-    if (beatTime > BEAT_SECONDS) next();
+    if (reveal < 1 || Math.floor(beatTime * 20) % 2 === 0) drawPanel(beat, reveal);
     // hologram animation
     const g = holos[BEATS[beat].holo];
     const s = Math.min(1, beatTime * 2.2); g.scale.setScalar(1 - Math.pow(1 - s, 3));
