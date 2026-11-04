@@ -2456,8 +2456,12 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+let worldTime = 0;
 renderer.setAnimationLoop((time, xrFrame) => {
   const delta = Math.min(clock.getDelta(), 0.05);
+  // World clock: runs at Chrono Spike speed so the whole city slows down (you don't)
+  const worldScale = combat?.timeScale ?? 1, worldDelta = delta * worldScale;
+  worldTime += worldDelta * 1000;
   // Initialize only after this frame has updated Three.js' tracked XR camera.
   const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
   const movementAmount = isInCity && !intro.active ? movePlayer(delta) : 0;
@@ -2490,8 +2494,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   if ((uiToneTimer -= delta) <= 0) { uiToneTimer = 1.5; keepUIUntoned(); }
   if (isInCity && !intro.active && combat) {
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
-    docks.update(time);
-    cityFX.update(time, delta);
+    docks.update(worldTime);
+    cityFX.update(worldTime, worldDelta);
     updateHealthHUD();
   }
   updateDoorGrab();
@@ -2502,9 +2506,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
   audio.update(delta, { inCity: isInCity, district: city.districtAt(player.position.z, player.position.y, player.position.x), indoors: indoorsAtMika, height: player.position.y });
   if (isInCity) {
     city.applyAtmosphere(scene, player.position.z);
-    city.update(time, delta * (combat?.timeScale ?? 1), player.position);   // rain nearly freezes in Chrono Spike
+    city.update(worldTime, worldDelta, player.position);   // rain, holograms, signs all slow in Chrono Spike
     animateGenesisCore(time);
-    game.update(time, delta, vrControllerRays.map(item => item.controller));
+    game.update(time, delta, vrControllerRays.map(item => item.controller), worldTime, worldDelta);
   }
   updateVRMenuPointer();
   updateMenuCamera(delta, time);

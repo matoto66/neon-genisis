@@ -842,11 +842,11 @@ export function createGame(ctx) {
 
   let hudTimer = 0;
   let finaleMood = 0;   // seconds left of the finale music cue
-  function update(time, dt, controllers) {
+  function update(time, dt, controllers, worldTime = time, worldDt = dt) {
     if (!isInCity()) { promptSprite.visible = false; return; }
     player.getWorldPosition(tmpV2);
     camera.getWorldPosition(headPos);
-    npcSys.update(time, dt, headPos.clone().setY(tmpV2.y), talkingTo?.id);
+    npcSys.update(worldTime, worldDt, headPos.clone().setY(tmpV2.y), talkingTo?.id);
     // pickups bob & spin, only shown when relevant
     for (const r of interactables) {
       if (r.kind === "pickup") {
