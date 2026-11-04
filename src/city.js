@@ -41,9 +41,21 @@ function place(geo, x, y, z, ry = 0, rx = 0, rz = 0) {
 }
 // A batch collects geometries and merges them into one mesh (one draw call).
 class Batch {
-  constructor(material, name) { this.material = material; this.name = name; this.geos = []; }
+  constructor(material, name, capture = null) { this.material = material; this.name = name; this.geos = []; this.capture = capture; }
   add(geo) { this.geos.push(geo); return geo; }
+  // Glow batches remember where their lights are (sampled along long strips).
+  note(w, h, d, x, y, z, hex, ry = 0) {
+    if (!this.capture || hex === undefined) return;
+    const long = Math.max(w, h, d), n = Math.min(14, Math.max(1, Math.round(long / 1.6)));
+    for (let i = 0; i < n; i++) {
+      const f = n === 1 ? 0 : i / (n - 1) - 0.5;
+      let dx = w === long ? f * w : 0, dy = h === long ? f * h : 0, dz = d === long ? f * d : 0;
+      if (ry) { const c = Math.cos(ry), s = Math.sin(ry); [dx, dz] = [dx * c + dz * s, -dx * s + dz * c]; }
+      this.capture.push([x + dx, y + dy, z + dz, hex, Math.min(2.4, 0.5 + Math.min(w, h, d) * 4 + (n === 1 ? long * 0.6 : 0.6))]);
+    }
+  }
   box(w, h, d, x, y, z, hex, ry = 0) {
+    this.note(w, h, d, x, y, z, hex, ry);
     const g = new THREE.BoxGeometry(w, h, d);
     if (hex !== undefined) colorize(g, hex);
     return this.add(place(g, x, y, z, ry));
@@ -54,6 +66,7 @@ class Batch {
     return this.add(place(g, x, y, z, 0, rx, rz));
   }
   sphere(r, x, y, z, hex, ws = 10, hs = 8) {
+    if (this.capture && hex !== undefined) this.capture.push([x, y, z, hex, 0.6 + r * 4]);
     const g = new THREE.SphereGeometry(r, ws, hs);
     if (hex !== undefined) colorize(g, hex);
     return this.add(place(g, x, y, z));
@@ -314,7 +327,9 @@ export function buildCity(scene, renderer) {
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const beaconMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   const props = new Batch(propMat, "CITY_PROPS");
-  const glow = new Batch(glowMat, "CITY_NEON");
+  const glowPoints = [];           // [x, y, z, colour, size] for the bloom halos (fx.js)
+  const lampCones = [];            // [x, y, z, colour] light beams under street lamps
+  const glow = new Batch(glowMat, "CITY_NEON", glowPoints);
   const beacons = new Batch(beaconMat, "CITY_LANDMARK_LIGHTS");
   const buildings = { sump: new Batch(facadeMats.sump, "SUMP_BUILDINGS"), mile: new Batch(facadeMats.mile, "MILE_BUILDINGS"), back: new Batch(facadeMats.back, "SKYLINE") };
   const storefronts = new Batch(storefrontMat, "STOREFRONTS");
@@ -373,6 +388,11 @@ export function buildCity(scene, renderer) {
         else { props.cyl(0.05, 0.08, 6, 5, x, y + 3, z, 0x8a90a0); glow.sphere(0.12, x, y + 6.05, z, 0xff2a3a, 6, 4); }
       }
       if (h > 35) beacons.sphere(0.35, (x0 + x1) / 2, y0 + h + 0.8, (z0 + z1) / 2, 0xff3040, 6, 4); // aviation light
+      if (h > 18 && rand() < 0.55) {   // neon outline around the roof
+        const c = [0x38f0e6, 0xb24cff, 0xff4fa3, 0x4c9dff][Math.floor(rand() * 4)], ry2 = y0 + h + 0.4;
+        glow.box(x1 - x0 + 0.3, 0.09, 0.09, (x0 + x1) / 2, ry2, z0 - 0.15, c); glow.box(x1 - x0 + 0.3, 0.09, 0.09, (x0 + x1) / 2, ry2, z1 + 0.15, c);
+        glow.box(0.09, 0.09, z1 - z0 + 0.3, x0 - 0.15, ry2, (z0 + z1) / 2, c); glow.box(0.09, 0.09, z1 - z0 + 0.3, x1 + 0.15, ry2, (z0 + z1) / 2, c);
+      }
     }
     if (collide) addCollider(x0, x1, z0, z1, y0, y0 + h);
   }
@@ -404,6 +424,7 @@ export function buildCity(scene, renderer) {
     b.add(place(g, faceX + side * 0.75 * scale, y, z, Math.PI / 2));
     props.box(0.08, 0.08, 1.4 * scale, faceX + side * 0.7 * scale, y + 2.25 * scale, z, 0x30343c, Math.PI / 2);
     pool(faceX + side * 1.3, z, 2.2, new THREE.Color(SIGN_DESIGNS[key].color).getHex(), 0.11, 0.35);
+    glowPoints.push([faceX + side * 0.75 * scale, y, z, new THREE.Color(SIGN_DESIGNS[key].color).getHex(), 3.2 * scale]);
   }
   // Flat sign mounted on a facade facing direction ry (0 = faces +Z).
   function flatSign(key, x, y, z, w, ry, glowPool = true) {
@@ -411,6 +432,7 @@ export function buildCity(scene, renderer) {
     const d = SIGN_DESIGNS[key];
     const h = d.vertical ? w * 4 : w / 4;
     b.add(place(new THREE.PlaneGeometry(w, h), x, y, z, ry));
+    glowPoints.push([x + Math.sin(ry) * 0.2, y, z + Math.cos(ry) * 0.2, new THREE.Color(d.color).getHex(), Math.min(6, Math.max(w, h) * 0.9)]);
     if (glowPool && y < 8) {
       const nx = Math.sin(ry), nz = Math.cos(ry);
       pool(x + nx * 2, z + nz * 2, 2.6, new THREE.Color(d.color).getHex(), 0.11, 0.3);
@@ -501,6 +523,7 @@ export function buildCity(scene, renderer) {
     props.cyl(0.06, 0.09, 4.6, 6, x, 2.3, z, 0x3a3f48);
     props.box(0.9, 0.07, 0.07, x - Math.sign(x) * 0.4, 4.55, z, 0x3a3f48);
     glow.box(0.45, 0.06, 0.2, x - Math.sign(x) * 0.7, 4.48, z, 0xffd9a0);
+    lampCones.push([x - Math.sign(x) * 0.7, 4.45, z, 0xffc68a]);
     pool(x - Math.sign(x) * 0.9, z, 3.4, 0xffb46a, 0.1, 0.5);
   }
   // overhead power cables across the avenue, sagging between facades
@@ -778,6 +801,7 @@ export function buildCity(scene, renderer) {
     const x = side * 8.1;
     props.cyl(0.07, 0.1, 6, 6, x, 3, z, 0x2a3240);
     glow.box(0.1, 1.6, 0.1, x, 5.3, z, side > 0 ? 0xb24cff : 0x38f0e6);
+    lampCones.push([x, 6.1, z, side > 0 ? 0xb24cff : 0x38f0e6]);
     pool(x, z, 3.6, side > 0 ? 0xb24cff : 0x38f0e6, 0.1, 0.45);
   }
   for (let i = 0; i < 26; i++) puddle(-6 + rand() * 12, -58 - rand() * 56, 0.8 + rand() * 1.8, 0.5 + rand() * 1.0);
@@ -1104,7 +1128,7 @@ export function buildCity(scene, renderer) {
     if (playerPos) updateRain(dt, playerPos.x, playerPos.y, playerPos.z);
   }
 
-  return { root, colliders, floors, anchors, sidewalkPaths, collides, groundAt, districtAt, applyAtmosphere, update, dayNight,
+  return { root, colliders, floors, anchors, sidewalkPaths, collides, groundAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
     setTimeOfDay(phase) { phaseOffset = (phase - (performance.now() / 1000 / CYCLE_SECONDS) % 1 + 2) % 1; updateDayNight(performance.now() / 1000); } };
 }
 

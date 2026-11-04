@@ -12,6 +12,7 @@ import { createIntro } from "./intro.js";
 import * as worlds from "./worlds.js";
 import { buildDocks } from "./docks.js";
 import { createCombat, makeZone } from "./combat.js";
+import { createCityFX } from "./fx.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -87,6 +88,8 @@ setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 2
 const city = buildCity(scene, renderer);
 // THE DOCKS: new waterfront district east of the Ring Road (docks.js).
 const docks = buildDocks(city.root, city);
+// Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
+const cityFX = createCityFX(city.root, city, renderer);
 // A small neon environment map gives metal, glass and wet streets coloured
 // reflections without any extra real-time lights.
 scene.environment = createNeonEnvironment(renderer);
@@ -2438,7 +2441,7 @@ if (DEBUG) {
     setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, get combat() { return combat; }, docks, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2488,6 +2491,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   if (isInCity && !intro.active && combat) {
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(time);
+    cityFX.update(time, delta);
     updateHealthHUD();
   }
   updateDoorGrab();
