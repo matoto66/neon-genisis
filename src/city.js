@@ -66,7 +66,7 @@ class Batch {
     return this.add(place(g, x, y, z, 0, rx, rz));
   }
   sphere(r, x, y, z, hex, ws = 10, hs = 8) {
-    if (this.capture && hex !== undefined) this.capture.push([x, y, z, hex, 0.6 + r * 4]);
+    if (this.capture && hex !== undefined) this.capture.push([x, y, z, hex, 0.3 + r * 2.2]);   // small soft glow for lanterns/bulbs
     const g = new THREE.SphereGeometry(r, ws, hs);
     if (hex !== undefined) colorize(g, hex);
     return this.add(place(g, x, y, z));
