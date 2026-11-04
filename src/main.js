@@ -820,7 +820,7 @@ document.addEventListener("keydown", event => {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
-    if (event.code === "KeyV") { if (combat.useChrono()) audio.play("flare"); return; }
+    if (event.code === "KeyV") { combat.useChrono(); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -2391,7 +2391,7 @@ updateCharacterUI();
 
 // ── combat ─────────────────────────────────────────────────────────────
 const combat = createCombat({
-  root: cityWorld, camera, player, renderer, city, game, haptic,
+  root: cityWorld, camera, player, renderer, city, game, haptic, audio,
   zones: [makeZone({
     min: { x: 47, z: -81 }, max: { x: 137, z: -11 },
     wave: ["scav", "scav", "scav", "sentry", "sentry", "enforcer", "enforcer"],
@@ -2475,7 +2475,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
     if (xPressed && !previousXButton && isInCity) combat.useMedPatch();
     previousXButton = xPressed;
     const bPressed = !!getGamepad("right")?.buttons?.[5]?.pressed;  // B: Chrono Spike
-    if (bPressed && !previousBButton && isInCity && combat.useChrono()) audio.play("flare");
+    if (bPressed && !previousBButton && isInCity) combat.useChrono();
     previousBButton = bPressed;
   }
   if (desktopJab > 0) {

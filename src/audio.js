@@ -234,7 +234,23 @@ export function createAudio(camera) {
     spark:   () => { noiseHit({ d: 0.06, peak: 0.12, type: "highpass", freq: 5000 }); noiseHit({ t: now() + 0.08, d: 0.04, peak: 0.08, type: "highpass", freq: 6000 }); },
     flare:   () => { const t = now(); noiseHit({ t, a: 0.6, d: 0.4, peak: 0.15, freq: 300, glide: 6000, q: 3 }); tone({ freq: 55, t: t + 0.9, d: 2.5, peak: 0.25, glide: 35 }); [69, 76, 81, 88].forEach((n, i) => tone({ freq: NOTE(n), type: "sine", t: t + 0.9 + i * 0.05, d: 2.5, peak: 0.06 })); },
     jump:    () => { noiseHit({ d: 0.08, peak: 0.05, freq: 600 }); },
-    land:    () => { noiseHit({ d: 0.1, peak: 0.12, type: "lowpass", freq: 400 }); tone({ freq: 70, d: 0.12, peak: 0.12, glide: 40 }); }
+    land:    () => { noiseHit({ d: 0.1, peak: 0.12, type: "lowpass", freq: 400 }); tone({ freq: 70, d: 0.12, peak: 0.12, glide: 40 }); },
+    // ── combat ──
+    blaster: () => { tone({ freq: 1900, type: "square", d: 0.16, peak: 0.07, glide: 260, filter: { freq: 3500 } }); tone({ freq: 950, type: "sawtooth", d: 0.12, peak: 0.04, glide: 180 }); noiseHit({ d: 0.12, peak: 0.06, type: "highpass", freq: 4000 }); },
+    enemyShot: () => { tone({ freq: 700, type: "square", d: 0.2, peak: 0.05, glide: 160, filter: { freq: 1800 } }); noiseHit({ d: 0.1, peak: 0.03, freq: 1500 }); },
+    punchLight: () => { noiseHit({ d: 0.07, peak: 0.16, type: "lowpass", freq: 900 }); tone({ freq: 140, d: 0.08, peak: 0.14, glide: 60 }); },
+    punchHeavy: () => { noiseHit({ d: 0.14, peak: 0.24, type: "lowpass", freq: 600 }); tone({ freq: 110, d: 0.18, peak: 0.24, glide: 38 }); noiseHit({ d: 0.05, peak: 0.08, type: "highpass", freq: 3000 }); },
+    arcHit: () => { for (let i = 0; i < 5; i++) noiseHit({ t: now() + i * 0.025, d: 0.03, peak: 0.07, type: "highpass", freq: 5000 + Math.random() * 3000 }); tone({ freq: 2400, type: "sawtooth", d: 0.15, peak: 0.03, glide: 600 }); },
+    slice: () => { noiseHit({ d: 0.14, peak: 0.14, freq: 6500, glide: 1800, q: 3 }); tone({ freq: 1250, type: "sine", d: 0.35, peak: 0.05, glide: 1600 }); tone({ freq: 120, d: 0.08, peak: 0.1, glide: 50 }); },
+    bladeOut: () => { noiseHit({ d: 0.22, peak: 0.07, type: "highpass", freq: 2000, glide: 9000 }); tone({ freq: 2600, type: "sine", d: 0.7, peak: 0.04 }); tone({ freq: 3900, type: "sine", d: 0.5, peak: 0.02 }); },
+    bladeIn: () => { noiseHit({ d: 0.12, peak: 0.04, type: "highpass", freq: 8000, glide: 2500 }); },
+    block: () => { const t = now(); [520, 790, 1180].forEach((f, i) => tone({ freq: f, type: "triangle", t, d: 0.35 - i * 0.07, peak: 0.07 })); noiseHit({ d: 0.06, peak: 0.1, freq: 2500 }); },
+    hurt: () => { tone({ freq: 90, type: "sawtooth", d: 0.25, peak: 0.12, glide: 45, filter: { freq: 500 } }); noiseHit({ d: 0.15, peak: 0.1, type: "lowpass", freq: 700 }); },
+    droneDown: () => { const t = now(); noiseHit({ t, d: 0.9, peak: 0.2, type: "lowpass", freq: 1500, glide: 90 }); tone({ freq: 90, t, d: 0.6, peak: 0.2, glide: 30 }); for (let i = 0; i < 4; i++) noiseHit({ t: t + 0.05 + i * 0.07, d: 0.04, peak: 0.05, type: "highpass", freq: 4000 }); },
+    enforcerDown: () => { tone({ freq: 70, d: 0.4, peak: 0.2, glide: 35 }); noiseHit({ d: 0.3, peak: 0.12, type: "lowpass", freq: 400 }); },
+    heal: () => { const t = now(); [64, 69, 76].forEach((n, i) => tone({ freq: NOTE(n), type: "sine", t: t + i * 0.08, d: 0.4, peak: 0.07 })); noiseHit({ d: 0.4, peak: 0.03, type: "highpass", freq: 6000 }); },
+    chronoOn: () => { const t = now(); tone({ freq: 900, type: "sawtooth", t, d: 1.2, peak: 0.08, glide: 45, filter: { freq: 1600 } }); noiseHit({ t, d: 1.0, peak: 0.1, type: "lowpass", freq: 5000, glide: 200 }); tone({ freq: 55, t: t + 0.1, d: 1.6, peak: 0.18 }); },
+    chronoOff: () => { const t = now(); tone({ freq: 50, type: "sawtooth", t, d: 0.5, peak: 0.08, glide: 900, filter: { freq: 2400 } }); noiseHit({ t, d: 0.4, peak: 0.08, freq: 400, glide: 5000, q: 2 }); }
   };
   function play(name) { if (ctx && SFX[name]) SFX[name](); }
 

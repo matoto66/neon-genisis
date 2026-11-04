@@ -28,7 +28,8 @@ const ENFORCER_LOOK = {
   shoesStyle: "boots", shoes: 0x101010, extra: "shoulder pad", cyberArm: "right", faceTech: "visor", glow: 0xff3a4a
 };
 
-export function createCombat({ root, camera, player, renderer, city, game, zones, haptic }) {
+export function createCombat({ root, camera, player, renderer, city, game, zones, haptic, audio }) {
+  const sfx = name => audio?.play(name);
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), head = new THREE.Vector3(), torso = new THREE.Vector3();
   const enemies = [], bolts = [];
   let hp = maxHealth(), energy = 1, regenDelay = 0, guarding = false, dead = false, hurtFlash = 0;
@@ -144,7 +145,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   const tint = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), tintMat);
   tint.position.z = -0.31; tint.renderOrder = 9989; tint.visible = false; camera.add(tint);
   let chronoT = 0, chronoCd = 0;
-  const CHRONO_TIME = 5, CHRONO_SCALE = 0.05;      // the world runs at 5% speed: almost frozen, still moving
+  const CHRONO_TIME = 20, CHRONO_COOLDOWN = 5, CHRONO_SCALE = 0.05;      // the world runs at 5% speed: almost frozen, still moving
   // Effect 1: a shockwave sphere that ripples out from you (and back in when time resumes).
   const waveMat = new THREE.MeshBasicMaterial({ color: 0x7ffcff, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: true, toneMapped: false });
   const wave = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), waveMat);
@@ -201,9 +202,10 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   const ghostMat = new THREE.MeshBasicMaterial({ color: 0x5ff5ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   function useChrono() {
     if (!isActive("chrono_spike") || dead) return false;
-    if (chronoT > 0) return false;
+    if (chronoT > 0) { chronoT = 0.0001; return true; }       // press again to end it early
     if (chronoCd > 0) { game.toast(`Chrono Spike recharging (${Math.ceil(chronoCd)} s)`); return false; }
-    chronoT = CHRONO_TIME; chronoCd = CHRONO_TIME + 5;          // 5 s cooldown after the slow-mo ends
+    chronoT = CHRONO_TIME; chronoCd = 0;
+    sfx("chronoOn");
     head.setFromMatrixPosition(camera.matrixWorld); burst(head, 0x38f0e6, 30, 3, 0);
     startWave(true);
     game.toast("CHRONO SPIKE", "objective");
@@ -277,6 +279,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   function kill(e) {
     e.dead = true; e.deadT = 0; e.bar.visible = false;
     hitCenter(e, tmp);
+    sfx(e.type === "enforcer" ? "enforcerDown" : "droneDown");
     if (e.type === "enforcer") { burst(tmp, 0xff3a4a, 20, 2); }
     else { burst(tmp, 0xffb02e, 40, 6, 2); burst(tmp, 0xffffff, 16, 3); flash(tmp, 0xffcf4a, 2.2); }
     game.give(e.def.reward, "Tenkai salvage");
@@ -291,6 +294,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     mesh.position.copy(from);
     root.add(mesh);
     bolts.push({ mesh, vel: dir.clone().multiplyScalar(speed), friendly, damage, life: friendly ? 1.4 : 4 });
+    sfx(friendly ? "blaster" : "enemyShot");
   }
 
   // ── player damage, healing, death ───────────────────────────────────────
@@ -300,6 +304,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     const dmg = amount * (1 - reduction);
     hp -= dmg; regenDelay = 6; hurtFlash = Math.min(1, hurtFlash + (guarding ? 0.15 : 0.6));
     haptic?.("both", guarding ? 0.4 : 0.9, guarding ? 60 : 160);
+    sfx(guarding ? "block" : "hurt");
     if (guarding) { head.setFromMatrixPosition(camera.matrixWorld); camera.getWorldDirection(tmp); tmp.multiplyScalar(0.45).add(head); burst(tmp, 0x9fe9ff, 18, 2.5, 0); flash(tmp, 0x9fe9ff, 0.9); }
     if (hp <= 0) die();
   }
@@ -311,6 +316,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     hp = Math.min(maxHealth(), hp + 50);
     head.setFromMatrixPosition(camera.matrixWorld); burst(head.clone().setY(head.y - 0.5), 0x6aff9e, 30, 1.5, 1);
     game.toast("Med patch: +50 HP", "complete");
+    sfx("heal");
     haptic?.("left", 0.5, 120);
     return true;
   }
@@ -416,7 +422,9 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       if (h.grip > 0.6 && toHead < 0.42) fistsUp++;
       if (h.side === "left") attachWrist(h.object);
       const blades = isActive("edge_fins") && h.grip > 0.6;
-      bladeFor(h.object).visible = blades;
+      const bladeObj = bladeFor(h.object);
+      if (bladeObj.visible !== blades) sfx(blades ? "bladeOut" : "bladeIn");
+      bladeObj.visible = blades;
       if (h.grip < 0.6 || speed < 2.0) continue;
       // world-space punch direction
       const dir = handVel.clone().transformDirection(player.matrixWorld);
@@ -432,6 +440,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1) * (blades ? 1.4 : 1);
         damageEnemy(e, dmg, dir, { stun: arc ? 1.0 : 0.15, color: blades ? 0xff4fd8 : arc ? 0x5ff5ff : 0xffcf4a });
         e.hitCd[si] = 0.35;
+        sfx(blades ? "slice" : dmg > 25 ? "punchHeavy" : "punchLight");
+        if (arc && !blades) sfx("arcHit");
         haptic?.(h.side, Math.min(1, 0.4 + speed * 0.1), 70);
       }
       // punch enemy bolts back where they came from
@@ -450,7 +460,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     // Chrono Spike: enemies and their shots run at quarter speed.
     const wasSlow = chronoT > 0;
     chronoT = Math.max(0, chronoT - dt); chronoCd = Math.max(0, chronoCd - dt);
-    if (wasSlow && chronoT <= 0) { startWave(false); haptic?.("both", 0.4, 120); }   // time snaps back
+    if (wasSlow && chronoT <= 0) { startWave(false); haptic?.("both", 0.4, 120); sfx("chronoOff"); chronoCd = CHRONO_COOLDOWN; }   // time snaps back
     const edt = dt * (chronoT > 0 ? CHRONO_SCALE : 1);
     tintMat.opacity = chronoT > 0 ? 0.26 + Math.sin(t * 6) * 0.04 : Math.max(0, tintMat.opacity - dt);
     updateChronoFx(dt, t);
