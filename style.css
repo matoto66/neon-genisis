@@ -334,3 +334,10 @@ kbd { display: inline-block; min-width: 20px; margin-right: 6px; padding: 1px 6p
 #hp-track { width: 100%; height: 12px; border-radius: 6px; background: rgba(10,16,30,.85); border: 1px solid rgba(95,245,232,.45); overflow: hidden; }
 #hp-fill { height: 100%; width: 100%; background: #6aff9e; transition: width .15s; }
 #hp-text { color: #e7efff; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-shadow: 0 1px 6px #000; }
+
+/* XP bar (PC HUD) */
+#xp-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+#xp-level { color: #ffcf4a; font-size: 12px; font-weight: 900; letter-spacing: .08em; min-width: 40px; }
+#xp-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+#xp-fill { height: 100%; width: 0; background: linear-gradient(90deg, #ffcf4a, #ff8a3a); transition: width .3s; }
+#xp-text { color: #b9c3d9; font-size: 10px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }

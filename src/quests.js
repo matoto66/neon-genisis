@@ -7,7 +7,7 @@
 
 import * as THREE from "three";
 import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, CONSUMABLES, PICKUPS, AMBIENT_BARKS, entryFor } from "./story.js";
-import { state, saveGame, creditMultiplier, effectiveStrength, slotCount, isActive, toggleInstall } from "./state.js";
+import { state, saveGame, creditMultiplier, effectiveStrength, slotCount, isActive, toggleInstall, addXP, level, XP_REWARDS } from "./state.js";
 import { createNPCSystem } from "./npcs.js";
 import { createGuide, guideSettings } from "./guide.js";
 
@@ -154,6 +154,7 @@ export function createGame(ctx) {
     }
     state.collected.push(p.id);
     audio.play(p.type === "shard" ? "shard" : "pickup");
+    if (p.type === "shard") awardXP(XP_REWARDS.shard);
     if (p.credits) give(p.credits, rec.label);
     else toast(`Picked up: ${rec.label}`);
     saveGame();
@@ -273,8 +274,9 @@ export function createGame(ctx) {
     m.status = "done";
     const credits = Math.round((def.reward.credits || 0) * creditMultiplier());
     if (credits) state.credits += credits;
-    if (def.reward.points) state.bonusPoints += def.reward.points;
-    toast(`MISSION COMPLETE: ${def.title}${credits ? ` · +$${credits}` : ""}${def.reward.points ? ` · +${def.reward.points} ATTRIBUTE POINT` : ""}`, "complete");
+    const levels = addXP(def.kind === "main" ? XP_REWARDS.main : XP_REWARDS.side);
+    toast(`MISSION COMPLETE: ${def.title}${credits ? ` · +$${credits}` : ""}`, "complete");
+    if (levels) toast(`LEVEL UP! +${levels} LEVEL${levels > 1 ? "S" : ""} · NOW LEVEL ${level()} · +${levels} ATTRIBUTE POINT${levels > 1 ? "S" : ""}`, "chapter");
     if (state.tracked === id) state.tracked = null;
     if (def.next) startMission(def.next);
     if (!state.tracked) state.tracked = Object.keys(state.missions).find(k => status(k) === "active") || null;
@@ -300,6 +302,12 @@ export function createGame(ctx) {
         } else completeStep(id);
       }
     }
+    changed();
+  }
+  // Small XP (enemies, shards). Quests give their levels in finishMission.
+  function awardXP(n) {
+    const levels = addXP(n);
+    if (levels) toast(`LEVEL UP! NOW LEVEL ${level()} · +${levels} ATTRIBUTE POINT${levels > 1 ? "S" : ""} (Y MENU)`, "chapter");
     changed();
   }
   function give(n, why) {
@@ -903,7 +911,7 @@ export function createGame(ctx) {
 
   return {
     update, onTrigger, desktopInteract, desktopClick, handleKey, cursorPoint, beginSession, onExit,
-    isPanelOpen: () => panel.visible, closePanel, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why),
+    isPanelOpen: () => panel.visible, closePanel, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why), awardXP: n => awardXP(n),
     debug: { startMission, completeStep, emit, openDialogue, state, interactables, choose, objectivePosition }
   };
 }

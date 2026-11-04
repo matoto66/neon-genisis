@@ -15,7 +15,8 @@ import { createCombat, makeZone } from "./combat.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
-  isActive, toggleInstall, moveSpeed, turnSpeed, jumpVelocity as jumpPower, totalPoints, MAX_STAT
+  isActive, toggleInstall, moveSpeed, turnSpeed, jumpVelocity as jumpPower, totalPoints, MAX_STAT,
+  gradeName, level, xpIntoLevel, XP_PER_LEVEL
 } from "./state.js";
 
 loadGame();
@@ -714,7 +715,11 @@ function updateCharacterUI() {
   document.querySelector("#health-value").textContent = character.health;
   document.querySelector("#compatibility-value").textContent = character.compatibility;
   document.querySelector("#max-health").textContent = maxHealth();
-  document.querySelector("#cyber-grade").textContent = gradeNames[character.compatibility];
+  document.querySelector("#cyber-grade").textContent = gradeName(character.compatibility);
+  // level + XP bar (PC HUD and character panel)
+  for (const id of ["#xp-level", "#char-level"]) { const el = document.querySelector(id); if (el) el.textContent = `LV ${level()}`; }
+  const xpFill = document.querySelector("#xp-fill"); if (xpFill) xpFill.style.width = `${xpIntoLevel() / XP_PER_LEVEL * 100}%`;
+  const xpText = document.querySelector("#xp-text"); if (xpText) xpText.textContent = `${xpIntoLevel()} / ${XP_PER_LEVEL} XP`;
   document.querySelector("#credits").textContent = "$" + state.credits.toLocaleString();
   document.querySelector("#shop-credits").textContent = "$" + state.credits.toLocaleString();
   document.querySelectorAll("[data-stat][data-change]").forEach(button => {
@@ -1912,7 +1917,13 @@ function drawVRMenu() {
   if (vrMenuPage === "character") {
     ctx.fillStyle = "#aab6cf";
     ctx.font = "24px Arial";
-    ctx.fillText(`Unspent attribute points: ${pointsLeft()} (of ${totalPoints()})    MAX HEALTH ${maxHealth()}    GRADE ${gradeNames[character.compatibility]}`, 60, 205);
+    ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 26px Arial";
+    ctx.fillText(`LEVEL ${level()}`, 60, 190);
+    ctx.fillStyle = "#1c2433"; ctx.fillRect(200, 172, 520, 22);
+    ctx.fillStyle = "#ffcf4a"; ctx.fillRect(200, 172, 520 * xpIntoLevel() / XP_PER_LEVEL, 22);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 18px Arial"; ctx.fillText(`${xpIntoLevel()} / ${XP_PER_LEVEL} XP`, 740, 190);
+    ctx.fillStyle = "#aab6cf"; ctx.font = "21px Arial";
+    ctx.fillText(`Points to spend: ${pointsLeft()} (of ${totalPoints()})   ·   MAX HEALTH ${maxHealth()}   ·   GRADE ${gradeName(character.compatibility)}`, 60, 225);
     const rows = [
       ["STRENGTH", "Faster movement, lets you shift heavy objects", "strength"],
       ["HEALTH", "Adds 25 maximum health per point", "health"],

@@ -14,7 +14,7 @@
 
 import * as THREE from "three";
 import { buildCharacter } from "./character.js";
-import { state, saveGame, maxHealth, effectiveStrength, isActive } from "./state.js";
+import { state, saveGame, maxHealth, effectiveStrength, isActive, XP_REWARDS } from "./state.js";
 
 const ENEMY_TYPES = {
   scav:     { hp: 18, speed: 3.4, radius: 0.24, damage: 8, reward: 15, hover: 1.4 },
@@ -193,6 +193,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     if (e.type === "enforcer") { burst(tmp, 0xff3a4a, 20, 2); }
     else { burst(tmp, 0xffb02e, 40, 6, 2); burst(tmp, 0xffffff, 16, 3); flash(tmp, 0xffcf4a, 2.2); }
     game.give(e.def.reward, "Tenkai salvage");
+    game.awardXP?.(XP_REWARDS[e.type] || 1);
   }
 
   // ── bolts (enemy shots and the player's palm pulse) ─────────────────────
@@ -338,7 +339,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         const dy = e.type === "enforcer" ? Math.max(0, Math.abs(handPos.y - tmp.y) - 0.45) : 0;   // tall hit capsule for people
         tmp2.set(handPos.x - tmp.x, 0, handPos.z - tmp.z);
         if (Math.hypot(tmp2.length(), dy, e.type === "enforcer" ? 0 : handPos.y - tmp.y) > reach) continue;
-        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.25 * effectiveStrength()) * (arc ? 1.5 : 1);
+        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1);
         damageEnemy(e, dmg, dir, { stun: arc ? 1.0 : 0.15, color: arc ? 0x5ff5ff : 0xffcf4a });
         e.hitCd[si] = 0.35;
         haptic?.(h.side, Math.min(1, 0.4 + speed * 0.1), 70);
@@ -486,7 +487,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     for (const e of enemies) {
       if (e.dead) continue;
       hitCenter(e, tmp2);
-      if (tmp2.distanceTo(at) < e.def.radius + 0.7) { damageEnemy(e, 16 * (1 + 0.25 * effectiveStrength()) * (isActive("arc_knuckles") ? 1.5 : 1), tmp.clone(), { stun: 0.3 }); return true; }
+      if (tmp2.distanceTo(at) < e.def.radius + 0.7) { damageEnemy(e, 16 * (1 + 0.15 * effectiveStrength()) * (isActive("arc_knuckles") ? 1.5 : 1), tmp.clone(), { stun: 0.3 }); return true; }
     }
     return false;
   }

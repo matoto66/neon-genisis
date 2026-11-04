@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=neo-kasumi-80" />
+    <link rel="stylesheet" href="./style.css?v=neo-kasumi-90" />
     <script type="importmap">
       {
         "imports": {
@@ -42,6 +42,7 @@
         <strong id="objective-title">EXPLORE</strong>
         <p id="objective-text"></p>
         <span id="objective-distance"></span>
+        <div id="xp-line"><span id="xp-level">LV 1</span><div id="xp-track"><div id="xp-fill"></div></div><span id="xp-text"></span></div>
       </div>
       <div id="crosshair"></div>
       <div id="interact-prompt" hidden></div>
@@ -60,7 +61,7 @@
         <button class="close-button" data-close="character-panel" aria-label="Close">×</button>
         <p class="eyebrow">YOUR PROFILE</p>
         <h2>CHARACTER</h2>
-        <p class="panel-note">You start with 3 attribute points and earn more by finishing story chapters. You can move points around at any time.</p>
+        <p class="panel-note">You start with 3 attribute points and get 1 more every level (main quests +5 levels, side jobs +1, enemies and data shards give XP). You can move points around at any time.</p>
         <div class="points-line">UNSPENT POINTS <strong><span id="points-left">3</span> / <span id="points-total">3</span></strong></div>
         <div class="stat-row">
           <div><strong>STRENGTH</strong><p>Faster movement, and lets you shift heavy objects.</p></div>
@@ -74,6 +75,7 @@
           <div><strong>CYBERWARE COMPATIBILITY</strong><p>Each point adds a cyberware slot and unlocks higher-grade chrome.</p></div>
           <div class="stat-control"><button data-stat="compatibility" data-change="-1" aria-label="Lower compatibility">−</button><strong id="compatibility-value">0</strong><button data-stat="compatibility" data-change="1" aria-label="Raise compatibility">+</button></div>
         </div>
+        <div class="points-line">LEVEL <strong id="char-level">LV 1</strong></div>
         <div class="profile-summary">
           <div><span class="small-label">MAX HEALTH</span><strong id="max-health">100</strong></div>
           <div><span class="small-label">CYBERWARE GRADE</span><strong id="cyber-grade">BASIC</strong></div>
@@ -107,6 +109,6 @@
         <div class="controls-list" id="controls-pc"></div>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=neo-kasumi-80"></script>
+    <script type="module" src="./src/main.js?v=neo-kasumi-90"></script>
   </body>
 </html>

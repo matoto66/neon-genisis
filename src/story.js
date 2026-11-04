@@ -97,7 +97,7 @@ export const PICKUPS = [
 // step.done: what completes the step automatically (dialogue can also
 // complete steps). step.target: where the objective beacon points.
 export const MISSIONS = {
-  m1: { chapter: 1, kind: "main", title: "Wake-Up Call", giver: "mika", reward: { credits: 150, points: 1 }, next: "m2",
+  m1: { chapter: 1, kind: "main", title: "Wake-Up Call", giver: "mika", reward: { credits: 150 }, next: "m2",
     steps: [
       { text: "Find Mika at Mika's Repair (west side of the street)", target: { npc: "mika" } },
       { text: "Collect salvage capacitors in the Sump's alleys", done: { collect: "capacitor", count: 3 }, target: { pickup: "capacitor" } },
@@ -118,13 +118,13 @@ export const MISSIONS = {
       { text: "Plant jammers on the Tenkai sensor pylons in Neon Mile", done: { interact: "pylon", count: 3 }, target: { object: "pylon" } },
       { text: "Report back to Rei on the rooftop", target: { npc: "rei", via: "liftGround" } }
     ] },
-  m5: { chapter: 1, kind: "main", title: "Second Skin", giver: "doc", reward: { credits: 0, points: 1 }, next: "m6",
+  m5: { chapter: 1, kind: "main", title: "Second Skin", giver: "doc", reward: { credits: 0 }, next: "m6",
     steps: [
       { text: "Visit Doc Anaya at the Second Skin clinic (Neon Mile, east side)", target: { npc: "doc" } },
       { text: "Buy and install any cyberware from Doc Anaya", done: { buy: true }, target: { npc: "doc" } },
       { text: "Talk to Doc Anaya", target: { npc: "doc" } }
     ] },
-  m6: { chapter: 1, kind: "main", title: "The Offer", giver: "doc", reward: { credits: 500, points: 1 }, next: null,
+  m6: { chapter: 1, kind: "main", title: "The Offer", giver: "doc", reward: { credits: 500 }, next: null,
     steps: [
       { text: "Go to Spire Plaza at the north end of Neon Mile", done: { visit: "plaza" }, target: { anchor: "plaza" } },
       { text: "Hear out the broadcast from Tenkai Dynamics", target: { npc: "ishida" } },
