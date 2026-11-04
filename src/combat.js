@@ -443,6 +443,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         sfx(blades ? "slice" : dmg > 25 ? "punchHeavy" : "punchLight");
         if (arc && !blades) sfx("arcHit");
         haptic?.(h.side, Math.min(1, 0.4 + speed * 0.1), 70);
+        h.object.userData?.flash?.(blades ? 0xff4fd8 : arc ? 0x5ff5ff : 0xffcf4a, 1);
       }
       // punch enemy bolts back where they came from
       for (const b of bolts) {
@@ -452,6 +453,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         b.mesh.material = mat.pulseBolt; b.mesh.children[0].material.color.set(0x5ff5ff);
         burst(handPos, 0x9fe9ff, 12, 2.5);
         haptic?.(h.side, 0.7, 60);
+        h.object.userData?.flash?.(0x9fe9ff, 1);
       }
     }
     for (const e of enemies) { e.hitCd[0] -= dt; e.hitCd[1] -= dt; }
@@ -585,6 +587,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     dir.applyQuaternion((forwardFrom || originObject).getWorldQuaternion(new THREE.Quaternion())).normalize();
     from.addScaledVector(dir, 0.12);
     fireBolt(from, dir, true, 16, 22);
+    originObject.userData?.flash?.(0x5ff5ff, 1.2);
     flash(from, 0x5ff5ff, 0.5);
     return true;
   }

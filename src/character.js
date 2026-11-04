@@ -68,6 +68,8 @@ export const OPTIONS = {
   faceTech: ["none", "visor", "mask", "glasses", "goggles", "face lines"],
   extra: ["none", "scarf", "backpack", "chain", "shoulder pad"]
 };
+// Glowing cyberware worn by citizens (any combination).
+export const IMPLANTS = ["spine", "temple", "eye", "jaw", "chest", "tattoo", "sleeve lights"];
 
 export function randomAppearance(rand) {
   const pick = arr => arr[Math.floor(rand() * arr.length)];
@@ -84,7 +86,8 @@ export function randomAppearance(rand) {
     pantsStyle: pick(OPTIONS.pantsStyle), pants: pick([0x1d2230, 0x262626, 0x2e3a4a, 0x3a2f28, 0x1f1f2a, 0x4a4a52, 0x3d4a2a]),
     shoesStyle: pick(OPTIONS.shoesStyle), shoes: pick([0x101010, 0xd8d8d8, 0x3a2a20, 0xff4fa3, 0x222a3a, 0xc0283c]),
     glow: pick(GLOW_COLORS),
-    cyberArm: rand() < 0.12 ? pick(["left", "right"]) : "none",
+    cyberArm: rand() < 0.2 ? pick(["left", "right", "left", "right", "both"]) : "none",
+    implants: (() => { const out = []; const n = rand() < 0.25 ? 0 : rand() < 0.6 ? 1 : rand() < 0.8 ? 2 : 3; while (out.length < n) { const k = pick(IMPLANTS); if (!out.includes(k)) out.push(k); } return out; })(),
     faceTech: rand() < 0.35 ? pick(OPTIONS.faceTech.slice(1)) : "none",
     extra: rand() < 0.3 ? pick(OPTIONS.extra.slice(1)) : "none",
     umbrella: rand() < 0.18
@@ -106,6 +109,7 @@ function normalize(a) {
   n.hatColor = n.hatColor ?? n.accent;
   n.pantsStyle = n.pantsStyle || "slim";
   n.shoesStyle = n.shoesStyle || "sneakers";
+  n.implants = Array.isArray(a.implants) ? a.implants : a.implants === true ? ["temple", "spine"] : [];
   if (n.hair === "white") { n.hair = "swept"; n.hairColor = 0xd8d2c8; }
   return n;
 }
@@ -152,10 +156,38 @@ export function buildCharacter(input) {
   if (a.top === "jumpsuit") { body.box(0.012, 0.45, 0.012, a.accent, 0, 1.2, 0.14); body.box(0.1, 0.07, 0.01, a.accent, 0.1, 1.33, 0.142); }
   if (a.top === "apron") body.box(0.3, 0.62, 0.015, 0xe8e2d6, 0, 1.05, 0.135);
   if (["coat", "labcoat"].includes(a.top)) body.lathe([[0.2, 0.42], [0.23, 0.6], [0.205, 0.8], [0.19, 0.95]], a.topColor, 0.74);
+  // ── detail pass: shoulders, hems, seams, zips, back panel ─────────────
+  const has = k => a.implants.includes(k);
+  body.sphere(0.085, tc, 0, 1.47, -0.02, W * 1.9, 0.5, 0.95);                                 // trapezius / shoulder line
+  if (["jacket", "bomber", "hoodie", "coat", "jumpsuit"].includes(a.top)) {
+    body.lathe([[0.16 * W, 0.88], [0.178 * W, 0.92], [0.185 * W, 0.99]], tc, 0.72);           // jacket hem covers the belt line
+    body.torus(0.162 * W, 0.008, darker(tc), 0, 0.885, 0, Math.PI / 2, 1, 0.72);              // hem band
+    body.box(0.2 * W, 0.3, 0.012, darker(tc), 0, 1.25, -0.13);                                // back yoke panel
+    bodyGlow.box(0.16 * W, 0.012, 0.004, a.glow, 0, 1.36, -0.138);                            // back LED stripe
+    bodyGlow.box(0.012, 0.18, 0.004, a.glow, 0, 1.22, -0.138);
+    for (const s of [-1, 1]) body.box(0.004, 0.4, 0.008, darker(tc), s * 0.15 * W, 1.2, 0.105, 0, 0, s * 0.08);  // side seams
+  }
+  if (a.top === "jacket" || a.top === "bomber") {
+    for (const s of [-1, 1]) body.box(0.07, 0.09, 0.018, tc, s * 0.06, 1.53, 0.05, -0.35, 0, s * 0.3);         // stand-up collar
+    body.box(0.012, 0.018, 0.006, 0xc8ccd6, 0.062, 1.42, 0.14);                                                  // zip pull
+  }
+  if (a.top === "hoodie") body.box(0.008, 0.44, 0.008, 0x9aa2b0, 0, 1.22, 0.142);                                // zip
+  if (a.top === "tee" || a.top === "vest") body.torus(0.06, 0.008, darker(a.top === "tee" ? a.topColor : tc), 0, 1.49, 0.03, Math.PI / 2.3);
+  // ── glowing cyberware on the body ─────────────────────────────────────
+  if (has("chest")) {
+    body.cyl(0.046, 0.05, 0.014, 0x2a3140, 0, 1.31, 0.136, 14, 1, Math.PI / 2);
+    bodyGlow.cyl(0.03, 0.03, 0.004, a.glow, 0, 1.31, 0.144, 14, 1, Math.PI / 2);
+    bodyGlow.torus(0.042, 0.005, a.glow, 0, 1.31, 0.145, 0);
+    for (const s of [-1, 1]) bodyGlow.box(0.07, 0.006, 0.004, a.glow, s * 0.08, 1.34, 0.137, 0, 0, s * 0.4);
+  }
+  if (has("spine")) for (let k = 0; k < 4; k++) { body.box(0.05, 0.03, 0.018, 0x6a7383, 0, 1.46 - k * 0.07, -0.135); bodyGlow.box(0.03, 0.012, 0.006, a.glow, 0, 1.46 - k * 0.07, -0.147); }
+
   // collar + belt
   body.cyl(0.075, 0.1, 0.06, darker(tc), 0, 1.5, 0);
   body.torus(0.172, 0.018, 0x1a1a1e, 0, 0.955, 0, Math.PI / 2, W * 1.02, 0.74);
   body.box(0.05, 0.035, 0.01, 0xb8c0cc, 0, 0.955, 0.13);
+  body.box(0.06, 0.07, 0.045, darker(a.pants), sh * 0.75, 0.94, 0.06);                     // belt pouch
+  bodyGlow.box(0.02, 0.006, 0.004, a.glow, sh * 0.75, 0.95, 0.084);
   // pelvis
   body.sphere(0.155, a.pants, 0, hipY + 0.01, 0, W * 1.08, 0.7, 0.78);
   // glow seam / neon piping on the jacket
@@ -220,6 +252,12 @@ export function buildCharacter(input) {
   if (a.hat === "hood") H.partial(0.15, a.topColor, 0, hy + 0.0, -0.02, 1.0, 1.1, 1.05, 0, Math.PI * 2, 0, Math.PI * 0.62, -0.35);
   if (a.hat === "bucket") { H.cyl(0.11, 0.125, 0.09, hatC, 0, hy + 0.09, -0.005, 16); H.cyl(0.19, 0.19, 0.012, darker(hatC), 0, hy + 0.045, -0.005, 20); }
   if (a.hat === "helmet") { H.partial(0.135, 0x2a3140, 0, hy + 0.01, -0.006, 1.0, 1.0, 1.02, 0, Math.PI * 2, 0, Math.PI * 0.55); HG.box(0.2, 0.025, 0.02, a.glow, 0, hy + 0.06, 0.12); for (const s of [-1, 1]) H.cyl(0.03, 0.03, 0.03, 0x6a7383, s * 0.12, hy, 0, 10, 1, 0, Math.PI / 2); }
+  // head cyberware
+  if (has("temple")) for (const s of [-1, 1]) { H.cyl(0.018, 0.018, 0.012, 0x8a93a3, s * 0.103, hy + 0.03, 0.035, 12, 1, 0, Math.PI / 2); HG.cyl(0.012, 0.012, 0.004, a.glow, s * 0.11, hy + 0.03, 0.035, 10, 1, 0, Math.PI / 2); HG.box(0.003, 0.004, 0.05, a.glow, s * 0.108, hy + 0.055, 0.0); }
+  if (has("eye")) { H.torus(0.021, 0.004, 0x8a93a3, 0.04, hy + 0.012, 0.104, 0); HG.cyl(0.0115, 0.0115, 0.003, a.glow, 0.04, hy + 0.012, 0.108, 12, 1, Math.PI / 2); HG.box(0.022, 0.002, 0.003, a.glow, 0.068, hy + 0.0, 0.094, 0, 0.5, -0.4); }
+  if (has("jaw")) { H.box(0.012, 0.07, 0.09, 0x8a93a3, -0.088, hy - 0.06, 0.03, 0, 0.12, 0.12); HG.box(0.003, 0.05, 0.004, a.glow, -0.095, hy - 0.06, 0.07, 0, 0.3, 0.12); }
+  if (has("tattoo")) { for (let k = 0; k < 3; k++) HG.box(0.003, 0.028 - k * 0.006, 0.003, a.glow, -0.06 - k * 0.008, hy - 0.025 - k * 0.012, 0.09 - k * 0.006, 0, -0.4, 0.2); HG.box(0.04, 0.003, 0.003, a.glow, 0.045, -0.02, 0.045, 0, 0.5, 0.3); }
+  if (has("spine")) for (let k = 0; k < 2; k++) { H.box(0.04, 0.024, 0.016, 0x6a7383, 0, 0.03 - k * 0.04, -0.05); HG.box(0.024, 0.009, 0.005, a.glow, 0, 0.03 - k * 0.04, -0.059); }
   // face tech
   switch (a.faceTech) {
     case "visor": H.box(0.2, 0.04, 0.03, 0x0c0f16, 0, hy + 0.015, 0.105); HG.box(0.18, 0.012, 0.005, a.glow, 0, hy + 0.015, 0.122); break;
@@ -245,12 +283,22 @@ export function buildCharacter(input) {
     const fore = cyber ? 0x6a7383 : sleeveless ? a.skin : a.topColor;
     F.sphere(0.047, fore, 0, 0, 0);
     F.capsule(0.044, 0.19, fore, 0, -0.13, 0.005);
-    if (!sleeveless && !cyber) F.cyl(0.05, 0.05, 0.035, a.accent, 0, -0.235, 0.005, 12);
+    if (!sleeveless && !cyber) { F.cyl(0.05, 0.05, 0.035, a.accent, 0, -0.235, 0.005, 12); U.box(0.004, 0.22, 0.008, darker(a.topColor), 0, -0.14, 0.052); }
+    if (has("sleeve lights") && !cyber) { UG.box(0.012, 0.22, 0.012, a.glow, s * 0.048, -0.14, 0.015); FG.box(0.012, 0.18, 0.012, a.glow, s * 0.043, -0.12, 0.015); FG.torus(0.053, 0.007, a.glow, 0, -0.218, 0.005); UG.torus(0.056, 0.006, a.glow, 0, -0.02, 0); }
+    if (has("tattoo") && !cyber) { FG.box(0.007, 0.1, 0.006, a.glow, 0, -0.19, 0.045); FG.box(0.04, 0.007, 0.006, a.glow, 0, -0.16, 0.046); FG.box(0.03, 0.007, 0.006, a.glow, 0, -0.21, 0.046); }
     const handC = cyber ? 0x5a6373 : a.skin;
     F.sphere(0.044, handC, 0, -0.3, 0.01, 0.75, 1.0, 0.5, 10);                             // palm
     for (let k = 0; k < 4; k++) F.capsule(0.0095, 0.045, handC, (k - 1.5) * 0.017, -0.36, 0.012 + Math.abs(k - 1.5) * -0.003, 0.15);
     F.capsule(0.011, 0.04, handC, -s * 0.03, -0.31, 0.03, 0.5, s * 0.7);                    // thumb
-    if (cyber) { UG.box(0.008, 0.18, 0.008, a.glow, 0, -0.15, 0.05); FG.box(0.008, 0.16, 0.008, a.glow, 0, -0.13, 0.045); FG.torus(0.047, 0.004, a.glow, 0, -0.03, 0); for (let k = 0; k < 3; k++) U.torus(0.054, 0.006, 0x3a4250, 0, -0.06 - k * 0.06, 0); }
+    if (cyber) {
+      UG.box(0.008, 0.18, 0.008, a.glow, 0, -0.15, 0.05); FG.box(0.008, 0.16, 0.008, a.glow, 0, -0.13, 0.045); FG.torus(0.047, 0.004, a.glow, 0, -0.03, 0);
+      for (let k = 0; k < 3; k++) U.torus(0.054, 0.006, 0x3a4250, 0, -0.06 - k * 0.06, 0);
+      U.sphere(0.064, 0x8a93a3, 0, 0.0, 0, 1.05, 0.7, 1.05);                                   // shoulder cap plate
+      UG.box(0.05, 0.006, 0.006, a.glow, 0, 0.03, 0.055);
+      for (const q of [-1, 1]) { U.cyl(0.008, 0.008, 0.2, 0x2a2f3a, q * 0.05, -0.15, -0.02, 6); F.cyl(0.007, 0.007, 0.16, 0xb8c0cc, q * 0.045, -0.12, -0.02, 6); }  // pistons
+      F.box(0.07, 0.09, 0.02, 0x8a93a3, 0, -0.13, 0.04);                                         // forearm plate
+      for (let k = 0; k < 4; k++) FG.sphere(0.006, a.glow, (k - 1.5) * 0.017, -0.335, 0.025, 1, 1, 1, 6);  // glowing knuckles
+    }
     U.commit(solidMat, glowMat); UG.commit(solidMat, glowMat); F.commit(solidMat, glowMat); FG.commit(solidMat, glowMat);
     arms.push(shoulder); elbows.push(elbow);
   }
@@ -261,17 +309,21 @@ export function buildCharacter(input) {
   for (const s of [-1, 1]) {
     const hip = new THREE.Group(); hip.position.set(s * 0.088 * W, hipY, 0); root.add(hip);
     const knee = new THREE.Group(); knee.position.y = -0.43; hip.add(knee);
-    const T = new Parts(hip), S = new Parts(knee);
+    const T = new Parts(hip), S = new Parts(knee), GL = new Parts(knee, true);
     T.capsule(0.07, 0.32, a.pants, 0, -0.21, 0, 0, 0, pw, pw);
-    if (a.pantsStyle === "cargo") T.box(0.03, 0.12, 0.1, darker(a.pants), s * 0.08, -0.24, 0.01);
+    if (a.pantsStyle === "cargo") { T.box(0.03, 0.12, 0.1, darker(a.pants), s * 0.08, -0.24, 0.01); T.torus(0.075 * pw, 0.006, 0x1a1a1e, 0, -0.32, 0, Math.PI / 2); }
+    T.box(0.004, 0.36, 0.006, darker(a.pants), s * 0.068 * pw, -0.2, 0);                        // outer seam
+    S.box(0.075 * pw, 0.03, 0.02, darker(a.pants), 0, -0.02, 0.055 * pw);                          // knee seam
     S.sphere(0.062 * pw, a.pants, 0, 0, 0);
     S.capsule(0.055, 0.3, a.pants, 0, -0.19, 0, 0, 0, pw, pw);
     const boots = a.shoesStyle === "boots", high = a.shoesStyle === "high-tops";
     if (boots || high) S.cyl(0.062, 0.066, boots ? 0.16 : 0.1, a.shoes, 0, -0.36, 0.01, 12);
     S.sphere(0.06, a.shoes, 0, -0.425, 0.045, 0.95, 0.62, 1.65, 12);                        // shoe upper
     S.box(0.12, 0.025, 0.25, boots ? 0x1a1a1a : 0xe8e8e8, 0, -0.455, 0.05);                 // sole
-    if (!boots) S.box(0.07, 0.006, 0.05, lighter(a.shoes), 0, -0.405, 0.12);                // laces
-    T.commit(solidMat, glowMat); S.commit(solidMat, glowMat);
+    if (!boots) { S.box(0.07, 0.006, 0.05, lighter(a.shoes), 0, -0.405, 0.12); S.box(0.122, 0.018, 0.06, lighter(a.shoes), 0, -0.44, 0.15); S.box(0.004, 0.02, 0.12, a.accent, s * 0.058, -0.425, 0.05); }   // laces, toe cap, side stripe
+    else { for (let k = 0; k < 2; k++) S.box(0.13, 0.014, 0.13, 0x2a2a2a, 0, -0.33 - k * 0.05, 0.01); S.box(0.012, 0.016, 0.01, 0xb8c0cc, s * 0.066, -0.33, 0.04); }   // boot straps + buckle
+    if (a.shoesStyle === "high-tops" || has("sleeve lights")) GL.box(0.125, 0.006, 0.255, a.glow, 0, -0.466, 0.05);              // glowing sole strip
+    T.commit(solidMat, glowMat); S.commit(solidMat, glowMat); GL.commit(solidMat, glowMat);
     hips.push(hip); knees.push(knee);
   }
 
