@@ -6,7 +6,7 @@
 //   Desktop look at it (centre dot) + press F or click; 1-4 picks options
 
 import * as THREE from "three";
-import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, PICKUPS, AMBIENT_BARKS, entryFor } from "./story.js";
+import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, CONSUMABLES, PICKUPS, AMBIENT_BARKS, entryFor } from "./story.js";
 import { state, saveGame, creditMultiplier, effectiveStrength, slotCount, isActive, toggleInstall } from "./state.js";
 import { createNPCSystem } from "./npcs.js";
 import { createGuide, guideSettings } from "./guide.js";
@@ -442,9 +442,15 @@ export function createGame(ctx) {
   // shop board
   function openShop() {
     if (!panel.visible) placePanel();
-    panelState = { mode: "shop", items: Object.keys(CYBERWARE), message: "" };
+    panelState = { mode: "shop", cat: "chrome", items: shopItems("chrome"), message: "" };
     panel.visible = true; hoverIndex = -1;
     drawPanel(); onPanelOpen();
+  }
+  // Shop tabs keep each page to a handful of readable rows.
+  const SHOP_TABS = [{ id: "supplies", label: "SUPPLIES" }, { id: "chrome", label: "CHROME" }, { id: "combat", label: "COMBAT" }];
+  function shopItems(cat) {
+    if (cat === "supplies") return Object.keys(CONSUMABLES);
+    return Object.keys(CYBERWARE).filter(id => (CYBERWARE[id].cat || "chrome") === cat);
   }
   function drawShop(accent) {
     const c = pctx, s = panelState;
@@ -453,17 +459,35 @@ export function createGame(ctx) {
     c.fillText(`$${state.credits.toLocaleString()}`, 760, 50);
     c.fillStyle = "#8ea3bf"; c.font = "20px Arial";
     c.fillText(`SLOTS ${state.installed.length}/${slotCount()} · COMPATIBILITY ${state.character.compatibility}`, 700, 80);
+    SHOP_TABS.forEach((t, k) => {
+      const x = 40 + k * 205, on = s.cat === t.id, hov = hoverIndex === 100 + k;
+      c.fillStyle = on ? "#a0287a" : hov ? "rgba(255,111,224,0.2)" : "rgba(22,32,54,0.9)"; roundRect(c, x, 96, 195, 44, 10); c.fill();
+      c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(t.label, x + 97, 125); c.textAlign = "left";
+      s.buttons.push({ x, y: 96, w: 195, h: 44, index: 100 + k });
+    });
     const rowH = 76;
     s.items.forEach((id, i) => {
-      const w = CYBERWARE[id], y = 110 + i * rowH;
+      const consumable = CONSUMABLES[id];
+      const w = consumable ? { ...consumable, slot: "Consumable", req: 0 } : CYBERWARE[id], y = 152 + i * rowH;
+      if (consumable) {
+        const hov = i === hoverIndex, have = state.items?.[id] || 0;
+        c.fillStyle = hov ? "rgba(255,111,224,0.16)" : "rgba(40,22,48,0.9)"; roundRect(c, 32, y, PANEL_W - 64, rowH - 6, 12); c.fill();
+        c.fillStyle = "#ffffff"; c.font = "bold 25px Arial"; c.fillText(`${w.name}  ·  YOU HAVE ${have}`, 50, y + 30);
+        c.fillStyle = "#b8c4d8"; c.font = "18px Arial"; c.fillText(w.desc, 50, y + 56);
+        c.fillStyle = have >= w.max ? "#56607a" : state.credits >= w.price ? "#a0287a" : "#56607a"; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
+        c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(have >= w.max ? "FULL" : `BUY $${w.price}`, PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
+        s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 6, index: i });
+        return;
+      }
       const owned = state.owned.includes(id), installed = state.installed.includes(id);
       const lockedReq = w.req > state.character.compatibility;
       const hov = i === hoverIndex;
-      c.fillStyle = hov ? "rgba(255,111,224,0.16)" : "rgba(22,32,54,0.9)"; roundRect(c, 32, y, PANEL_W - 64, rowH - 8, 12); c.fill();
+      c.fillStyle = hov ? "rgba(255,111,224,0.16)" : "rgba(22,32,54,0.9)"; roundRect(c, 32, y, PANEL_W - 64, rowH - 6, 12); c.fill();
       c.fillStyle = w.locked ? "#7d8aa3" : "#ffffff"; c.font = "bold 25px Arial"; c.fillText(w.name, 50, y + 30);
-      c.fillStyle = "#9fe9ff"; c.font = "17px Arial"; c.fillText(`${w.slot.toUpperCase()} · NEEDS COMPAT ${w.req}`, 50 + Math.max(260, c.measureText(w.name).width + 40) + 0, y + 30);
+      const nameW = c.measureText(w.name).width;
+      c.fillStyle = "#9fe9ff"; c.font = "17px Arial"; c.fillText(`${w.slot.toUpperCase()} · NEEDS COMPAT ${w.req}`, 50 + Math.max(240, nameW + 30), y + 30);
       c.fillStyle = "#b8c4d8"; c.font = "18px Arial";
-      const desc = w.desc.length > 78 ? w.desc.slice(0, 76) + "…" : w.desc;
+      const desc = w.desc.length > 84 ? w.desc.slice(0, 82) + "…" : w.desc;
       c.fillText(desc, 50, y + 56);
       let label, col;
       if (w.locked) { label = "LOCKED"; col = "#56607a"; }
@@ -471,9 +495,9 @@ export function createGame(ctx) {
       else if (owned) { label = "INSTALL"; col = "#2a6a8a"; }
       else if (lockedReq) { label = `COMPAT ${w.req}`; col = "#56607a"; }
       else { label = `BUY $${w.price}`; col = state.credits >= w.price ? "#a0287a" : "#56607a"; }
-      c.fillStyle = col; roundRect(c, PANEL_W - 230, y + 12, 180, 46, 10); c.fill();
-      c.fillStyle = "#ffffff"; c.font = "bold 22px Arial"; c.textAlign = "center"; c.fillText(label, PANEL_W - 140, y + 43); c.textAlign = "left";
-      s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 8, index: i });
+      c.fillStyle = col; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
+      c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(label, PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
+      s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 6, index: i });
     });
     const ly = PANEL_H - 74, li = s.items.length;
     const hov = hoverIndex === li;
@@ -485,8 +509,18 @@ export function createGame(ctx) {
   }
   function shopClick(index) {
     const s = panelState;
+    if (index >= 100) { s.cat = SHOP_TABS[index - 100].id; s.items = shopItems(s.cat); s.message = ""; return drawPanel(); }
     if (index === s.items.length) return closePanel();
-    const id = s.items[index], w = CYBERWARE[id];
+    const id = s.items[index];
+    if (CONSUMABLES[id]) {
+      const cdef = CONSUMABLES[id]; state.items = state.items || {};
+      const have = state.items[id] || 0;
+      if (have >= cdef.max) s.message = `You can only carry ${cdef.max}.`;
+      else if (state.credits < cdef.price) s.message = "Not enough credits.";
+      else { state.credits -= cdef.price; state.items[id] = have + 1; s.message = `Bought a ${cdef.name}. You have ${have + 1}.`; }
+      changed(); drawPanel(); return;
+    }
+    const w = CYBERWARE[id];
     if (!w) return;
     if (w.locked) s.message = "Not for sale. Not yet.";
     else if (state.owned.includes(id)) {
@@ -836,9 +870,9 @@ export function createGame(ctx) {
     guide.update(time, tmpV2, target && (Math.hypot(target.x - tmpV2.x, target.z - tmpV2.z) > 2.2 || Math.abs(target.y - tmpV2.y) > 4) ? target : null, MISSIONS[trackedMission()]?.kind === "main");
     for (const { b, p } of shardBeacons) b.visible = isActive("wayfinder") && p.enabled();
     // district name toast when you cross into a new area
-    const district = city.districtAt(tmpV2.z, tmpV2.y);
+    const district = city.districtAt(tmpV2.z, tmpV2.y, tmpV2.x);
     if (district !== lastDistrict) { if (lastDistrict) toast(district, "district"); lastDistrict = district; if (hud.district) hud.district.textContent = district; }
-    audio.setMood(finaleMood > 0 ? "finale" : ({ "THE SUMP": "sump", "RING ROAD": "ring", "NEON MILE": "mile", "SPIRE PLAZA": "plaza" }[district] || "roof"));
+    audio.setMood(finaleMood > 0 ? "finale" : ({ "THE SUMP": "sump", "RING ROAD": "ring", "NEON MILE": "mile", "SPIRE PLAZA": "plaza", "THE DOCKS": "plaza" }[district] || "roof"));
     if (finaleMood > 0) finaleMood -= dt;
     updatePointing(controllers);
     updateToasts(dt);
@@ -869,7 +903,7 @@ export function createGame(ctx) {
 
   return {
     update, onTrigger, desktopInteract, desktopClick, handleKey, cursorPoint, beginSession, onExit,
-    isPanelOpen: () => panel.visible, closePanel, objectiveSummary, toast, npcSys, openShop,
+    isPanelOpen: () => panel.visible, closePanel, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why),
     debug: { startMission, completeStep, emit, openDialogue, state, interactables, choose, objectivePosition }
   };
 }

@@ -10,6 +10,8 @@ import * as creator from "./creator.js";
 import { guideSettings, setGuideStyle } from "./guide.js";
 import { createIntro } from "./intro.js";
 import * as worlds from "./worlds.js";
+import { buildDocks } from "./docks.js";
+import { createCombat, makeZone } from "./combat.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -79,6 +81,8 @@ setTimeout(() => document.querySelector("#wip-label")?.classList.add("faded"), 2
 // The city of Neo Kasumi (districts, collision, signage, props, rain) is
 // built in city.js as a handful of merged meshes for Quest performance.
 const city = buildCity(scene, renderer);
+// THE DOCKS: new waterfront district east of the Ring Road (docks.js).
+const docks = buildDocks(city.root, city);
 // A small neon environment map gives metal, glass and wet streets coloured
 // reflections without any extra real-time lights.
 scene.environment = createNeonEnvironment(renderer);
@@ -759,11 +763,14 @@ document.querySelectorAll("[data-stat][data-change]").forEach(button => {
 const CONTROLS_VR = [
   ["Move", "Left stick"], ["Sprint", "Click left stick"], ["Turn", "Right stick"], ["Jump", "A"],
   ["Interact / talk / grab", "Point + trigger"], ["Dialogue choice", "Point + trigger"],
+  ["Make a fist / punch", "Squeeze grip + swing"], ["Palm pulse (shoot)", "Trigger, open hand"],
+  ["Guard", "Both fists up at face"], ["Med patch", "X"],
   ["Menu", "Y"], ["Mika's door", "Grab handle + twist"]
 ];
 const CONTROLS_PC = [
   ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
-  ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Menu", "E"], ["Mute sound", "M"]
+  ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm pulse", "Right click"],
+  ["Guard", "Hold C"], ["Med patch", "Q"], ["Menu", "E"], ["Mute sound", "M"]
 ];
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
@@ -804,6 +811,7 @@ document.addEventListener("keydown", event => {
   if (game && isInCity && !renderer.xr.isPresenting) {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
+    if (event.code === "KeyQ") { combat.useMedPatch(); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -1186,13 +1194,15 @@ function createRobotHand(parent, side = 1) {
   hand.userData.fingerJoints = fingerJoints;
   hand.userData.thumbRoot = thumbRoot;
   hand.userData.thumbTipPivot = thumbTipPivot;
+  // grip 0 = open hand, 1 = closed fist (each knuckle curls toward the palm).
   hand.userData.setGrip = amount => {
     const grip = THREE.MathUtils.clamp(amount, 0, 1);
     for (const joint of fingerJoints) {
-      joint.pivot.rotation.x = -grip * (joint.segment === 0 ? 0.16 : 0.34);
+      joint.pivot.rotation.x = -grip * (joint.segment === 0 ? 1.45 : joint.segment === 1 ? 1.55 : 1.1);
     }
-    thumbRoot.rotation.z = side * (0.78 - grip * 0.25);
-    thumbTipPivot.rotation.x = -grip * 0.3;
+    thumbRoot.rotation.z = side * (0.78 - grip * 0.75);
+    thumbRoot.rotation.x = -grip * 0.55;
+    thumbTipPivot.rotation.x = -grip * 0.9;
   };
   hand.userData.setGrip(0.08);
   // ~115 parts → 2 GPU-skinned meshes. Finger joints stay animatable as bones.
@@ -1254,8 +1264,11 @@ function updateAvatarHeightFromHeadset(xrFrame, delta) {
   playableAvatar.root.scale.set(1, smoothScale, 1);
 }
 
-function animateRobotHandJoints(hand, elapsed, phaseOffset = 0) {
+function animateRobotHandJoints(hand, elapsed, phaseOffset = 0, grip = 0) {
   if (!hand?.userData?.fingerJoints) return;
+  // Smoothly follow the controller grip; when squeezing, show the fist.
+  hand.userData.gripSmooth = THREE.MathUtils.damp(hand.userData.gripSmooth || 0, grip, 18, 1 / 72);
+  if (hand.userData.gripSmooth > 0.04) { hand.userData.setGrip(hand.userData.gripSmooth); return; }
   const idle = 0.035 + Math.sin(elapsed * 1.35 + phaseOffset) * 0.025;
   const walking = Math.max(0, Math.sin(elapsed * 8.4 + phaseOffset)) * 0.035;
   for (const joint of hand.userData.fingerJoints) {
@@ -1273,8 +1286,9 @@ function animatePlayableAvatar(amount, elapsed) {
   if (firstPersonHands) {
     firstPersonHands.position.y = -Math.abs(Math.sin(phase * 2)) * 0.012 * blend;
     firstPersonHands.rotation.z = Math.sin(phase) * 0.025 * blend;
+    // PC: fists while guarding (C) or during a jab.
     firstPersonHands.children.forEach((hand, index) =>
-      animateRobotHandJoints(hand, elapsed, index * Math.PI)
+      animateRobotHandJoints(hand, elapsed, index * Math.PI, keys.KeyC || (index === 1 && desktopJab > 0) ? 1 : 0)
     );
   }
 }
@@ -1843,7 +1857,10 @@ for (let i = 0; i < 2; i++) {
     // Physical door handle first, then NPCs / pickups / dialogue buttons.
     if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
     if (beginDoorGrab(controller)) return;
-    game?.onTrigger(controller);
+    if (game?.onTrigger(controller)) return;
+    // Nothing to interact with: an open hand fires the GEN-0 palm pulse.
+    const grip = getGamepad(controller.userData.handedness)?.buttons?.[1]?.value || 0;
+    if (grip < 0.4 && combat && !intro.active) { const hand = robotHandOf(controller); if (combat.firePulse(hand || controller, controller)) haptic(controller.userData.handedness, 0.6, 50); }
   });
   controller.addEventListener("selectend", () => {
     if (intro.active) { intro.triggerUp(); return; }
@@ -1874,7 +1891,7 @@ function drawVRMenu() {
   ctx.strokeRect(5, 5, 1014, 758);
   ctx.fillStyle = "#5ff5e8";
   ctx.font = "bold 28px Arial";
-  ctx.fillText("NEON GENESIS  /  " + (city.districtAt(player.position.z, player.position.y)), 54, 58);
+  ctx.fillText("NEON GENESIS  /  " + (city.districtAt(player.position.z, player.position.y, player.position.x)), 54, 58);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 25px Arial";
   ctx.fillText("CREDITS  $" + state.credits.toLocaleString(), 760, 58);
@@ -2122,6 +2139,8 @@ window.addEventListener("keyup", event => { keys[event.code] = false; });
 window.addEventListener("blur", () => { for (const key of Object.keys(keys)) keys[key] = false; });
 
 let previousMenuButton = false;
+let previousXButton = false;
+let desktopJab = 0;
 let previousJumpButton = false;
 let jumpVelocity = 0;
 const clock = new THREE.Clock();
@@ -2169,6 +2188,20 @@ function getLeftYButton() {
   return !!leftSource?.gamepad?.buttons[5]?.pressed;
 }
 
+function getGamepad(handedness) {
+  const session = renderer.xr.getSession();
+  if (!session) return null;
+  for (const source of session.inputSources) if (source.handedness === handedness && source.gamepad) return source.gamepad;
+  return null;
+}
+// Controller vibration on hits, blocks and pickups.
+function haptic(side, intensity = 0.5, ms = 60) {
+  for (const h of side === "both" ? ["left", "right"] : [side]) {
+    const pad = getGamepad(h);
+    try { pad?.hapticActuators?.[0]?.pulse?.(intensity, ms); } catch {}
+  }
+}
+const robotHandOf = controller => controller.children.find(c => c.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand || null;
 function getRightAButton() {
   const session = renderer.xr.getSession();
   if (!session) return false;
@@ -2329,14 +2362,43 @@ document.addEventListener("keydown", event => {
 updateSettingsUI();
 updateCharacterUI();
 
+// ── combat ─────────────────────────────────────────────────────────────
+const combat = createCombat({
+  root: cityWorld, camera, player, renderer, city, game, haptic,
+  zones: [makeZone({
+    min: { x: 47, z: -81 }, max: { x: 137, z: -11 },
+    wave: ["scav", "scav", "scav", "sentry", "sentry", "enforcer", "enforcer"],
+    spawnPoints: docks.spawnPoints,
+    alert: "TENKAI SECURITY: INTRUDER AT PORT 7", clearedText: "PORT 7 CLEARED", reward: 150
+  })]
+});
+const hpFill = document.querySelector("#hp-fill"), hpText = document.querySelector("#hp-text"), hpWrap = document.querySelector("#hp-bar");
+let lastHpText = "";
+function updateHealthHUD() {
+  if (!hpWrap) return;
+  const max = maxHealth(), text = `${Math.ceil(combat.hp)} / ${max} · PULSE ${Math.floor(combat.energy * 3)} · ✚ ${state.items?.med_patch || 0}${combat.guarding ? " · GUARD" : ""}`;
+  hpWrap.hidden = !(combat.inFight || combat.hp < max - 0.5);
+  if (text === lastHpText) return;
+  lastHpText = text;
+  hpFill.style.width = `${Math.max(0, combat.hp / max) * 100}%`;
+  hpFill.style.background = combat.hp / max > 0.5 ? "#6aff9e" : combat.hp / max > 0.25 ? "#ffcf4a" : "#ff3a4a";
+  hpText.textContent = text;
+}
+
 document.querySelector("#reset-button")?.addEventListener("click", () => {
   if (!confirm(`Restart the story in "${worlds.activeWorld().name}"? This world's progress will be erased (your other worlds are kept).`)) return;
   resetGame();
   location.reload();
 });
 
+renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
 renderer.domElement.addEventListener("mousedown", event => {
   if (intro.active && !renderer.xr.isPresenting && event.button === 0) { intro.next(); return; }
+  if (!renderer.xr.isPresenting && isInCity && document.pointerLockElement === renderer.domElement && !game.isPanelOpen()) {
+    if (event.button === 2) { combat.firePulse(camera); return; }
+    if (event.button === 0 && !game.desktopInteract()) { desktopJab = 1; combat.desktopPunch(); return; }
+    if (event.button === 0) return;
+  }
   if (renderer.xr.isPresenting || event.button !== 0 || !isInCity) return;
   if (game.isPanelOpen()) game.desktopClick();
   else if (document.pointerLockElement === renderer.domElement) game.desktopInteract();
@@ -2348,7 +2410,7 @@ if (DEBUG) {
     game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2371,17 +2433,36 @@ renderer.setAnimationLoop((time, xrFrame) => {
   intro.update(time, delta);
   updateAvatarHeightFromHeadset(xrFrame, delta);
   animatePlayableAvatar(movementAmount, time * 0.001);
+  const combatHands = [];
   for (let handIndex = 0; handIndex < vrControllerRays.length; handIndex++) {
-    const robotHand = vrControllerRays[handIndex].controller.children
-      .find(child => child.name === "TRACKED_VIRTUAL_HAND")?.userData?.robotHand;
-    animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI);
+    const controller = vrControllerRays[handIndex].controller;
+    const robotHand = robotHandOf(controller);
+    const side = controller.userData.handedness;
+    const grip = side ? (getGamepad(side)?.buttons?.[1]?.value || 0) : 0;
+    animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI, grip);
+    if (side && robotHand) combatHands.push({ side, object: robotHand, grip, controller });
+  }
+  if (renderer.xr.isPresenting) {
+    const xPressed = !!getGamepad("left")?.buttons?.[4]?.pressed;   // X: med patch
+    if (xPressed && !previousXButton && isInCity) combat.useMedPatch();
+    previousXButton = xPressed;
+  }
+  if (desktopJab > 0) {
+    desktopJab = Math.max(0, desktopJab - delta * 4);
+    const r = firstPersonHands?.children[1];
+    if (r) { r.userData.setGrip?.(1); r.position.z = -0.72 - Math.sin(desktopJab * Math.PI) * 0.35; }
+  }
+  if (isInCity && !intro.active && combat) {
+    combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
+    docks.update(time);
+    updateHealthHUD();
   }
   updateDoorGrab();
   shopDoorHinge.rotation.y = THREE.MathUtils.damp(
     shopDoorHinge.rotation.y, shopDoorTarget, 7.5, delta
   );
   const indoorsAtMika = Math.abs(player.position.x - mikaShop.position.x + 1.5) < 1.6 && Math.abs(player.position.z - mikaShop.position.z) < 2.2;
-  audio.update(delta, { inCity: isInCity, district: city.districtAt(player.position.z, player.position.y), indoors: indoorsAtMika, height: player.position.y });
+  audio.update(delta, { inCity: isInCity, district: city.districtAt(player.position.z, player.position.y, player.position.x), indoors: indoorsAtMika, height: player.position.y });
   if (isInCity) {
     city.applyAtmosphere(scene, player.position.z);
     city.update(time, delta, player.position);

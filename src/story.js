@@ -24,8 +24,20 @@ export const CYBERWARE = {
     desc: "+20% credits from missions and data shards. Thinks about money so you don't have to." },
   reflex_lattice:  { name: "Reflex Lattice", price: 1250, req: 3, slot: "Spine",
     desc: "+10% movement and +25% turning speed. Military surplus; serial numbers filed off." },
+  // ── combat chrome ──
+  arc_knuckles:    { name: "Arc Knuckles", price: 450, req: 1, slot: "Hands", cat: "combat",
+    desc: "Your fists crackle with current: +50% punch damage, and hits stun enemies." },
+  aegis_plating:   { name: "Aegis Forearm Plating", price: 380, req: 1, slot: "Arms", cat: "combat",
+    desc: "Raise both fists to your face to guard: blocks 90% of damage (70% without it)." },
+  pulse_capacitor: { name: "Pulse Capacitor", price: 520, req: 2, slot: "GEN-0 Arm", cat: "combat",
+    desc: "Open-palm pulse shots hit 50% harder and recharge 60% faster." },
   genesis_link:    { name: "GENESIS Link", price: 0, req: 5, slot: "???", locked: true,
     desc: "Not for sale. Doc says the parts don't exist yet. The core disagrees." }
+};
+
+// Consumables sold by Doc Anaya (not installed; used from your wrist with X).
+export const CONSUMABLES = {
+  med_patch: { name: "Med Patch", price: 60, max: 9, desc: "Press X (Q on PC) to heal 50 HP. Carry up to 9." }
 };
 
 // ─── named characters ───────────────────────────────────────────────────────

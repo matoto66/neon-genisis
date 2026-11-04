@@ -19,6 +19,7 @@ export const state = {
   owned: [],                   // cyberware ids bought
   installed: [],               // cyberware ids installed (limited by slots)
   collected: [],               // pickup ids already taken
+  items: {},                   // consumables, e.g. { med_patch: 2 }
   introSeen: false,
   tracked: null
 };
@@ -26,7 +27,7 @@ export const state = {
 // Fresh defaults (mutated in place so other modules keep their references).
 export function resetState() {
   Object.assign(state.character, { strength: 0, health: 0, compatibility: 0 });
-  Object.assign(state, { bonusPoints: 0, credits: 500, missions: {}, flags: {}, owned: [], installed: [], collected: [], introSeen: false, tracked: null });
+  Object.assign(state, { bonusPoints: 0, credits: 500, missions: {}, flags: {}, owned: [], installed: [], collected: [], items: {}, introSeen: false, tracked: null });
 }
 
 export function loadGame() {
@@ -53,6 +54,7 @@ export function loadGame() {
     }
     state.owned = state.owned.filter(id => CYBERWARE[id]);
     state.installed = state.installed.filter(id => state.owned.includes(id));
+    if (saved.items && typeof saved.items === "object") state.items = { med_patch: Math.max(0, Math.min(9, saved.items.med_patch | 0)) };
     state.introSeen = !!saved.introSeen;
     state.tracked = typeof saved.tracked === "string" ? saved.tracked : null;
     return true;

@@ -451,11 +451,11 @@ export function buildCity(scene, renderer) {
   for (let x = -10; x <= 10; x += 2) props.box(1, 0.25, 0.82, x, 0.95, 42.6, x % 4 === 0 ? 0xffb02e : 0x15171c);
   flatSign("closed", 0, 2.6, 42.2, 4, Math.PI);
   addCollider(-11, 11, 42.2, 43.5, 0, 3);
-  for (const side of [-1, 1]) {
-    props.box(0.8, 1.2, 19, side * 45.4, 0.6, -46, 0x6b6f78);
-    flatSign("closed", side * 45, 2.6, -46, 4, side > 0 ? -Math.PI / 2 : Math.PI / 2);
-    addCollider(side > 0 ? 45 : -46.5, side > 0 ? 46.5 : -45, -56, -36, 0, 3);
-  }
+  // West end stays closed; the east end opens onto THE DOCKS (docks.js).
+  props.box(0.8, 1.2, 19, -45.4, 0.6, -46, 0x6b6f78);
+  flatSign("closed", -45, 2.6, -46, 4, Math.PI / 2);
+  addCollider(-46.5, -45, -56, -36, 0, 3);
+  addCollider(45, 46.5, -56, -52.2, 0, 8); addCollider(45, 46.5, -39.8, -36, 0, 8);   // corners beside the road
 
   // ════════════════════════════════════════════════════════════════════════
   // THE SUMP (z 42 → -36.5) — low, grimy, warm windows, laundry & cables
@@ -915,7 +915,8 @@ export function buildCity(scene, renderer) {
     }
   };
   skyline(-110, -52, 60, -200, 22, 30, 120);
-  skyline(52, 110, 60, -200, 22, 30, 120);
+  skyline(52, 110, 60, 12, 10, 30, 120);
+  skyline(52, 110, -88, -200, 12, 30, 120);
   skyline(-60, 60, 50, 95, 10, 25, 70);
   skyline(-90, 90, -175, -230, 12, 60, 160);
 
@@ -1011,8 +1012,9 @@ export function buildCity(scene, renderer) {
     }
     return g;
   }
-  function districtAt(z, y = 0) {
+  function districtAt(z, y = 0, x = 0) {
     if (y > 10) return "ROOFTOPS · THE SUMP";
+    if (x > 45.5) return "THE DOCKS";
     if (z > -36.5) return "THE SUMP";
     if (z > -55.5) return "RING ROAD";
     if (z > -115) return "NEON MILE";
