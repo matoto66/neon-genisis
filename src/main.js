@@ -9,6 +9,7 @@ import { buildCharacter } from "./character.js";
 import * as creator from "./creator.js";
 import { guideSettings, setGuideStyle } from "./guide.js";
 import { createIntro } from "./intro.js";
+import * as worlds from "./worlds.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -876,6 +877,7 @@ let isInCity = false;
 // PLAY: a brand-new story first shows the holographic story intro.
 function startCity() {
   creator.saveLook();
+  worlds.touch();
   if (!state.introSeen && !intro.active) {
     startScreen.classList.add("hidden");
     vrStart.visible = false;
@@ -1360,6 +1362,7 @@ function addTerminalCard({ x, y, width, height, action, labelPainter, button = f
 // (Replaces the old grid of 3D boxes.) Everything is painted on a single
 // high-resolution canvas; pointing + trigger is mapped to buttons via UV.
 let creatorTab = 0;
+let vrWorldsOpen = false;
 document.querySelector("#play-button").addEventListener("click", startCity);
 const VRC_W = 1600, VRC_H = 1200;
 const vrcCanvas = document.createElement("canvas");
@@ -1387,19 +1390,46 @@ function drawVRCreator() {
   rr(8, 8, VRC_W - 16, VRC_H - 16, 40);
   vrc.fillStyle = "rgba(7,13,29,0.94)"; vrc.fill();
   vrc.lineWidth = 4; vrc.strokeStyle = "rgba(95,245,232,0.55)"; vrc.stroke();
-  txt("NEW RUN", 70, 78, 26, "#5ff5e8", "left", "800");
+  txt("WORLD · " + (worlds.activeWorld()?.name || ""), 70, 78, 26, "#5ff5e8", "left", "800");
   txt("CREATE YOUR CHARACTER", 70, 128, 52, "#ffffff", "left", "800");
   txt(appearance.name ? appearance.name.toUpperCase() : "UNNAMED RUNNER", VRC_W - 70, 128, 34, "#ffcf70", "right", "800");
   // tabs
-  const tabW = (VRC_W - 140 - 4 * 14) / 5;
-  creator.TABS.forEach((t, i) => {
-    const x = 70 + i * (tabW + 14), y = 180, on = i === creatorTab;
-    const hov = vrcButton(x, y, tabW, 76, () => { creatorTab = i; applyCreatorFocus(); renderDesktopCreator(); });
+  const vrTabs = [{ label: "WORLDS" }, ...creator.TABS];
+  const tabW = (VRC_W - 140 - 5 * 14) / 6;
+  vrTabs.forEach((t, ti) => {
+    const i = ti - 1;
+    const x = 70 + ti * (tabW + 14), y = 180, on = ti === 0 ? vrWorldsOpen : (!vrWorldsOpen && i === creatorTab);
+    const hov = vrcButton(x, y, tabW, 76, () => { if (ti === 0) { vrWorldsOpen = true; return; } vrWorldsOpen = false; creatorTab = i; applyCreatorFocus(); renderDesktopCreator(); });
     rr(x, y, tabW, 76, 16);
     vrc.fillStyle = on ? "#0f6f74" : hov ? "rgba(39,75,103,0.95)" : "rgba(12,22,40,0.95)"; vrc.fill();
     vrc.lineWidth = 3; vrc.strokeStyle = on ? "#5ff5e8" : "rgba(95,245,232,0.25)"; vrc.stroke();
-    txt(t.label, x + tabW / 2, y + 39, 30, on ? "#ffffff" : "#9fb2cc", "center", "800");
+    txt(t.label, x + tabW / 2, y + 39, 28, on ? "#ffffff" : "#9fb2cc", "center", "800");
   });
+  if (vrWorldsOpen) drawVRWorlds(); else drawVRFields();
+  drawVRBottom();
+}
+// WORLDS page: pick a save slot or make a new one (rename/delete on PC).
+function drawVRWorlds() {
+  const list = worlds.worldList(), active = worlds.activeWorld()?.id;
+  const colW = (VRC_W - 140 - 30) / 2, rowH = 118;
+  list.forEach((w, k) => {
+    const x = 70 + (k % 2) * (colW + 30), y = 290 + Math.floor(k / 2) * (rowH + 14), on = w.id === active;
+    const hov = vrcButton(x, y, colW, rowH, () => switchWorld(w.id));
+    rr(x, y, colW, rowH, 18);
+    vrc.fillStyle = on ? "rgba(15,111,116,0.85)" : hov ? "rgba(39,75,103,0.95)" : "rgba(20,36,61,0.75)"; vrc.fill();
+    if (on) { vrc.lineWidth = 4; vrc.strokeStyle = "#5ff5e8"; vrc.stroke(); }
+    txt((on ? "● " : "") + w.name, x + 26, y + 44, 36, "#ffffff", "left", "800");
+    txt(worlds.summary(w.id), x + 26, y + 88, 26, on ? "#c9fffb" : "#9fb2cc", "left", "700");
+  });
+  if (worlds.canCreate()) {
+    const k = list.length, x = 70 + (k % 2) * (colW + 30), y = 290 + Math.floor(k / 2) * (rowH + 14);
+    const hov = vrcButton(x, y, colW, rowH, () => newWorld());
+    rr(x, y, colW, rowH, 18); vrc.fillStyle = hov ? "rgba(255,207,112,0.22)" : "rgba(40,30,10,0.5)"; vrc.fill();
+    vrc.lineWidth = 3; vrc.setLineDash([12, 10]); vrc.strokeStyle = "#ffcf70"; vrc.stroke(); vrc.setLineDash([]);
+    txt("+  NEW WORLD", x + colW / 2, y + rowH / 2 + 2, 38, "#ffcf70", "center", "800");
+  }
+}
+function drawVRFields() {
   // fields: two columns
   const fields = creator.TABS[creatorTab].fields;
   const colW = (VRC_W - 140 - 30) / 2, rowH = 132, top = 290;
@@ -1448,7 +1478,8 @@ function drawVRCreator() {
       txt(f.type === "text" ? (appearance.name || "NO NAME").toUpperCase() : creator.valueText(f), x + w / 2, by + bh / 2 + 2, 36, "#ffffff", "center", "800");
     }
   });
-  // bottom buttons
+}
+function drawVRBottom() {
   const by = VRC_H - 140;
   const hRand = vrcButton(70, by, 520, 92, () => creator.randomize());
   rr(70, by, 520, 92, 20); vrc.fillStyle = hRand ? "rgba(39,75,103,0.95)" : "rgba(7,13,29,0.95)"; vrc.fill();
@@ -1472,7 +1503,7 @@ vrcPanel.userData.action = hit => {
   if (i < 0) return;
   const before = creator.TABS[creatorTab].id, act = vrcButtons[i].act;
   act();
-  if (act.toString().includes("startCity")) return;
+  if (act.toString().includes("startCity") || act.toString().includes("World")) { drawVRCreator(); return; }
   onLookChanged();
   if (creator.TABS[creatorTab].id !== before) refreshVRCreator();
 };
@@ -1487,6 +1518,71 @@ function onLookChanged() {
   renderDesktopCreator();
   audio.play("click");
 }
+
+// ── Worlds (save slots) ─────────────────────────────────────────────────
+// Switching loads that world's progress and character without reloading.
+function refreshAfterWorldChange() {
+  loadGame();
+  creator.loadLook();
+  updateCharacterPreview();
+  rebuildPlayableAvatar();
+  updateCharacterUI();
+  renderDesktopCreator();
+  renderWorlds();
+  drawVRCreator();
+  startStatus.textContent = state.introSeen
+    ? `World "${worlds.activeWorld().name}" loaded. You'll continue where you left off.`
+    : `World "${worlds.activeWorld().name}" is a fresh story.`;
+}
+function switchWorld(id) { if (worlds.selectWorld(id)) refreshAfterWorldChange(); }
+function newWorld(name) { if (worlds.createWorld(name)) refreshAfterWorldChange(); }
+const worldsRoot = document.querySelector("#worlds");
+let worldsOpen = false;
+function renderWorlds() {
+  if (!worldsRoot) return;
+  const active = worlds.activeWorld();
+  const rows = worlds.worldList().map(w => `
+    <div class="world-row${w.id === active.id ? " on" : ""}">
+      <button type="button" class="world-pick" data-world="${w.id}"><strong>${w.name}</strong><span>${worlds.summary(w.id)}</span></button>
+      <button type="button" class="world-icon" data-rename="${w.id}" title="Rename" aria-label="Rename ${w.name}">✎</button>
+      <button type="button" class="world-icon danger" data-delete="${w.id}" title="Delete" aria-label="Delete ${w.name}">🗑</button>
+    </div>`).join("");
+  worldsRoot.innerHTML = `
+    <div class="world-current">
+      <div><span class="small-label">WORLD</span><strong>${active.name}</strong><em>${worlds.summary(active.id)}</em></div>
+      <button type="button" class="ui-button" data-toggle-worlds>${worldsOpen ? "CLOSE" : "CHANGE / NEW"}</button>
+    </div>
+    ${worldsOpen ? `<div class="world-list">${rows}
+      ${worlds.canCreate() ? `<form class="world-new"><input id="new-world-name" maxlength="20" placeholder="New world name"><button type="submit" class="ui-button accent">+ NEW WORLD</button></form>` : `<p class="panel-note">You have the maximum of 8 worlds. Delete one to make another.</p>`}
+    </div>` : ""}`;
+}
+worldsRoot?.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.toggleWorlds !== undefined) { worldsOpen = !worldsOpen; renderWorlds(); return; }
+  if (b.dataset.world) { switchWorld(b.dataset.world); return; }
+  if (b.dataset.rename) {
+    const w = worlds.worldList().find(x => x.id === b.dataset.rename);
+    const name = prompt("Rename world:", w.name);
+    if (name) { worlds.renameWorld(w.id, name); renderWorlds(); drawVRCreator(); }
+    return;
+  }
+  if (b.dataset.delete) {
+    if (worlds.worldList().length <= 1) { alert("You need at least one world."); return; }
+    const w = worlds.worldList().find(x => x.id === b.dataset.delete);
+    if (!confirm(`Delete "${w.name}" and all of its progress? This can't be undone.`)) return;
+    const wasActive = w.id === worlds.activeWorld().id;
+    worlds.deleteWorld(w.id);
+    if (wasActive) refreshAfterWorldChange(); else renderWorlds();
+  }
+});
+worldsRoot?.addEventListener("submit", e => {
+  e.preventDefault();
+  newWorld(document.querySelector("#new-world-name")?.value);
+  worldsOpen = true;
+  renderWorlds();
+});
+renderWorlds();
 
 // ── PC character creator (HTML) ─────────────────────────────────────────
 const creatorRoot = document.querySelector("#creator");
@@ -2212,6 +2308,7 @@ game = createGame({
   onStateChange: () => updateCharacterUI(),
   isInCity: () => isInCity,
   onTeleport: () => { jumpVelocity = 0; },
+  getName: () => appearance.name,
   audio
 });
 // 3D sound sources placed in the world.
@@ -2233,7 +2330,7 @@ updateSettingsUI();
 updateCharacterUI();
 
 document.querySelector("#reset-button")?.addEventListener("click", () => {
-  if (!confirm("Erase your saved progress on this device and start a new story?")) return;
+  if (!confirm(`Restart the story in "${worlds.activeWorld().name}"? This world's progress will be erased (your other worlds are kept).`)) return;
   resetGame();
   location.reload();
 });
@@ -2251,7 +2348,7 @@ if (DEBUG) {
     game, state, city, player, camera, renderer, startCity, THREE, scene, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro,
+    intro, replayIntro, worlds, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {

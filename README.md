@@ -44,7 +44,9 @@ Tenkai's offer at Spire Plaza. Accept or refuse — Mika remembers which.
 * Compatibility = cyberware slots (2 + compatibility) and which grades your body accepts.
 * Cyberware is bought in person from Doc Anaya and has real effects (speed, jump, health, credit bonus,
   turning, objective distance + shard beacons).
-* Progress saves automatically on the device. "Start a new story" on the title screen erases it.
+* **Worlds:** separate save slots (up to 8), each with its own name, story progress, credits, cyberware and
+  character. Create, switch, rename or delete them on the title screen; pick or create them in VR from the WORLDS tab.
+* Progress saves automatically on the device. "Restart this world" erases only the current world.
 
 ## Project structure
 
@@ -63,6 +65,7 @@ src/audio.js          all sound: procedural music per district, rain/city ambien
 src/character.js      character builder shared by NPCs and the player creator
 src/creator.js        character creator options, presets, randomizer, saving
 src/intro.js          holographic story intro (plays on a new story; replay from Settings)
+src/worlds.js         save slots (worlds)
 src/guide.js          objective guide: sky beam or dotted path line along the streets
 genesis_core_v2.glb   the detailed Genesis Core (Genisis_ core.gltf is kept as the fallback/backup)
 tools/                build_genesis_core.html — rebuilds genesis_core_v2.glb

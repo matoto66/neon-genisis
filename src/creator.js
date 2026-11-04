@@ -4,7 +4,7 @@
 
 import { OPTIONS, SKIN_TONES, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, GLOW_COLORS } from "./character.js";
 
-const KEY = "neon-genesis-appearance";
+import { lookKey } from "./worlds.js";
 
 export const DEFAULT_LOOK = {
   name: "", build: "male", scale: 1.0, skin: 0xe0ac86, faceShape: "oval", eyes: 0x3a2414, facialHair: "none",
@@ -61,7 +61,9 @@ const OLD_COLOURS = { Black: 0x15171c, White: 0xd8dce6, Yellow: 0xc49a25, Cyan: 
 const OLD_HATS = { "Baseball Cap": "cap", "Beanie": "beanie", "Bucket Hat": "bucket", "Tech Helmet": "helmet" };
 export function loadLook() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+    Object.assign(look, DEFAULT_LOOK);
+    presetIndex = -1;
+    const saved = JSON.parse(localStorage.getItem(lookKey()) || "null");
     if (!saved) return;
     if (saved.bodyType && !saved.build) {          // old format
       look.build = saved.bodyType === "Female" ? "female" : "male";
@@ -75,7 +77,7 @@ export function loadLook() {
     look.name = String(look.name).slice(0, 16);
   } catch {}
 }
-export function saveLook() { try { localStorage.setItem(KEY, JSON.stringify(look)); } catch {} }
+export function saveLook() { try { localStorage.setItem(lookKey(), JSON.stringify(look)); } catch {} }
 
 export function cycle(field, dir = 1) {
   if (field.type === "preset") return applyPreset((presetIndex + dir + PRESETS.length) % PRESETS.length);

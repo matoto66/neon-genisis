@@ -308,3 +308,22 @@ kbd { display: inline-block; min-width: 20px; margin-right: 6px; padding: 1px 6p
 .control-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(145,169,205,.12); color: #dce7ff; font-size: 12px; }
 .control-row kbd { margin: 0; min-width: 0; padding: 2px 8px; }
 #game-ui.menu-open .menu-objective { top: calc(50% - 205px); }
+
+/* Worlds (save slots) */
+#worlds { margin: 4px 0 14px; }
+.world-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 13px; border-radius: 10px; border: 1px solid rgba(255,207,112,.45); background: linear-gradient(110deg, rgba(60,40,10,.45), rgba(14,24,44,.9)); }
+.world-current div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.world-current strong { color: #ffcf70; font-size: 16px; letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-current em { color: #b9c3d9; font-size: 10px; font-style: normal; letter-spacing: .1em; }
+.world-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.world-row { display: flex; gap: 6px; }
+.world-pick { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 12px; border: 1px solid rgba(145,169,205,.18); border-radius: 8px; background: rgba(20,36,61,.6); color: #fff; cursor: pointer; text-align: left; }
+.world-pick strong { font-size: 13px; letter-spacing: .08em; }
+.world-pick span { color: #9eabc4; font-size: 10px; letter-spacing: .08em; }
+.world-row.on .world-pick { border-color: #5ff5e8; background: rgba(15,111,116,.45); }
+.world-pick:hover { border-color: rgba(95,245,232,.6); }
+.world-icon { width: 38px; border: 1px solid rgba(145,169,205,.2); border-radius: 8px; background: rgba(12,22,40,.9); color: #dce7ff; cursor: pointer; }
+.world-icon:hover { border-color: #5ff5e8; }
+.world-icon.danger:hover { border-color: #ff6f8a; background: rgba(90,20,40,.6); }
+.world-new { display: flex; gap: 6px; margin-top: 2px; }
+.world-new input { flex: 1; min-height: 38px; padding: 6px 10px; border: 1px solid rgba(255,207,112,.4); border-radius: 7px; background: #0d1830; color: #fff; font: 700 13px Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=neo-kasumi-60" />
+    <link rel="stylesheet" href="./style.css?v=neo-kasumi-70" />
     <script type="importmap">
       {
         "imports": {
@@ -23,16 +23,16 @@
         <p class="subtitle">YOUR CITY. YOUR STORY.</p>
       </div>
       <section class="start-card">
-        <p class="eyebrow">NEW RUN</p>
         <h2>CREATE YOUR CHARACTER</h2>
         <p class="start-copy">Build your runner: identity, face, hair, outfit and chrome. Everything saves on this device.</p>
+        <div id="worlds" aria-label="Worlds"></div>
         <div id="creator" aria-label="Character creator"></div>
 
         <p id="start-status">City systems are ready.</p>
         <div id="start-actions">
           <button id="play-button" type="button">PLAY</button>
         </div>
-        <button id="reset-button" type="button" class="text-button">Start a new story (erase save)</button>
+        <button id="reset-button" type="button" class="text-button">Restart this world (erase its progress)</button>
       </section>
       <p class="start-footer">VR: LEFT STICK MOVE · RIGHT STICK TURN · TRIGGER INTERACT · A JUMP · Y MENU<br>PC: WASD · MOUSE LOOK · F INTERACT · SPACE JUMP · E MENU · 1–4 DIALOGUE</p>
     </main>
@@ -106,6 +106,6 @@
         <div class="controls-list" id="controls-pc"></div>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=neo-kasumi-60"></script>
+    <script type="module" src="./src/main.js?v=neo-kasumi-70"></script>
   </body>
 </html>

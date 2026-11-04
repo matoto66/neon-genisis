@@ -4,7 +4,7 @@
 
 import { CYBERWARE } from "./story.js";
 
-const SAVE_KEY = "neon-genesis-save";
+import { saveKey } from "./worlds.js";
 export const MAX_STAT = 5;
 export const BASE_POINTS = 3;
 export const gradeNames = ["BASIC", "STANDARD", "ADVANCED", "ELITE", "PROTOTYPE", "GENESIS"];
@@ -23,9 +23,16 @@ export const state = {
   tracked: null
 };
 
+// Fresh defaults (mutated in place so other modules keep their references).
+export function resetState() {
+  Object.assign(state.character, { strength: 0, health: 0, compatibility: 0 });
+  Object.assign(state, { bonusPoints: 0, credits: 500, missions: {}, flags: {}, owned: [], installed: [], collected: [], introSeen: false, tracked: null });
+}
+
 export function loadGame() {
+  resetState();
   try {
-    const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "null");
+    const saved = JSON.parse(localStorage.getItem(saveKey()) || "null");
     if (!saved) return false;
     if (Number.isInteger(saved.credits) && saved.credits >= 0) state.credits = saved.credits;
     if (Number.isInteger(saved.bonusPoints) && saved.bonusPoints >= 0) state.bonusPoints = Math.min(saved.bonusPoints, 9);
@@ -34,7 +41,7 @@ export function loadGame() {
       const values = [c.strength, c.health, c.compatibility];
       if (values.every(v => Number.isInteger(v) && v >= 0 && v <= MAX_STAT) &&
           values.reduce((a, b) => a + b, 0) <= BASE_POINTS + state.bonusPoints) {
-        state.character = { strength: c.strength, health: c.health, compatibility: c.compatibility };
+        Object.assign(state.character, { strength: c.strength, health: c.health, compatibility: c.compatibility });
       }
     }
     if (saved.missions && typeof saved.missions === "object") state.missions = saved.missions;
@@ -53,11 +60,11 @@ export function loadGame() {
 }
 
 export function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch {}
+  try { localStorage.setItem(saveKey(), JSON.stringify(state)); } catch {}
 }
 
 export function resetGame() {
-  try { localStorage.removeItem(SAVE_KEY); } catch {}
+  try { localStorage.removeItem(saveKey()); } catch {}
 }
 
 export const totalPoints = () => BASE_POINTS + state.bonusPoints;

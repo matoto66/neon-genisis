@@ -355,7 +355,7 @@ export function createGame(ctx) {
     status, step: stepOf, count, startMission, completeStep, give: n => give(n),
     spend: n => { state.credits = Math.max(0, state.credits - n); changed(); },
     openShop: () => { pendingShop = true; },
-    get name() { try { return (JSON.parse(localStorage.getItem("neon-genesis-appearance") || "{}").name || "").trim(); } catch { return ""; } }, bark: () => AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)],
+    get name() { return (ctx.getName?.() || "").trim(); }, bark: () => AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)],
     coreFlare: () => coreFlare(), toast: (t, k) => toast(t, k), finale: () => { finaleMood = 90; }
   };
   let pendingShop = false;
