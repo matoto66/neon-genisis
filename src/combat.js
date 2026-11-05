@@ -245,13 +245,33 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     s.userData.draw = f => { const x = c.getContext("2d"); x.clearRect(0, 0, 128, 16); x.fillStyle = "rgba(0,0,0,0.6)"; x.fillRect(0, 0, 128, 16); x.fillStyle = f > 0.4 ? "#ff8a3a" : "#ff2a3a"; x.fillRect(2, 2, 124 * f, 12); t.needsUpdate = true; };
     s.visible = false; return s;
   }
+  // warning icons above enemies: ? (suspicious), ! (spotted you), ⚠ (about to attack — counter it!)
+  const iconMats = {};
+  for (const [k, col] of [["?", "#ffcf4a"], ["!", "#ff3a4a"], ["⚠", "#ff3a4a"]]) {
+    const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d");
+    x.fillStyle = "rgba(0,0,0,0.55)"; x.beginPath(); x.arc(64, 64, 54, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = col; x.lineWidth = 8; x.stroke();
+    x.fillStyle = col; x.font = "900 76px Arial"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(k, 64, 70);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    iconMats[k] = new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+  }
+  function setIcon(e, k) {
+    if (e.iconKind === k) return;
+    e.iconKind = k; e.icon.visible = !!k;
+    if (k) e.icon.material = iconMats[k];
+  }
+  const punchBoost = () => (state.flags.craft_knuckle ? 1.15 : 1);
   function spawn(type, pos) {
     const def = ENEMY_TYPES[type];
     const e = { type, def, hp: def.hp, pos: pos.clone(), vel: new THREE.Vector3(), state: "idle", t: 0, cooldown: 1 + Math.random() * 2,
-      stun: 0, windup: 0, hitCd: [0, 0], dead: false, deadT: 0, phase: Math.random() * 10 };
+      stun: 0, windup: 0, hitCd: [0, 0], dead: false, deadT: 0, phase: Math.random() * 10,
+      aware: false, suspicion: 0, spottedT: 0, home: pos.clone(), wanderT: Math.random() * 6 };
     if (type === "enforcer") Object.assign(e, makeEnforcer()); else Object.assign(e, makeDrone(type));
+    e.icon = new THREE.Sprite(iconMats["?"]); e.icon.visible = false; e.icon.renderOrder = 50;
+    e.icon.scale.setScalar(0.42 / e.group.scale.x);
     e.bar = makeBar(); e.bar.position.y = type === "enforcer" ? 2.25 : 0.55; e.group.add(e.bar);
     if (type !== "enforcer") e.bar.position.y = 2.6;           // drone bars are in the scaled group
+    e.icon.position.y = e.bar.position.y + (type === "enforcer" ? 0.35 : 0.9); e.group.add(e.icon);
     e.group.position.copy(pos);
     if (def.hover) e.group.position.y = def.hover;
     root.add(e.group);
@@ -274,10 +294,51 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     e.windup = 0;
     e.bar.visible = true; e.bar.userData.draw(Math.max(0, e.hp / e.def.hp));
     e.state = "chase";
+    if (!e.aware) alertEnemy(e);
     if (e.hp <= 0) kill(e);
   }
+  function alertEnemy(e) {
+    if (e.aware) return;
+    if (!enemies.some(o => o !== e && !o.dead && o.aware)) game.toast("SPOTTED! TENKAI SECURITY ALERTED", "warn");
+    e.aware = true; e.spottedT = 1.2; e.suspicion = 1;
+    sfx("enemyShot");
+    for (const o of enemies) if (o !== e && !o.dead && !o.aware && o.group.position.distanceTo(e.group.position) < 10) o.suspicion = Math.max(o.suspicion, 0.85);
+  }
+  /** Silent takedown on an enemy that hasn't noticed you. */
+  function takedown(e, dir) {
+    damageEnemy(e, 9999, dir, { color: 0x9fe9ff });
+    sfx("punchHeavy");
+    game.toast("SILENT TAKEDOWN", "complete");
+    game.awardXP?.(2);
+  }
+  /** Counter: hit an enemy while its warning icon is showing. */
+  function isWindingUp(e) {
+    if (e.type === "enforcer") return e.windup > 0;
+    const d = e.group.position.distanceTo(player.position);
+    return e.type === "scav" ? e.cooldown < 0.6 && d < 5 : e.cooldown < 0.6 && d < 18;
+  }
+  function counter(e, dmg, dir, hand) {
+    damageEnemy(e, dmg * 1.6, dir, { stun: 1.6, color: 0xffffff });
+    e.cooldown = 2.2;
+    sfx("punchHeavy"); sfx("arcHit");
+    game.toast("COUNTER!", "credits");
+    if (hand) hand.userData?.flash?.(0xffffff, 1.5);
+  }
+  /** Thrown objects: damage the first enemy within `radius` of `pos`. */
+  function hitEnemyAt(pos, radius, dmg, dir) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      hitCenter(e, tmp);
+      const dy = e.type === "enforcer" ? Math.max(0, Math.abs(pos.y - tmp.y) - 0.6) : pos.y - tmp.y;
+      if (Math.hypot(pos.x - tmp.x, dy, pos.z - tmp.z) < e.def.radius + radius) {
+        if (!e.aware && dmg > 8) { takedown(e, dir); return true; }
+        damageEnemy(e, dmg, dir, { stun: 0.8, color: 0xffcf4a }); sfx("punchLight"); return true;
+      }
+    }
+    return false;
+  }
   function kill(e) {
-    e.dead = true; e.deadT = 0; e.bar.visible = false;
+    e.dead = true; e.deadT = 0; e.bar.visible = false; setIcon(e, null);
     hitCenter(e, tmp);
     sfx(e.type === "enforcer" ? "enforcerDown" : "droneDown");
     if (e.type === "enforcer") { burst(tmp, 0xff3a4a, 20, 2); }
@@ -437,7 +498,10 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         const dy = e.type === "enforcer" ? Math.max(0, Math.abs(handPos.y - tmp.y) - 0.45) : 0;   // tall hit capsule for people
         tmp2.set(handPos.x - tmp.x, 0, handPos.z - tmp.z);
         if (Math.hypot(tmp2.length(), dy, e.type === "enforcer" ? 0 : handPos.y - tmp.y) > reach) continue;
-        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1) * (blades ? 1.4 : 1);
+        const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1) * (blades ? 1.4 : 1) * punchBoost();
+        e.hitCd[si] = 0.35;
+        if (!e.aware) { takedown(e, dir); haptic?.(h.side, 1, 120); h.object.userData?.flash?.(0x9fe9ff, 1.5); continue; }
+        if (isWindingUp(e)) { counter(e, dmg, dir, h.object); haptic?.(h.side, 1, 120); continue; }
         damageEnemy(e, dmg, dir, { stun: arc ? 1.0 : 0.15, color: blades ? 0xff4fd8 : arc ? 0x5ff5ff : 0xffcf4a });
         e.hitCd[si] = 0.35;
         sfx(blades ? "slice" : dmg > 25 ? "punchHeavy" : "punchLight");
@@ -485,6 +549,28 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       g.position.addScaledVector(e.vel, edt); e.vel.multiplyScalar(Math.exp(-4 * edt));
       if (e.stun > 0) { e.stun -= edt; g.rotation.z = Math.sin(t * 30) * 0.15; continue; } else g.rotation.z = 0;
       if (dist > 30 || dead) continue;
+      // ── awareness: unaware enemies wander near home; spot you up close or in front of them
+      if (!e.aware) {
+        const fwdX = Math.sin(g.rotation.y), fwdZ = Math.cos(g.rotation.y);
+        const facing = fwdX * toP.x + fwdZ * toP.z;
+        const sees = dist < 3.2 || (dist < 13 && facing > 0.45);
+        e.suspicion = Math.max(0, e.suspicion + (sees ? (dist < 3.2 ? 1.6 : 0.9 - dist * 0.04) : -0.25) * edt);
+        if (e.suspicion >= 1) alertEnemy(e);
+        else {
+          setIcon(e, e.suspicion > 0.12 ? "?" : null);
+          e.wanderT -= edt;
+          if (e.wanderT <= 0) { e.wanderT = 3 + Math.random() * 4; e.wanderYaw = Math.random() * Math.PI * 2; }
+          const back = tmp2.subVectors(e.home, g.position).setY(0);
+          const wantYaw = e.suspicion > 0.3 ? Math.atan2(toP.x, toP.z) : back.length() > 4 ? Math.atan2(back.x, back.z) : (e.wanderYaw ?? g.rotation.y);
+          g.rotation.y += Math.atan2(Math.sin(wantYaw - g.rotation.y), Math.cos(wantYaw - g.rotation.y)) * (1 - Math.exp(-2.5 * edt));
+          if (e.suspicion < 0.3) step(e, tmp2.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y)), e.def.speed * 0.25 * edt);
+          if (e.def.hover) g.position.y = e.def.hover + Math.sin(t * 2 + e.phase) * 0.12;
+          if (e.type === "enforcer") { const ph = t * 4 + e.phase, sw = Math.sin(ph) * 0.25 * (e.suspicion < 0.3 ? 1 : 0); e.rig.hips[0].rotation.x = sw; e.rig.hips[1].rotation.x = -sw; e.rig.arms[0].rotation.x = -sw * 0.5; }
+          continue;
+        }
+      }
+      e.spottedT = Math.max(0, e.spottedT - edt);
+      setIcon(e, e.spottedT > 0 ? "!" : isWindingUp(e) && (e.type !== "sentry" || e.cooldown < 0.6) ? "⚠" : null);
       const faceYaw = Math.atan2(toP.x, toP.z);
       g.rotation.y += Math.atan2(Math.sin(faceYaw - g.rotation.y), Math.cos(faceYaw - g.rotation.y)) * (1 - Math.exp(-6 * edt));
 
@@ -599,17 +685,23 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     for (const e of enemies) {
       if (e.dead) continue;
       hitCenter(e, tmp2);
-      if (tmp2.distanceTo(at) < e.def.radius + 0.7) { damageEnemy(e, 16 * (1 + 0.15 * effectiveStrength()) * (isActive("arc_knuckles") ? 1.5 : 1), tmp.clone(), { stun: 0.3 }); return true; }
+      if (tmp2.distanceTo(at) < e.def.radius + 0.7) {
+        const dmg = 16 * (1 + 0.15 * effectiveStrength()) * (isActive("arc_knuckles") ? 1.5 : 1) * punchBoost();
+        if (!e.aware) takedown(e, tmp.clone());
+        else if (isWindingUp(e)) counter(e, dmg, tmp.clone());
+        else damageEnemy(e, dmg, tmp.clone(), { stun: 0.3 });
+        return true;
+      }
     }
     return false;
   }
 
   return {
-    update, firePulse, desktopPunch, useMedPatch, spawn, useChrono,
+    update, firePulse, desktopPunch, useMedPatch, spawn, useChrono, hitEnemyAt, alertEnemy,
     get hp() { return hp; }, get energy() { return energy; }, get guarding() { return guarding; }, get dead() { return dead; },
     get timeScale() { return chronoT > 0 ? CHRONO_SCALE : 1; },
     get inFight() { return enemies.some(e => !e.dead && e.group.position.distanceTo(player.position) < 25); },
-    enemies, resetHealth() { hp = maxHealth(); }, debugHurt(n) { hurt(n); }
+    enemies, resetHealth() { hp = maxHealth(); }, debugHurt(n) { hurt(n); }, heal(n) { if (!dead) hp = Math.min(maxHealth(), hp + n); }
   };
 }
 

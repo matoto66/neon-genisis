@@ -193,6 +193,50 @@ export function createNPCSystem(parent, rand) {
       if (npc.bubble && npc.bubble.visible) { npc.bubbleTimer -= dt; if (npc.bubbleTimer <= 0) npc.bubble.visible = false; }
       if (npc.hologram) { npc.model.traverse(o => { if (o.isMesh && o.material === hologramMaterial) o.visible = Math.random() > 0.02; }); hologramMaterial.opacity = 0.35 + Math.sin(t * 9) * 0.06; }
 
+      // ── reactions: startled by punches, thrown junk and fights ────────
+      if (npc.scared > 0) {
+        npc.scared -= dt;
+        const r = npc.rig;
+        // cower: arms up over the face, knees bent
+        r.arms[0].rotation.x = r.arms[1].rotation.x = -2.2; r.elbows[0].rotation.x = r.elbows[1].rotation.x = -1.9;
+        r.arms[0].rotation.z = -0.35; r.arms[1].rotation.z = 0.35;
+        if (npc.mode !== "sit") { r.knees[0].rotation.x = r.knees[1].rotation.x = 0.35; r.hips[0].rotation.x = r.hips[1].rotation.x = -0.25; npc.model.position.y = -0.05; }
+        if (npc.mode === "walk" && npc.path && npc.scared < 2.2) {
+          // run away along their route
+          const target = npc.path[npc.pathIndex + npc.pathDir] || npc.path[npc.pathIndex];
+          tmp.set(target[0] + npc.offset - h.position.x, 0, target[1] - h.position.z);
+          const away = tmp.x * (h.position.x - (npc.fear?.x ?? 0)) + tmp.z * (h.position.z - (npc.fear?.z ?? 0)) < 0;
+          if (away) { npc.pathDir *= -1; npc.pathIndex = Math.max(0, Math.min(npc.path.length - 1, npc.pathIndex + (npc.pathDir > 0 ? 0 : 1))); }
+          const len = tmp.length();
+          if (len > 0.3) { tmp.multiplyScalar(1 / len); h.position.x += tmp.x * 3.0 * dt; h.position.z += tmp.z * 3.0 * dt; h.rotation.y = dampAngle(h.rotation.y, Math.atan2(tmp.x, tmp.z), 10, dt); animateWalk(npc, t * 1.6, 1); r.arms[0].rotation.x = r.arms[1].rotation.x = -0.6; r.elbows[0].rotation.x = r.elbows[1].rotation.x = -1.4; }
+        }
+        if (npc.scared <= 0) { r.arms[0].rotation.z = -0.07; r.arms[1].rotation.z = 0.07; r.elbows[0].rotation.x = r.elbows[1].rotation.x = -0.12; if (npc.mode !== "sit") npc.model.position.y = 0; }
+        continue;
+      }
+      // ── little routines: crowd walkers stop now and then to check their phone
+      if (npc.phoneT > 0) {
+        npc.phoneT -= dt;
+        const r = npc.rig;
+        r.arms[1].rotation.x = -0.75; r.elbows[1].rotation.x = -1.55; r.arms[1].rotation.z = 0.25;
+        if (r.head) { r.head.rotation.x = 0.35; }
+        animateIdle(npc, t); r.arms[1].rotation.x = -0.75;
+        if (npc.phone) npc.phone.visible = true;
+        if (npc.phoneT <= 0) { if (npc.phone) npc.phone.visible = false; r.arms[1].rotation.z = 0.07; r.elbows[1].rotation.x = -0.12; if (r.head) r.head.rotation.x = 0; }
+        continue;
+      }
+      if (npc.mode === "walk" && npc.path && !npc.named && !npc.model.userData.appearance?.umbrella && dist < 30 && Math.random() < dt * 0.012) {
+        npc.phoneT = 4 + Math.random() * 5;
+        if (!npc.phone) {
+          const ph = new THREE.Group();
+          ph.add(new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.085, 0.008), new THREE.MeshStandardMaterial({ color: 0x15171c, metalness: 0.6, roughness: 0.3 })));
+          const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.038, 0.074), new THREE.MeshBasicMaterial({ color: [0x38f0e6, 0xff4fa3, 0xb24cff][npcs.indexOf(npc) % 3] }));
+          scr.position.z = 0.0045; ph.add(scr);
+          ph.position.set(0, -0.31, 0.06); ph.rotation.x = -1.2;
+          npc.rig.elbows[1].add(ph); npc.phone = ph;
+        }
+        continue;
+      }
+
       if (npc.mode === "walk" && npc.path) {
         // pause if the player is right in front of them
         const blocked = dist < 1.0;
@@ -237,7 +281,21 @@ export function createNPCSystem(parent, rand) {
     }
   }
 
-  return { group, npcs, hitMeshes, byId, addNPC, update, setMarker, setEnabled, say };
+  // Something scary happened at `pos` (a punch, thrown junk, a fight).
+  const SCARED_LINES = ["Hey! Watch it!", "Back off, wirehead!", "Not cool!", "Somebody call the Spire!", "Whoa— easy!", "Are you glitching?!"];
+  function startle(pos, radius = 2.5) {
+    let n = 0;
+    for (const npc of npcs) {
+      if (!npc.enabled || npc.hologram || !npc.holder.visible) continue;
+      const d = npc.holder.position.distanceTo(tmp.set(pos.x, npc.holder.position.y, pos.z));
+      if (d > radius) continue;
+      const first = !(npc.scared > 0);
+      npc.scared = npc.named ? 1.6 : 3.2; npc.fear = pos.clone(); npc.phoneT = 0; if (npc.phone) npc.phone.visible = false;
+      if (first && n < 2 && npc.mode !== "sit") { say(npc, SCARED_LINES[Math.floor(Math.random() * SCARED_LINES.length)], 2.5); n++; }
+    }
+    return n;
+  }
+  return { group, npcs, hitMeshes, byId, addNPC, update, setMarker, setEnabled, say, startle };
 }
 
 function dampAngle(a, b, lambda, dt) {

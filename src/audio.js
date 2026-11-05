@@ -115,7 +115,7 @@ export function createAudio(camera) {
       audio.panner.panningModel = "HRTF";
       const out = ctx.createGain(); out.gain.value = volume;
       audio.setNodeSource(buildLoop(kind, out));
-      audio.gain.disconnect(); audio.gain.connect(buses[kind === "music_box" ? "music" : "ambience"]);
+      audio.gain.disconnect(); audio.gain.connect(buses[kind === "music_box" || kind.startsWith("radio") ? "music" : "ambience"]);
       object.add(audio);
       rec.audio = audio; rec.out = out;
     };
@@ -155,11 +155,61 @@ export function createAudio(camera) {
       const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.type = "triangle"; lfo.frequency.value = 2.3; lg.gain.value = 0.25; lfo.connect(lg); lg.connect(g.gain); lfo.start();
       const base = ctx.createConstantSource(); base.offset.value = 0.3; base.connect(g.gain); base.start();
       g.connect(out); s.start();
+    } else if (kind.startsWith("radio")) {   // street radio: a pre-rendered looping tune, slightly lo-fi
+      const src = ctx.createBufferSource(); src.buffer = radioTune(+kind.split(":")[1] || 0); src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1400; f.Q.value = 0.35;   // small-speaker sound
+      const hiss = noiseSource(true), hf = ctx.createBiquadFilter(), hg = ctx.createGain(); hf.type = "highpass"; hf.frequency.value = 5000; hg.gain.value = 0.012;
+      hiss.connect(hf); hf.connect(hg); hg.connect(out); hiss.start();
+      src.connect(f); f.connect(out); src.start();
     } else if (kind === "hologram") {
       const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square"; o.frequency.value = 60; g.gain.value = 0.02; o.connect(g); g.connect(out); o.start();
       const s = noiseSource(true), f = ctx.createBiquadFilter(), ng = ctx.createGain(); f.type = "highpass"; f.frequency.value = 6000; ng.gain.value = 0.04; s.connect(f); f.connect(ng); ng.connect(out); s.start();
     }
     return out;
+  }
+
+  // ── radio stations: each tune is synthesised once into a looping buffer ──
+  const radioCache = {};
+  const STATIONS = [
+    { bpm: 82, root: 45, prog: [0, 8, 3, 10], minor: true, swing: 0.12, lead: "keys" },      // lo-fi night beats
+    { bpm: 108, root: 50, prog: [0, 5, 7, 3], minor: true, swing: 0, lead: "saw" },         // synthwave drive
+    { bpm: 96, root: 48, prog: [5, 7, 4, 9], minor: false, swing: 0.06, lead: "bell" }       // city pop
+  ];
+  function radioTune(n) {
+    if (radioCache[n]) return radioCache[n];
+    const st = STATIONS[n % STATIONS.length], sr = ctx.sampleRate, beat = 60 / st.bpm, bars = 8;
+    const len = Math.floor(sr * beat * 4 * bars), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+    const third = st.minor ? 3 : 4;
+    const add = (start, dur, f, amp, shape, decay = 3) => {
+      const i0 = Math.floor(start * sr), n = Math.floor(dur * sr);
+      for (let i = 0; i < n && i0 + i < len; i++) {
+        const t = i / sr, ph = t * f, env = Math.min(1, t * 200) * Math.exp(-t * decay);
+        let v = shape === "saw" ? 2 * (ph % 1) - 1 : shape === "sq" ? (ph % 1 < 0.5 ? 1 : -1) : shape === "bell" ? Math.sin(2 * Math.PI * ph) * 0.7 + Math.sin(2 * Math.PI * ph * 3.01) * 0.3 * Math.exp(-t * 6) : Math.sin(2 * Math.PI * ph);
+        d[i0 + i] += v * amp * env;
+      }
+    };
+    let seed = 1234 + n * 77; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let bar = 0; bar < bars; bar++) {
+      const ch = st.root + st.prog[bar % 4], t0 = bar * beat * 4;
+      // pad chord
+      for (const iv of [0, third, 7, 10]) add(t0, beat * 4, hz(ch + 12 + iv), 0.045, "sin", 0.35);
+      // bass
+      for (let b = 0; b < 4; b++) add(t0 + b * beat, beat * 0.9, hz(ch - 12 + (b === 3 ? 7 : 0)), 0.18, st.lead === "saw" ? "saw" : "sin", 2.5);
+      // drums: kick, snare, hats
+      for (let b = 0; b < 4; b++) {
+        const tb = t0 + b * beat;
+        if (b % 2 === 0) { const i0 = Math.floor(tb * sr); for (let i = 0; i < sr * 0.25 && i0 + i < len; i++) { const t = i / sr; d[i0 + i] += Math.sin(2 * Math.PI * (55 * t + 60 * (1 - Math.exp(-t * 30)) / 30)) * Math.exp(-t * 14) * 0.35; } }
+        else { const i0 = Math.floor(tb * sr); for (let i = 0; i < sr * 0.18 && i0 + i < len; i++) { const t = i / sr; d[i0 + i] += (rnd() * 2 - 1) * Math.exp(-t * 22) * 0.16; } }
+        for (const h of [0, 0.5]) { const i0 = Math.floor((tb + beat * (h + (h ? st.swing : 0))) * sr); for (let i = 0; i < sr * 0.04 && i0 + i < len; i++) d[i0 + i] += (rnd() * 2 - 1) * Math.exp(-(i / sr) * 90) * 0.05; }
+      }
+      // melody: 8th notes from the chord's scale, sparse
+      const scale = st.minor ? [0, 3, 5, 7, 10, 12, 15] : [0, 4, 7, 9, 12, 14, 16];
+      for (let k = 0; k < 8; k++) if (rnd() < 0.55) add(t0 + k * beat * 0.5, beat * 0.45, hz(ch + 24 + scale[Math.floor(rnd() * scale.length)]), st.lead === "bell" ? 0.07 : 0.05, st.lead === "keys" ? "sin" : st.lead, st.lead === "keys" ? 5 : 4);
+    }
+    // soft clip
+    for (let i = 0; i < len; i++) d[i] = Math.tanh(d[i] * 1.2) * 0.8;
+    radioCache[n] = buf; return buf;
   }
 
   // ── music: a tiny synthwave sequencer, one mood per district ───────────
@@ -250,7 +300,16 @@ export function createAudio(camera) {
     enforcerDown: () => { tone({ freq: 70, d: 0.4, peak: 0.2, glide: 35 }); noiseHit({ d: 0.3, peak: 0.12, type: "lowpass", freq: 400 }); },
     heal: () => { const t = now(); [64, 69, 76].forEach((n, i) => tone({ freq: NOTE(n), type: "sine", t: t + i * 0.08, d: 0.4, peak: 0.07 })); noiseHit({ d: 0.4, peak: 0.03, type: "highpass", freq: 6000 }); },
     chronoOn: () => { const t = now(); tone({ freq: 900, type: "sawtooth", t, d: 1.2, peak: 0.08, glide: 45, filter: { freq: 1600 } }); noiseHit({ t, d: 1.0, peak: 0.1, type: "lowpass", freq: 5000, glide: 200 }); tone({ freq: 55, t: t + 0.1, d: 1.6, peak: 0.18 }); },
-    chronoOff: () => { const t = now(); tone({ freq: 50, type: "sawtooth", t, d: 0.5, peak: 0.08, glide: 900, filter: { freq: 2400 } }); noiseHit({ t, d: 0.4, peak: 0.08, freq: 400, glide: 5000, q: 2 }); }
+    chronoOff: () => { const t = now(); tone({ freq: 50, type: "sawtooth", t, d: 0.5, peak: 0.08, glide: 900, filter: { freq: 2400 } }); noiseHit({ t, d: 0.4, peak: 0.08, freq: 400, glide: 5000, q: 2 }); },
+    whoosh: () => { const t = now(); noiseHit({ t, d: 0.22, peak: 0.12, freq: 700, glide: 2400, q: 1.5 }); },
+    thud: () => { const t = now(); tone({ freq: 140, t, d: 0.12, peak: 0.16, glide: 60 }); noiseHit({ t, d: 0.05, peak: 0.08, type: "lowpass", freq: 900 }); },
+    glass: () => { const t = now(); for (let i = 0; i < 5; i++) tone({ freq: 2400 + Math.random() * 2600, t: t + i * 0.025, d: 0.18, peak: 0.05 }); noiseHit({ t, d: 0.2, peak: 0.12, type: "highpass", freq: 4000 }); },
+    scan: () => { const t = now(); tone({ freq: 600, t, d: 0.5, peak: 0.07, glide: 1800, type: "triangle" }); tone({ freq: 1200, t: t + 0.15, d: 0.35, peak: 0.04, glide: 2400 }); },
+    buy: () => { const t = now(); tone({ freq: 660, t, d: 0.12, peak: 0.08 }); tone({ freq: 990, t: t + 0.09, d: 0.2, peak: 0.08 }); tone({ freq: 1320, t: t + 0.18, d: 0.3, peak: 0.06 }); },
+    eat: () => { const t = now(); for (let i = 0; i < 3; i++) noiseHit({ t: t + i * 0.11, d: 0.06, peak: 0.12, freq: 1800 + i * 300, q: 2 }); },
+    arcade: () => { const t = now(); tone({ freq: 880, type: "square", t, d: 0.06, peak: 0.05 }); },
+    arcadeHit: () => { const t = now(); tone({ freq: 220, type: "square", t, d: 0.12, peak: 0.06, glide: 660 }); },
+    arcadeOver: () => { const t = now(); for (let i = 0; i < 4; i++) tone({ freq: 440 / (i + 1), type: "square", t: t + i * 0.12, d: 0.12, peak: 0.06 }); }
   };
   function play(name) { if (ctx && SFX[name]) SFX[name](); }
 

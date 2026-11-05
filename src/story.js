@@ -44,6 +44,25 @@ export const CONSUMABLES = {
   med_patch: { name: "Med Patch", price: 60, max: 9, desc: "Press X (Q on PC) to heal 50 HP. Carry up to 9." }
 };
 
+// ─── things you find around the city and keep in your backpack ─────────────
+// kind: material (Mika crafts with it), food (eat to heal), valuable (sell)
+export const ITEMS = {
+  scrap:      { name: "Scrap Plating", kind: "material", color: 0x9aa3b5, max: 30, desc: "Bent Tenkai hull plating. Mika can build with it." },
+  circuit:    { name: "Burnt Circuit", kind: "material", color: 0x6aff9e, max: 30, desc: "A fried logic board. Still has working traces." },
+  cell:       { name: "Power Cell", kind: "material", color: 0xffcf4a, max: 30, desc: "A half-charged battery cell from a dead scooter." },
+  noodles:    { name: "Instant Noodles", kind: "food", color: 0xff7a3a, max: 9, heal: 25, desc: "Sato would be offended. Heals 25." },
+  neuro_cola: { name: "Neuro-Cola", kind: "food", color: 0xff4fa3, max: 9, heal: 12, desc: "Fizzy, pink, probably legal. Heals 12." },
+  data_chip:  { name: "Data Chip", kind: "valuable", color: 0x38f0e6, max: 20, value: 45, desc: "Someone's lost data. Fence it for credits." }
+};
+// Mika's workbench: turn finds into gear. once = can only be built one time.
+export const RECIPES = [
+  { id: "tether",  name: "Tether Line", once: true, needs: { scrap: 3, cell: 2, circuit: 1 }, desc: "A grapple line in your forearm. Aim at a glowing anchor and pull the trigger (G on PC)." },
+  { id: "patch",   name: "Med Patch", needs: { scrap: 1, cell: 1 }, desc: "Mika's field patch. Heals 50." },
+  { id: "knuckle", name: "Reinforced Knuckles", once: true, needs: { scrap: 4, circuit: 2 }, desc: "Plates your knuckles. Punches hit 15% harder." },
+  { id: "optics",  name: "Tuned Optics", once: true, needs: { circuit: 2, cell: 2 }, desc: "Your scanner reaches twice as far and lasts longer." },
+  { id: "weave",   name: "Insulated Weave", once: true, needs: { scrap: 3, circuit: 2, cell: 1 }, desc: "Lines your jacket with mesh. +20 max health." }
+];
+
 // ─── named characters ───────────────────────────────────────────────────────
 // appearance fields are read by npcs.js buildCharacter()
 export const CHARACTERS = {

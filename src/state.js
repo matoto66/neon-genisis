@@ -2,7 +2,7 @@
 // Save format v2 keeps the original { character, credits } fields so older
 // saves load without losing anything.
 
-import { CYBERWARE } from "./story.js";
+import { CYBERWARE, ITEMS } from "./story.js";
 
 import { saveKey } from "./worlds.js";
 export const MAX_STAT = 10;
@@ -52,7 +52,10 @@ export function loadGame() {
     }
     state.owned = state.owned.filter(id => CYBERWARE[id]);
     state.installed = state.installed.filter(id => state.owned.includes(id));
-    if (saved.items && typeof saved.items === "object") state.items = { med_patch: Math.max(0, Math.min(9, saved.items.med_patch | 0)) };
+    if (saved.items && typeof saved.items === "object") {
+      state.items = { med_patch: Math.max(0, Math.min(9, saved.items.med_patch | 0)) };
+      for (const [k, def] of Object.entries(ITEMS)) if (saved.items[k] > 0) state.items[k] = Math.min(def.max, saved.items[k] | 0);
+    }
     state.introSeen = !!saved.introSeen;
     // XP: older saves didn't have it, so work it out from what they've done.
     if (Number.isInteger(saved.xp) && saved.xp >= 0) state.xp = saved.xp;
@@ -98,7 +101,7 @@ export function changeStat(stat, change) {
 export const slotCount = () => 2 + state.character.compatibility;
 export const isActive = id => state.installed.includes(id) && (CYBERWARE[id]?.req ?? 99) <= state.character.compatibility;
 export const effectiveStrength = () => state.character.strength + (isActive("kinetic_tendons") ? 1 : 0);
-export const maxHealth = () => 100 + state.character.health * 25 + (isActive("subdermal_weave") ? 40 : 0);
+export const maxHealth = () => 100 + state.character.health * 25 + (isActive("subdermal_weave") ? 40 : 0) + (state.flags.craft_weave ? 20 : 0);
 export const moveSpeed = () => (3.2 + Math.min(5, state.character.strength) * 0.18) *
   (isActive("kinetic_tendons") ? 1.15 : 1) * (isActive("reflex_lattice") ? 1.1 : 1);
 export const turnSpeed = () => 2.2 * (isActive("reflex_lattice") ? 1.25 : 1);

@@ -20,6 +20,7 @@ function colored(geo, hex) {
 }
 
 export function buildDocks(root, city) {
+  const tetherPoints = city.tetherPoints || (city.tetherPoints = []);
   const solid = [], glow = [];
   const box = (list, w, h, d, x, y, z, hex, ry = 0) => { const g = new THREE.BoxGeometry(w, h, d); if (ry) g.rotateY(ry); g.translate(x, y, z); list.push(colored(g, hex)); };
   const cyl = (list, r, h, x, y, z, hex, seg = 10) => { const g = new THREE.CylinderGeometry(r, r, h, seg); g.translate(x, y, z); list.push(colored(g, hex)); };
@@ -80,6 +81,8 @@ export function buildDocks(root, city) {
       for (let k = -2.7; k <= 2.7; k += 0.45) box(solid, ry ? 2.56 : 0.06, 2.4, ry ? 0.06 : 2.56, ry ? x : x + k, 1.3 + l * 2.6, ry ? z + k : z, _c.set(hex).multiplyScalar(0.75).getHex());
     }
     col(x - (ry ? 1.25 : 3.05), x + (ry ? 1.25 : 3.05), z - (ry ? 3.05 : 1.25), z + (ry ? 3.05 : 1.25), levels * 2.6);
+    floorsPush(city, x - (ry ? 1.25 : 3.05), x + (ry ? 1.25 : 3.05), z - (ry ? 3.05 : 1.25), z + (ry ? 3.05 : 1.25), levels * 2.6);   // walkable tops (Tether Line)
+    tetherPoints.push(new THREE.Vector3(x, levels * 2.6, z));
   };
   [[60, -30, 2], [60, -62, 1], [68, -24, 3, 1], [70, -38, 1], [70, -56, 2, 1], [78, -30, 1, 1], [80, -64, 3], [86, -44, 1],
    [92, -26, 2], [94, -58, 1, 1], [100, -38, 2, 1], [102, -70, 2], [58, -72, 2], [88, -16, 2]].forEach(([x, z, l, r]) => stack(x, z, l, r ? Math.PI / 2 : 0));
@@ -95,6 +98,7 @@ export function buildDocks(root, city) {
 
   // ── warehouse (south-west) with a big Tenkai logo wall ──────────────────
   box(solid, 18, 9, 16, 62, 4.5, -2, 0x2c3140); col(53, 71, -10, 6, 9);
+  floorsPush(city, 53, 71, -10, 6, 9); tetherPoints.push(new THREE.Vector3(62, 9, -9.2), new THREE.Vector3(70.2, 9, -2));
   box(glow, 10, 0.4, 0.1, 62, 7.6, -10.06, 0xff3a4a);
   box(solid, 8, 6, 0.1, 62, 3, -10.05, 0x15171c);                           // shutter
 

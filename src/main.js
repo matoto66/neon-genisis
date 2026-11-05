@@ -13,6 +13,11 @@ import * as worlds from "./worlds.js";
 import { buildDocks } from "./docks.js";
 import { createCombat, makeZone } from "./combat.js";
 import { createCityFX } from "./fx.js";
+import { comfort, createComfort } from "./comfort.js";
+import { buildRadios } from "./radio.js";
+import { createGear } from "./gear.js";
+import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
+import { createArcade } from "./arcade.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -90,6 +95,10 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
+const comfortSys = createComfort({ renderer, camera });
+const radios = buildRadios(city.root, city);
+let lastTurnRate = 0;
+let travelCheck = 0;
 // A small neon environment map gives metal, glass and wet streets coloured
 // reflections without any extra real-time lights.
 scene.environment = createNeonEnvironment(renderer);
@@ -776,21 +785,27 @@ const CONTROLS_VR = [
   ["Interact / talk / grab", "Point + trigger"], ["Dialogue choice", "Point + trigger"],
   ["Make a fist / punch", "Squeeze grip + swing"], ["Palm blast (needs Pulse Emitter)", "Trigger, open hand"],
   ["Guard", "Both fists up at face"], ["Med patch", "X"], ["Chrono Spike (cyberware)", "B"],
-  ["Menu", "Y"], ["Mika's door", "Grab handle + twist"]
+  ["Menu", "Y"], ["Mika's door", "Grab handle + twist"],
+  ["Pick up / throw", "Grip near it, swing, let go"], ["Stash in backpack", "Let go over your shoulder"], ["Open backpack", "Grip over your shoulder"],
+  ["Med patch (hip)", "Grip at hip, press to arm"], ["Eat food", "Hold it to your mouth"], ["Optic Scan", "Hand to temple + trigger"], ["Tether Line", "Aim at anchor + trigger"]
 ];
 const CONTROLS_PC = [
   ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
   ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm blast (Pulse Emitter)", "Right click"],
-  ["Guard", "Hold C"], ["Med patch", "Q"], ["Chrono Spike", "V"], ["Menu", "E"], ["Mute sound", "M"]
+  ["Guard", "Hold C"], ["Med patch", "Q"], ["Chrono Spike", "V"], ["Menu", "E"], ["Mute sound", "M"],
+  ["Pick up / take", "F"], ["Throw what you're holding", "Left click"], ["Backpack", "I"], ["Optic Scan", "R"], ["Tether Line", "G"]
 ];
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
 const settingsPanel = document.querySelector("#settings-panel");
+const mapPanel = document.querySelector("#map-panel");
 function showPanel(panel) {
   const wasOpen = !panel.hidden;
   characterPanel.hidden = true;
   shopPanel.hidden = true;
   settingsPanel.hidden = true;
+  if (mapPanel) mapPanel.hidden = true;
+  if (panel === mapPanel && wasOpen === false) setTimeout(drawPCMap, 0);
   if (!wasOpen) panel.hidden = false;
 }
 
@@ -824,6 +839,10 @@ document.addEventListener("keydown", event => {
     if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
     if (event.code === "KeyV") { combat.useChrono(); return; }
+    if (arcade.active && (event.code === "KeyF" || event.code === "Escape")) { arcade.stop(); return; }
+    if (event.code === "KeyR") { gear.toggleScan(); return; }
+    if (event.code === "KeyG") { gear.desktopTether(); return; }
+    if (event.code === "KeyI") { gear.openBackpack(); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -834,13 +853,32 @@ document.addEventListener("keydown", event => {
 document.querySelector("#character-toggle").addEventListener("click", () => showPanel(characterPanel));
 document.querySelector("#shop-toggle").addEventListener("click", () => showPanel(shopPanel));
 document.querySelector("#settings-toggle").addEventListener("click", () => showPanel(settingsPanel));
+document.querySelector("#map-toggle")?.addEventListener("click", () => showPanel(mapPanel));
+function drawPCMap() {
+  const cv = document.querySelector("#map-canvas"); if (!cv) return;
+  camera.getWorldDirection(cameraDirection);
+  drawMap(cv.getContext("2d"), 0, 0, cv.width, cv.height, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.() });
+  const list = document.querySelector("#travel-list");
+  list.innerHTML = TRAVEL.map((t, i) => `<button type="button" class="ui-button" data-travel="${i}" ${isUnlocked(t) ? "" : "disabled"}>${isUnlocked(t) ? t.name : "??? · not found yet"}</button>`).join("");
+  list.querySelectorAll("[data-travel]").forEach(b => b.addEventListener("click", () => fastTravel(TRAVEL[+b.dataset.travel])));
+}
 // Settings: objective guide style + the controls list (same data as the VR menu).
 function updateSettingsUI() {
   document.querySelectorAll("[data-guide]").forEach(b => b.classList.toggle("on", b.dataset.guide === guideSettings.guide));
   const note = document.querySelector("#guide-note");
   if (note) note.textContent = guideSettings.guide === "path" ? "A dotted line floats along the streets to your objective." : "A tall light beam stands over your objective.";
+  document.querySelectorAll("[data-comfort]").forEach(b => {
+    const [k, v] = b.dataset.comfort.split(":");
+    b.classList.toggle("on", v ? comfort[k] === v : !!comfort[k]);
+    if (!v) b.textContent = (k === "vignette" ? "VIGNETTE" : "SEATED MODE") + (comfort[k] ? " · ON" : " · OFF");
+  });
   if (vrMenu?.visible) drawVRMenu();
 }
+document.querySelectorAll("[data-comfort]").forEach(b => b.addEventListener("click", () => {
+  const [k, v] = b.dataset.comfort.split(":");
+  if (k === "turn") comfortSys.setTurn(v); else if (k === "vignette") comfortSys.setVignette(!comfort.vignette); else comfortSys.setSeated(!comfort.seated);
+  updateSettingsUI();
+}));
 document.querySelectorAll("[data-guide]").forEach(b => b.addEventListener("click", () => { setGuideStyle(b.dataset.guide); updateSettingsUI(); }));
 function replayIntro() {
   if (!isInCity || intro.active) return;
@@ -1043,8 +1081,10 @@ function createRobotHand(parent, side = 1) {
   plate(hand, [[-0.02, -0.05], [0.02, -0.05], [0.026, -0.036], [-0.026, -0.036]], 0.006, jacketAccent, 0.044);
   // reactor on the back of the hand
   add(hand, new THREE.CylinderGeometry(0.019, 0.022, 0.01, 6), jointMaterial, 0, 0.006, 0.058, Math.PI / 2);
-  add(hand, new THREE.CylinderGeometry(0.011, 0.011, 0.004, 6), glow, 0, 0.006, 0.064, Math.PI / 2);
-  ring(hand, 0.017, 0.0018, 0, 0.006, 0.063, glow, 0);
+  // the reactor shows your health (green → yellow → red), so it keeps its own material
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x6aff9e, toneMapped: false });
+  add(hand, new THREE.CylinderGeometry(0.011, 0.011, 0.004, 6), coreMat, 0, 0.006, 0.064, Math.PI / 2).userData.keep = true;
+  ring(hand, 0.017, 0.0018, 0, 0.006, 0.063, coreMat, 0).userData.keep = true;
   // light channels from the reactor toward each knuckle
   for (const x of [-0.042, -0.015, 0.015, 0.042]) add(hand, new THREE.BoxGeometry(0.0026, 0.026, 0.002), glow, x * 0.75, 0.036, 0.057, 0, 0, -x * 4);
   for (const s of [-1, 1]) add(hand, new THREE.BoxGeometry(0.003, 0.05, 0.002), red, s * 0.044, -0.014, 0.054, 0, 0, s * 0.12);
@@ -1154,7 +1194,8 @@ function createRobotHand(parent, side = 1) {
   hand.userData.setGrip(0.08);
   hand.userData.pose = { index: 0.08, other: 0.08, thumb: 0.08 };
   // ~170 parts → 2 GPU-skinned meshes. Finger joints stay animatable as bones.
-  const { meshes } = skinify(hand, { metalness: 0.82, roughness: 0.28, frustumCulled: false });
+  const { meshes } = skinify(hand, { metalness: 0.82, roughness: 0.28, frustumCulled: false, keep: m => !!m.userData.keep });
+  hand.userData.setCore = (color, k = 1) => coreMat.color.copy(color).multiplyScalar(k);
   // Own glow material per hand so it can brighten on touch and flash on hits.
   const glowMesh = meshes.find(m => m.material.isMeshBasicMaterial);
   if (glowMesh) { glowMesh.material = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }); hand.userData.glowMaterial = glowMesh.material; }
@@ -1829,6 +1870,8 @@ for (let i = 0; i < 2; i++) {
     if (!isInCity || vrMenu.visible || vrStart.visible) return;
     // Physical door handle first, then NPCs / pickups / dialogue buttons.
     if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
+    if (arcade.active) return;                                          // trigger = fire on the cabinet
+    if (gear.onTrigger(controller, robotHandOf(controller))) return;     // scan gesture / tether
     if (beginDoorGrab(controller)) return;
     if (game?.onTrigger(controller)) return;
     // Nothing to interact with: an open hand fires the GEN-0 palm pulse.
@@ -1853,7 +1896,9 @@ for (let i = 0; i < 2; i++) {
 
 let vrMenuPage = "character";
 const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
-const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "settings", label: "SETTINGS" }];
+const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "map", label: "MAP" }, { id: "settings", label: "SETTINGS" }];
+const VR_TAB_W = 222, VR_TAB_STEP = 232;
+let vrMapHover = -1;
 function drawVRMenu() {
   const ctx = vrMenuContext;
   ctx.clearRect(0, 0, 1024, 768);
@@ -1869,16 +1914,16 @@ function drawVRMenu() {
   ctx.font = "bold 25px Arial";
   ctx.fillText("CREDITS  $" + state.credits.toLocaleString(), 760, 58);
   VR_TABS.forEach((t, i) => {
-    const x = 50 + i * 308;
+    const x = 50 + i * VR_TAB_STEP;
     ctx.fillStyle = vrMenuPage === t.id ? "#0f5f66" : "#14243d";
-    ctx.fillRect(x, 92, 292, 66);
+    ctx.fillRect(x, 92, VR_TAB_W, 66);
     ctx.strokeStyle = vrMenuPage === t.id ? "#5ff5e8" : "#33445f";
     ctx.lineWidth = 4;
-    ctx.strokeRect(x, 92, 292, 66);
+    ctx.strokeRect(x, 92, VR_TAB_W, 66);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 25px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(t.label, x + 146, 134);
+    ctx.fillText(t.label, x + VR_TAB_W / 2, 134);
     ctx.textAlign = "left";
   });
 
@@ -1918,31 +1963,37 @@ function drawVRMenu() {
       ctx.fillText("−", 811, y + 18);
       ctx.fillText("+", 902, y + 18);
     });
+  } else if (vrMenuPage === "map") {
+    camera.getWorldDirection(cameraDirection);
+    drawMap(ctx, 50, 170, 520, 470, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.(), hover: vrMapHover });
+    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 22px Arial"; ctx.fillText("FAST TRAVEL", 590, 196);
+    ctx.fillStyle = "#aab6cf"; ctx.font = "16px Arial"; ctx.fillText("Visit a place once to unlock it.", 760, 196);
+    TRAVEL.forEach((t, i) => {
+      const y = 212 + i * 61, on = isUnlocked(t), hov = i === vrMapHover;
+      ctx.fillStyle = hov && on ? "#0f6f74" : "#13233b"; ctx.fillRect(590, y, 380, 52);
+      ctx.strokeStyle = on ? (hov ? "#5ff5e8" : "#33445f") : "#222a38"; ctx.lineWidth = 2; ctx.strokeRect(590, y, 380, 52);
+      ctx.fillStyle = on ? "#ffffff" : "#56607a"; ctx.font = "bold 21px Arial"; ctx.fillText(on ? t.name : "??? · not found yet", 606, y + 33);
+      if (on) { ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 18px Arial"; ctx.textAlign = "right"; ctx.fillText("GO ▸", 955, y + 33); ctx.textAlign = "left"; }
+    });
   } else if (vrMenuPage === "settings") {
-    ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial";
-    ctx.fillText("OBJECTIVE GUIDE", 60, 200);
-    for (const [i, opt, label] of [[0, "beam", "SKY BEAM"], [1, "path", "PATH LINE"]]) {
-      const x = 330 + i * 320, on = guideSettings.guide === opt;
-      ctx.fillStyle = on ? "#0f6f74" : "#20465a"; ctx.fillRect(x, 168, 300, 56);
-      ctx.strokeStyle = on ? "#5ff5e8" : "#33445f"; ctx.lineWidth = 3; ctx.strokeRect(x, 168, 300, 56);
-      ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
-      ctx.fillText((on ? "● " : "") + label, x + 150, 205); ctx.textAlign = "left";
-    }
-    ctx.fillStyle = "#3a2a5a"; ctx.fillRect(740, 236, 210, 40);
-    ctx.strokeStyle = "#b24cff"; ctx.lineWidth = 2; ctx.strokeRect(740, 236, 210, 40);
-    ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center"; ctx.fillText("▶ REPLAY INTRO", 845, 263); ctx.textAlign = "left";
-    ctx.fillStyle = "#aab6cf"; ctx.font = "19px Arial";
-    ctx.fillText(guideSettings.guide === "path" ? "A dotted line floats along the streets to your objective." : "A tall light beam stands over your objective.", 60, 254);
-    for (const [col, title, list] of [[0, "QUEST CONTROLS", CONTROLS_VR], [1, "PC CONTROLS", CONTROLS_PC]]) {
-      const x = 60 + col * 470;
-      ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 22px Arial"; ctx.fillText(title, x, 300);
-      list.forEach(([action, key], i) => {
-        const y = 338 + i * 38;
-        ctx.fillStyle = "#13233b"; ctx.fillRect(x - 6, y - 26, 440, 34);
-        ctx.fillStyle = "#dce7ff"; ctx.font = "19px Arial"; ctx.fillText(action, x + 4, y);
-        ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 19px Arial"; ctx.textAlign = "right"; ctx.fillText(key, x + 426, y); ctx.textAlign = "left";
-      });
-    }
+    const btn = (x, y, w, h, label, on, accent = "#5ff5e8") => {
+      ctx.fillStyle = on ? "#0f6f74" : "#20465a"; ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = on ? accent : "#33445f"; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 21px Arial"; ctx.textAlign = "center"; ctx.fillText((on ? "● " : "") + label, x + w / 2, y + h / 2 + 8); ctx.textAlign = "left";
+    };
+    const row = (y, label) => { ctx.fillStyle = "#ffffff"; ctx.font = "bold 22px Arial"; ctx.fillText(label, 60, y); };
+    row(206, "OBJECTIVE GUIDE"); btn(330, 176, 300, 46, "SKY BEAM", guideSettings.guide === "beam"); btn(650, 176, 300, 46, "PATH LINE", guideSettings.guide === "path");
+    row(262, "TURNING"); btn(330, 232, 300, 46, "SMOOTH", comfort.turn === "smooth"); btn(650, 232, 300, 46, "SNAP 30°", comfort.turn === "snap");
+    row(318, "COMFORT"); btn(330, 288, 300, 46, "VIGNETTE " + (comfort.vignette ? "ON" : "OFF"), comfort.vignette); btn(650, 288, 300, 46, "SEATED " + (comfort.seated ? "ON" : "OFF"), comfort.seated);
+    row(374, "HEIGHT / STORY"); btn(330, 344, 300, 46, "↕ RESET HEIGHT", false, "#ffcf4a"); btn(650, 344, 300, 46, "▶ REPLAY INTRO", false, "#b24cff");
+    ctx.fillStyle = "#aab6cf"; ctx.font = "16px Arial";
+    ctx.fillText("Comfort settings are saved on this headset. Reset height: stand (or sit) normally, then press it.", 60, 414);
+    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 20px Arial"; ctx.fillText("QUEST CONTROLS", 60, 446);
+    CONTROLS_VR.forEach(([action, key], i) => {
+      const col = i % 2, r = Math.floor(i / 2), x = 60 + col * 460, y = 470 + r * 17.5;
+      ctx.fillStyle = "#dce7ff"; ctx.font = "14px Arial"; ctx.fillText(action, x, y);
+      ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 14px Arial"; ctx.textAlign = "right"; ctx.fillText(key, x + 440, y); ctx.textAlign = "left";
+    });
   } else {
     ctx.fillStyle = "#aab6cf";
     ctx.font = "24px Arial";
@@ -1998,16 +2049,20 @@ function activateVRMenuAtController(controller) {
   const x = hit.uv.x * 1024;
   const y = (1 - hit.uv.y) * 768;
   if (y >= 92 && y <= 158) {
-    const i = Math.floor((x - 50) / 308);
-    if (i >= 0 && i < VR_TABS.length && x - 50 - i * 308 <= 292) vrMenuPage = VR_TABS[i].id;
+    const i = Math.floor((x - 50) / VR_TAB_STEP);
+    if (i >= 0 && i < VR_TABS.length && x - 50 - i * VR_TAB_STEP <= VR_TAB_W) vrMenuPage = VR_TABS[i].id;
+  } else if (vrMenuPage === "map") {
+    const i = Math.floor((y - 212) / 61);
+    if (x >= 590 && x <= 970 && i >= 0 && i < TRAVEL.length && y - 212 - i * 61 <= 52) { fastTravel(TRAVEL[i]); return; }
   } else if (vrMenuPage === "settings") {
-    if (y >= 168 && y <= 224 && x >= 330 && x <= 950) {
-      setGuideStyle(x < 640 ? "beam" : "path");
-      updateSettingsUI();
-    } else if (y >= 236 && y <= 276 && x >= 740 && x <= 950) {
-      replayIntro();
-      return;
-    }
+    const left = x >= 330 && x <= 630, right = x >= 650 && x <= 950;
+    if (y >= 176 && y <= 222 && (left || right)) setGuideStyle(left ? "beam" : "path");
+    else if (y >= 232 && y <= 278 && (left || right)) comfortSys.setTurn(left ? "smooth" : "snap");
+    else if (y >= 288 && y <= 334 && left) comfortSys.setVignette(!comfort.vignette);
+    else if (y >= 288 && y <= 334 && right) comfortSys.setSeated(!comfort.seated);
+    else if (y >= 344 && y <= 390 && left) { if (comfortSys.resetHeight()) game.toast("Height reset", "objective"); }
+    else if (y >= 344 && y <= 390 && right) { replayIntro(); return; }
+    updateSettingsUI();
   } else if (vrMenuPage === "character") {
     for (let i = 0; i < 3; i++) {
       const rowY = 280 + i * 125;
@@ -2026,6 +2081,12 @@ function activateVRMenuAtController(controller) {
     }
   }
   drawVRMenu();
+}
+function fastTravel(t) {
+  if (!isUnlocked(t)) return;
+  if (combat.inFight) { game.toast("Can't fast travel in the middle of a fight.", "warn"); return; }
+  setVRMenuOpen(false); closeGameMenu(); game.closePanel();
+  game.teleport(new THREE.Vector3(t.x, t.y, t.z), t.name.toUpperCase());
 }
 function updateVRMenuPointer() {
   if (!renderer.xr.isPresenting) {
@@ -2058,6 +2119,11 @@ function updateVRMenuPointer() {
     : null;
   const gamePoint = !vrStart.visible && !vrMenu.visible ? game?.cursorPoint(rightItem.controller) : null;
   const hit = startHit || menuHit || (doorHit && doorHit.distance <= 3.5 ? doorHit : null) || (gamePoint ? { point: gamePoint } : null);
+  if (vrMenuPage === "map" && vrMenu.visible) {
+    let hv = -1;
+    if (menuHit?.uv) { const mx = menuHit.uv.x * 1024, my = (1 - menuHit.uv.y) * 768, i = Math.floor((my - 212) / 61); if (mx >= 590 && mx <= 970 && i >= 0 && i < TRAVEL.length && my - 212 - i * 61 <= 52) hv = i; }
+    if (hv !== vrMapHover) { vrMapHover = hv; drawVRMenu(); }
+  }
   vrcPanel.userData.hover(startHit?.object === vrcPanel ? startHit : null);
   rightItem.rayLine.material.color.set(hit ? 0x5ff5e8 : 0x8793a8);
   if (hit && menuOpen) {
@@ -2257,7 +2323,7 @@ function movePlayer(delta) {
     previousSprintButton = sprintButton;
     if (Math.hypot(stickX, stickY) < 0.25) sprinting = false;
     // Smooth horizontal turning; headset tracking still controls natural up/down looking.
-    turnAroundHead(-look.x * turnSpeed() * delta);
+    { const t = comfortSys.turnAmount(look.x, turnSpeed(), delta); turnAroundHead(t); lastTurnRate = delta > 0 ? t / delta : 0; }
   } else {
     stickX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     stickY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
@@ -2350,6 +2416,8 @@ game = createGame({
   audio.attachLoop(at(9.5, 4.5, -75), "neon", { refDistance: 1.5, maxDistance: 10 });
   audio.attachLoop(at(17, 0.5, -10), "vent", { refDistance: 1.2, maxDistance: 10 });
   audio.attachLoop(game.npcSys.byId.ishida.holder, "hologram", { refDistance: 2, maxDistance: 18 });
+  // radios: only audible within a few steps
+  for (const r of radios.radios) audio.attachLoop(r.group, "radio:" + r.spot.station, { refDistance: 0.7, maxDistance: 4.5, volume: 1.6 });
 }
 document.addEventListener("keydown", event => {
   if (event.code === "KeyM" && !renderer.xr.isPresenting) game.toast(audio.toggleMute() ? "Sound muted (M)" : "Sound on (M)");
@@ -2364,11 +2432,22 @@ const combat = createCombat({
     min: { x: 47, z: -81 }, max: { x: 137, z: -11 },
     wave: ["scav", "scav", "scav", "sentry", "sentry", "enforcer", "enforcer"],
     spawnPoints: docks.spawnPoints,
-    alert: "TENKAI SECURITY: INTRUDER AT PORT 7", clearedText: "PORT 7 CLEARED", reward: 150
+    alert: "TENKAI PATROL AHEAD · SNEAK UP FOR A SILENT TAKEDOWN", clearedText: "PORT 7 CLEARED", reward: 150
   })]
 });
+const gear = createGear({ root: cityWorld, scene, camera, player, renderer, city, combat, game, audio, haptic,
+  mikaBench: { position: mikaShop.localToWorld(new THREE.Vector3(-1.55, 0.92, -1.75)) } });
+const arcade = createArcade({ root: cityWorld, scene, game, audio, player, camera, position: new THREE.Vector3(10.45, 0, -28), yaw: -Math.PI / 2 });
+city.colliders.push({ minX: 9.95, maxX: 11, minZ: -28.5, maxZ: -27.5, minY: 0, maxY: 2.1 });
+let arcadeFire = false;
 const hpFill = document.querySelector("#hp-fill"), hpText = document.querySelector("#hp-text"), hpWrap = document.querySelector("#hp-bar");
 let lastHpText = "";
+// PC punches that miss enemies can still spook people standing right there.
+function startleInFront() {
+  camera.getWorldPosition(headWorld); camera.getWorldDirection(cameraDirection);
+  const at = headWorld.clone().addScaledVector(cameraDirection, 0.9);
+  if (game.npcSys.npcs.some(n => n.enabled && n.holder.visible && !n.hologram && Math.hypot(n.holder.position.x - at.x, n.holder.position.z - at.z) < 0.8)) game.npcSys.startle(at, 2.5);
+}
 function updateHealthHUD() {
   if (!hpWrap) return;
   const max = maxHealth(), text = `${Math.ceil(combat.hp)} / ${max}${isActive("pulse_capacitor") ? ` · PULSE ${Math.floor(combat.energy * 3)}` : ""} · ✚ ${state.items?.med_patch || 0}${combat.guarding ? " · GUARD" : ""}`;
@@ -2391,7 +2470,9 @@ renderer.domElement.addEventListener("mousedown", event => {
   if (intro.active && !renderer.xr.isPresenting && event.button === 0) { intro.next(); return; }
   if (!renderer.xr.isPresenting && isInCity && document.pointerLockElement === renderer.domElement && !game.isPanelOpen()) {
     if (event.button === 2) { combat.firePulse(camera); return; }
-    if (event.button === 0 && !game.desktopInteract()) { desktopJab = 1; combat.desktopPunch(); return; }
+    if (arcade.active) { if (event.button === 0) arcadeFire = true; return; }
+    if (event.button === 0 && gear.desktopThrow()) return;
+    if (event.button === 0 && !game.desktopInteract()) { desktopJab = 1; if (!combat.desktopPunch()) startleInFront(); return; }
     if (event.button === 0) return;
   }
   if (renderer.xr.isPresenting || event.button !== 0 || !isInCity) return;
@@ -2406,7 +2487,7 @@ if (DEBUG) {
     setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2429,7 +2510,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
   worldTime += worldDelta * 1000;
   // Initialize only after this frame has updated Three.js' tracked XR camera.
   const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
-  const movementAmount = isInCity && !intro.active ? movePlayer(delta) : 0;
+  lastTurnRate = 0;
+  const movementAmount = isInCity && !intro.active && !gear.tethering && !arcade.active ? movePlayer(delta) : 0;
+  comfortSys.update(delta, xrFrame, movementAmount, lastTurnRate);
   intro.update(time, delta);
   updateAvatarHeightFromHeadset(xrFrame, delta);
   animatePlayableAvatar(movementAmount, time * 0.001);
@@ -2470,6 +2553,16 @@ renderer.setAnimationLoop((time, xrFrame) => {
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(worldTime);
     cityFX.update(worldTime, worldDelta);
+    if ((travelCheck -= delta) <= 0) { travelCheck = 0.5; const found = discover(player.position); if (found) game.toast(`FAST TRAVEL UNLOCKED · ${found.name}`, "objective"); }
+    {
+      let ax = 0, fire = false, back = false;
+      if (renderer.xr.isPresenting) { const st = getLeftStick(); ax = Math.abs(st.x) > 0.15 ? st.x : 0; back = st.y > 0.75; fire = !!(getGamepad("right")?.buttons?.[0]?.pressed || getGamepad("left")?.buttons?.[0]?.pressed); }
+      else { ax = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0); fire = !!keys.Space || arcadeFire; }
+      arcadeFire = false;
+      arcade.update(time, delta, { x: ax, fire, back });
+    }
+    gear.update(time, delta, renderer.xr.isPresenting ? combatHands : (firstPersonHands?.children || []).map(o => ({ object: o })), worldDelta);
+    radios.update(worldTime);
     updateHealthHUD();
   }
   updateDoorGrab();

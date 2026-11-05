@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b18" />
     <title>Neon Genesis VR</title>
-    <link rel="stylesheet" href="./style.css?v=neo-kasumi-93" />
+    <link rel="stylesheet" href="./style.css?v=neo-kasumi-94" />
     <script type="importmap">
       {
         "imports": {
@@ -55,6 +55,7 @@
         <div class="credits"><span class="small-label">CREDITS</span><strong id="credits">$500</strong></div>
         <button id="character-toggle" class="ui-button">CHARACTER</button>
         <button id="shop-toggle" class="ui-button accent">CYBERWARE</button>
+        <button id="map-toggle" class="ui-button">MAP</button>
         <button id="settings-toggle" class="ui-button">SETTINGS</button>
       </div>
       <section id="character-panel" class="panel" hidden>
@@ -91,6 +92,15 @@
         <div id="cyberware-list"></div>
         <p class="shop-balance">AVAILABLE CREDITS <strong id="shop-credits">$500</strong></p>
       </section>
+      <section id="map-panel" class="panel" hidden>
+        <button class="close-button" data-close="map-panel" aria-label="Close">×</button>
+        <p class="eyebrow">NEO KASUMI</p>
+        <h2>MAP</h2>
+        <canvas id="map-canvas" width="520" height="470"></canvas>
+        <div class="points-line">FAST TRAVEL</div>
+        <div id="travel-list" class="travel-list"></div>
+        <p class="panel-note">Visit a place once to unlock fast travel there. Pink arrow = you, gold star = objective.</p>
+      </section>
       <section id="settings-panel" class="panel" hidden>
         <button class="close-button" data-close="settings-panel" aria-label="Close">×</button>
         <p class="eyebrow">OPTIONS</p>
@@ -101,6 +111,16 @@
           <button type="button" class="ui-button" data-guide="path">PATH LINE</button>
         </div>
         <p class="panel-note" id="guide-note"></p>
+        <div class="points-line">COMFORT (VR)</div>
+        <div class="guide-toggle">
+          <button type="button" class="ui-button" data-comfort="turn:smooth">SMOOTH TURN</button>
+          <button type="button" class="ui-button" data-comfort="turn:snap">SNAP TURN</button>
+        </div>
+        <div class="guide-toggle">
+          <button type="button" class="ui-button" data-comfort="vignette">VIGNETTE</button>
+          <button type="button" class="ui-button" data-comfort="seated">SEATED MODE</button>
+        </div>
+        <p class="panel-note">Vignette darkens the edges of your view while moving. Seated mode lifts you to standing height. Set them once and they stay that way. Height reset is in the Quest menu.</p>
         <div class="points-line">STORY</div>
         <div class="guide-toggle"><button type="button" class="ui-button" id="replay-intro">▶ REPLAY INTRO</button></div>
         <div class="points-line">QUEST CONTROLS</div>
@@ -109,6 +129,6 @@
         <div class="controls-list" id="controls-pc"></div>
       </section>
     </section>
-    <script type="module" src="./src/main.js?v=neo-kasumi-93"></script>
+    <script type="module" src="./src/main.js?v=neo-kasumi-94"></script>
   </body>
 </html>
