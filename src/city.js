@@ -542,10 +542,13 @@ export function buildCity(scene, renderer) {
   cables.name = "CABLES";
   root.add(cables);
   // paper lanterns strung across the Sump (warm, Japanese street feel)
-  for (let z = 22; z > -30; z -= 9) for (let i = 1; i < 8; i++) {
-    const x = -11 + i * 2.75, y = 6.2 - Math.sin(i / 8 * Math.PI) * 0.9;
-    glow.sphere(0.22, x, y, z, i % 2 ? 0xff5a3c : 0xffb35a, 8, 6);
-  }
+  // dimmed and no glow halo, so they don't blind you
+  { const cap = glow.capture; glow.capture = null;
+    for (let z = 22; z > -30; z -= 9) for (let i = 1; i < 8; i++) {
+      const x = -11 + i * 2.75, y = 6.2 - Math.sin(i / 8 * Math.PI) * 0.9;
+      glow.sphere(0.22, x, y, z, i % 2 ? 0x8a3222 : 0x8a6232, 8, 6);
+    }
+    glow.capture = cap; }
   // crates, trash bags, vending machines, AC units on facades
   const sumpClutter = [[-10.4, 20], [-10.3, 9], [-10.5, -18], [10.4, -10], [10.3, 1], [10.5, 30], [-10.4, -33]];
   for (const [x, z] of sumpClutter) {
@@ -792,10 +795,12 @@ export function buildCity(scene, renderer) {
     addCollider(x - 0.65, x + 0.65, z - 1.15, z + 1.15, 0, 2.3);
   }
   // lantern strings across the Mile
-  for (let z = -60; z > -112; z -= 8) for (let i = 1; i < 10; i++) {
-    const x = -11 + i * 2.2, y = 9 - Math.sin(i / 10 * Math.PI) * 1.2;
-    glow.sphere(0.2, x, y, z, i % 3 === 0 ? 0xffffff : 0xff3a4a, 8, 6);
-  }
+  { const cap = glow.capture; glow.capture = null;     // dimmed, no glow halo
+    for (let z = -60; z > -112; z -= 8) for (let i = 1; i < 10; i++) {
+      const x = -11 + i * 2.2, y = 9 - Math.sin(i / 10 * Math.PI) * 1.2;
+      glow.sphere(0.2, x, y, z, i % 3 === 0 ? 0x8c8c8c : 0x8a2028, 8, 6);
+    }
+    glow.capture = cap; }
   // Mile lamps: tall cyan poles
   for (let z = -60; z > -114; z -= 12) for (const side of [-1, 1]) {
     const x = side * 8.1;
