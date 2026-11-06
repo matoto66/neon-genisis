@@ -77,9 +77,9 @@ export function createCityFX(root, city, renderer) {
   const add = (geo, hex) => { const g = geo.toNonIndexed(); g.deleteAttribute("uv"); const cc = new THREE.Color(hex), a = new Float32Array(g.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) a.set([cc.r, cc.g, cc.b], i); g.setAttribute("color", new THREE.BufferAttribute(a, 3)); carParts.push(g); };
   const B = (w, h, d, x, y, z, hex) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); add(g, hex); };
   B(1.9, 0.55, 4.2, 0, 0, 0, 0x14161c); B(1.5, 0.45, 2.0, 0, 0.45, -0.2, 0x1c2230);      // body + cabin
-  B(1.52, 0.3, 1.6, 0, 0.47, -0.2, 0x5fb8d8);                                               // windows
+  B(1.52, 0.3, 1.6, 0, 0.47, -0.2, 0x2a5a6e);                                               // windows (tinted)
   B(2.4, 0.12, 1.2, 0, -0.1, 1.2, 0x1c2230); B(2.4, 0.12, 1.2, 0, -0.1, -1.4, 0x1c2230);   // thrust pods
-  B(1.6, 0.08, 0.06, 0, 0.05, -2.12, 0xfff0d0); B(1.6, 0.1, 0.06, 0, 0.05, 2.12, 0xff2a3a); // head/tail strips
+  B(1.6, 0.08, 0.06, 0, 0.05, -2.12, 0x8a8270); B(1.6, 0.1, 0.06, 0, 0.05, 2.12, 0x8a1a22); // head/tail strips (dimmed)
   B(1.9, 0.04, 4.0, 0, -0.3, 0, 0x38f0e6);                                                  // underglow
   const carMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const cars = new THREE.InstancedMesh(mergeGeometries(carParts), carMat, CARS);
@@ -88,12 +88,13 @@ export function createCityFX(root, city, renderer) {
   const carState = Array.from({ length: CARS }, (_, i) => ({ lane: LANES[i % LANES.length], t: Math.random(), wob: Math.random() * 10, under: [0x38f0e6, 0xff4fa3, 0xb24cff, 0xffcf4a][i % 4] }));
   // light glows that follow the cars (2 per car: head + tail)
   const lightPos = new Float32Array(CARS * 2 * 3), lightCol = new Float32Array(CARS * 2 * 3), lightSize = new Float32Array(CARS * 2);
-  for (let i = 0; i < CARS; i++) { lightCol.set([1, 0.95, 0.85], i * 6); lightCol.set([1, 0.15, 0.2], i * 6 + 3); lightSize[i * 2] = 7; lightSize[i * 2 + 1] = 5; }
+  for (let i = 0; i < CARS; i++) { lightCol.set([1, 0.95, 0.85], i * 6); lightCol.set([1, 0.15, 0.2], i * 6 + 3); lightSize[i * 2] = 2.6; lightSize[i * 2 + 1] = 2.2; }
   const lightGeo = new THREE.BufferGeometry();
   lightGeo.setAttribute("position", new THREE.BufferAttribute(lightPos, 3));
   lightGeo.setAttribute("color", new THREE.BufferAttribute(lightCol, 3));
   lightGeo.setAttribute("size", new THREE.BufferAttribute(lightSize, 1));
-  const carLights = new THREE.Points(lightGeo, bloomMat);
+  const carLightMat = bloomMat.clone(); carLightMat.uniforms = { uScale: bloomMat.uniforms.uScale, uIntensity: { value: 0.4 } };
+  const carLights = new THREE.Points(lightGeo, carLightMat);
   carLights.frustumCulled = false; root.add(carLights);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), dir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1);
   const A = new THREE.Vector3(), Bv = new THREE.Vector3();
@@ -360,6 +361,7 @@ export function createCityFX(root, city, renderer) {
     // bloom scales with screen size (bigger glow in the headset's wide view)
     bloomMat.uniforms.uScale.value = renderer.getSize(v).y * 1.5;
     bloomMat.uniforms.uIntensity.value = 0.9 * nightK + 0.1;
+    carLightMat.uniforms.uIntensity.value = 0.35 * nightK + 0.05;
     coneMat.opacity = nightK;
     searchMat.opacity = nightK;
     for (const s of search) { const p = t * 0.25 + s.userData.phase; s.rotation.set(0.55 + Math.sin(p * 1.3) * 0.25, p, 0); }

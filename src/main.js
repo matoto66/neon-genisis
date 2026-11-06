@@ -13,7 +13,7 @@ import * as worlds from "./worlds.js";
 import { buildDocks } from "./docks.js";
 import { createCombat, makeZone } from "./combat.js";
 import { createCityFX } from "./fx.js";
-import { comfort, createComfort } from "./comfort.js";
+import { comfort, createComfort, applyPicture } from "./comfort.js";
 import { buildRadios } from "./radio.js";
 import { createGear } from "./gear.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
@@ -60,6 +60,7 @@ renderer.xr.setFoveation(1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 // Filmic tone mapping: richer, more realistic light and colour (as in films and modern games).
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+applyPicture(renderer);        // VIVID picture mode unless switched to STANDARD in Settings
 renderer.toneMappingExposure = 1.2;
 document.body.appendChild(renderer.domElement);
 
@@ -876,7 +877,7 @@ function updateSettingsUI() {
 }
 document.querySelectorAll("[data-comfort]").forEach(b => b.addEventListener("click", () => {
   const [k, v] = b.dataset.comfort.split(":");
-  if (k === "turn") comfortSys.setTurn(v); else if (k === "vignette") comfortSys.setVignette(!comfort.vignette); else comfortSys.setSeated(!comfort.seated);
+  if (k === "picture") comfortSys.setPicture(v, scene); else if (k === "turn") comfortSys.setTurn(v); else if (k === "vignette") comfortSys.setVignette(!comfort.vignette); else comfortSys.setSeated(!comfort.seated);
   updateSettingsUI();
 }));
 document.querySelectorAll("[data-guide]").forEach(b => b.addEventListener("click", () => { setGuideStyle(b.dataset.guide); updateSettingsUI(); }));
@@ -1986,11 +1987,11 @@ function drawVRMenu() {
     row(262, "TURNING"); btn(330, 232, 300, 46, "SMOOTH", comfort.turn === "smooth"); btn(650, 232, 300, 46, "SNAP 30°", comfort.turn === "snap");
     row(318, "COMFORT"); btn(330, 288, 300, 46, "VIGNETTE " + (comfort.vignette ? "ON" : "OFF"), comfort.vignette); btn(650, 288, 300, 46, "SEATED " + (comfort.seated ? "ON" : "OFF"), comfort.seated);
     row(374, "HEIGHT / STORY"); btn(330, 344, 300, 46, "↕ RESET HEIGHT", false, "#ffcf4a"); btn(650, 344, 300, 46, "▶ REPLAY INTRO", false, "#b24cff");
-    ctx.fillStyle = "#aab6cf"; ctx.font = "16px Arial";
-    ctx.fillText("Comfort settings are saved on this headset. Reset height: stand (or sit) normally, then press it.", 60, 414);
-    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 20px Arial"; ctx.fillText("QUEST CONTROLS", 60, 446);
+    row(430, "PICTURE"); btn(330, 400, 300, 46, "STANDARD", comfort.picture === "standard"); btn(650, 400, 300, 46, "VIVID", comfort.picture === "vivid", "#ff4fa3");
+    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 18px Arial"; ctx.fillText("QUEST CONTROLS", 60, 474);
+    ctx.fillStyle = "#aab6cf"; ctx.font = "14px Arial"; ctx.fillText("Settings are saved on this headset. Reset height: stand (or sit) normally, then press it.", 240, 474);
     CONTROLS_VR.forEach(([action, key], i) => {
-      const col = i % 2, r = Math.floor(i / 2), x = 60 + col * 460, y = 470 + r * 17.5;
+      const col = i % 2, r = Math.floor(i / 2), x = 60 + col * 460, y = 494 + r * 15.5;
       ctx.fillStyle = "#dce7ff"; ctx.font = "14px Arial"; ctx.fillText(action, x, y);
       ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 14px Arial"; ctx.textAlign = "right"; ctx.fillText(key, x + 440, y); ctx.textAlign = "left";
     });
@@ -2062,6 +2063,7 @@ function activateVRMenuAtController(controller) {
     else if (y >= 288 && y <= 334 && right) comfortSys.setSeated(!comfort.seated);
     else if (y >= 344 && y <= 390 && left) { if (comfortSys.resetHeight()) game.toast("Height reset", "objective"); }
     else if (y >= 344 && y <= 390 && right) { replayIntro(); return; }
+    else if (y >= 400 && y <= 446 && (left || right)) comfortSys.setPicture(left ? "standard" : "vivid", scene);
     updateSettingsUI();
   } else if (vrMenuPage === "character") {
     for (let i = 0; i < 3; i++) {

@@ -7,9 +7,25 @@
 import * as THREE from "three";
 
 const KEY = "neon-genesis-comfort-v1";
-export const comfort = { turn: "smooth", vignette: true, seated: false, heightOffset: 0 };
+export const comfort = { turn: "smooth", vignette: true, seated: false, heightOffset: 0, picture: "vivid" };
 try { Object.assign(comfort, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 export function saveComfort() { try { localStorage.setItem(KEY, JSON.stringify(comfort)); } catch {} }
+
+// ── picture mode: VIVID = filmic tone mapping + extra colour saturation and a
+// touch of contrast, done inside every material's shader (no extra render pass).
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace(
+  "vec3 CustomToneMapping( vec3 color ) { return color; }",
+  `vec3 CustomToneMapping( vec3 color ) {
+    vec3 c = ACESFilmicToneMapping( color );
+    float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+    c = max( mix( vec3( l ), c, 1.4 ), 0.0 );          // saturation
+    c = pow( c, vec3( 1.07 ) ) * 1.06;                // contrast + a little punch
+    return saturate( c );
+  }`);
+export function applyPicture(renderer, scene) {
+  renderer.toneMapping = comfort.picture === "vivid" ? THREE.CustomToneMapping : THREE.ACESFilmicToneMapping;
+  scene?.traverse(o => { if (o.material) [].concat(o.material).forEach(m => (m.needsUpdate = true)); });
+}
 
 const EYE_HEIGHT = 1.65;
 let baseSpace = null;
@@ -56,6 +72,7 @@ export function createComfort({ renderer, camera }) {
   }
   function setTurn(mode) { comfort.turn = mode === "snap" ? "snap" : "smooth"; saveComfort(); }
   function setVignette(on) { comfort.vignette = !!on; saveComfort(); }
+  function setPicture(mode, scene) { comfort.picture = mode === "standard" ? "standard" : "vivid"; saveComfort(); applyPicture(renderer, scene); }
 
   renderer.xr.addEventListener("sessionstart", () => { baseSpace = null; setTimeout(applyHeight, 0); });
   renderer.xr.addEventListener("sessionend", () => { baseSpace = null; });
@@ -78,5 +95,5 @@ export function createComfort({ renderer, camera }) {
     mat.uniforms.uStrength.value = strength;
     vignette.visible = strength > 0.01;
   }
-  return { update, turnAmount, setTurn, setVignette, setSeated, resetHeight, applyHeight };
+  return { update, turnAmount, setTurn, setVignette, setPicture, setSeated, resetHeight, applyHeight };
 }
