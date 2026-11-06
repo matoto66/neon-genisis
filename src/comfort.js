@@ -19,7 +19,7 @@ THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars
     vec3 c = ACESFilmicToneMapping( color );
     float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
     c = max( mix( vec3( l ), c, 1.4 ), 0.0 );          // saturation
-    c = pow( c, vec3( 1.07 ) ) * 1.06;                // contrast + a little punch
+    c = pow( c, vec3( 1.1 ) ) * 1.08;                 // contrast + a little punch
     return saturate( c );
   }`);
 export function applyPicture(renderer, scene) {

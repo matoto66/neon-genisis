@@ -103,7 +103,7 @@ let travelCheck = 0;
 // A small neon environment map gives metal, glass and wet streets coloured
 // reflections without any extra real-time lights.
 scene.environment = createNeonEnvironment(renderer);
-scene.environmentIntensity = 0.6;
+scene.environmentIntensity = 0.85;
 
 // Keep the city as a separate world. The title screen renders a different
 // environment until the player explicitly chooses PLAY.

@@ -254,7 +254,7 @@ export function buildCity(scene, renderer) {
     colliders.push({ minX, maxX, minZ, maxZ, minY, maxY });
 
   // ── lights: two global lights + a few local "key" lights only ──────────
-  const hemi = new THREE.HemisphereLight(0x8fa8ff, 0x2a1834, 1.55);
+  const hemi = new THREE.HemisphereLight(0x8fa8ff, 0x2a1834, 1.2);
   root.add(hemi);
   const moon = new THREE.DirectionalLight(0x9fc4ff, 1.15);
   moon.position.set(-30, 60, 20);
@@ -311,7 +311,7 @@ export function buildCity(scene, renderer) {
     ctx.fillStyle = "rgba(10,12,16,0.5)"; ctx.fillRect(r() * w, r() * h, 90, 60);
   }, { repeat: true, aniso: 8, renderer });
   asphaltTex.repeat.set(4, 30);
-  const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0xa8aec0, roughness: 0.38, metalness: 0.3 });
+  const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0xa8aec0, roughness: 0.24, metalness: 0.35 });   // rain-slick
   const tileTex = canvasTexture(256, 256, (ctx, w, h) => {
     ctx.fillStyle = "#4a4f5a"; ctx.fillRect(0, 0, w, h);
     const r = mulberry32(3);
@@ -1101,7 +1101,7 @@ export function buildCity(scene, renderer) {
     skyUniforms.uDay.value = day / DAY_MAX * 0.85;
     skyUniforms.uSunDir.value.copy(sunDir);
     skyUniforms.uTime.value = seconds;
-    hemi.intensity = 1.55 + day * 1.9;
+    hemi.intensity = 1.2 + day * 2.25;   // lower night fill = deeper shadows, neon does the lighting
     hemi.color.copy(nightHemi).lerp(dayHemi, day / DAY_MAX);
     moon.intensity = 1.15 + day * 2.4;
     moon.color.copy(nightSun).lerp(daySun, day / DAY_MAX);
@@ -1150,6 +1150,8 @@ export function createNeonEnvironment(renderer) {
   add(4, 12, 9, 1, -5, 0xb24cff, -Math.PI / 3);
   add(3, 10, 8, 0, 7, 0xff4fa3, -Math.PI * 0.7);
   add(5, 8, -8, -1, 7, 0x3a4cff, Math.PI * 0.7);
+  add(6, 3, 0, 3, 10, 0xff9a3c, Math.PI);                 // warm shopfront glow
+  for (let i = 0; i < 6; i++) add(0.4, 6, -12 + i * 4.8, 4, -11, [0x38f0e6, 0xff4fa3, 0xffcf4a][i % 3], 0);  // thin neon strips
   add(20, 20, 0, 12, 0, 0x141a2e, 0);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0x0a0c14 }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = -6; envScene.add(floor);

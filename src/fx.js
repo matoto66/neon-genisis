@@ -79,8 +79,8 @@ export function createCityFX(root, city, renderer) {
   B(1.9, 0.55, 4.2, 0, 0, 0, 0x14161c); B(1.5, 0.45, 2.0, 0, 0.45, -0.2, 0x1c2230);      // body + cabin
   B(1.52, 0.3, 1.6, 0, 0.47, -0.2, 0x2a5a6e);                                               // windows (tinted)
   B(2.4, 0.12, 1.2, 0, -0.1, 1.2, 0x1c2230); B(2.4, 0.12, 1.2, 0, -0.1, -1.4, 0x1c2230);   // thrust pods
-  B(1.6, 0.08, 0.06, 0, 0.05, -2.12, 0x8a8270); B(1.6, 0.1, 0.06, 0, 0.05, 2.12, 0x8a1a22); // head/tail strips (dimmed)
-  B(1.9, 0.04, 4.0, 0, -0.3, 0, 0x38f0e6);                                                  // underglow
+  B(1.6, 0.08, 0.06, 0, 0.05, -2.12, 0x14161c); B(1.6, 0.1, 0.06, 0, 0.05, 2.12, 0x14161c); // no head/tail lights
+  B(1.9, 0.04, 4.0, 0, -0.3, 0, 0x1c2230);                                                  // (underglow removed)
   const carMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const cars = new THREE.InstancedMesh(mergeGeometries(carParts), carMat, CARS);
   cars.instanceMatrix.setUsage(THREE.DynamicDrawUsage); cars.frustumCulled = false; cars.name = "FLYING_CARS";
@@ -95,7 +95,7 @@ export function createCityFX(root, city, renderer) {
   lightGeo.setAttribute("size", new THREE.BufferAttribute(lightSize, 1));
   const carLightMat = bloomMat.clone(); carLightMat.uniforms = { uScale: bloomMat.uniforms.uScale, uIntensity: { value: 0.4 } };
   const carLights = new THREE.Points(lightGeo, carLightMat);
-  carLights.frustumCulled = false; root.add(carLights);
+  carLights.frustumCulled = false; carLights.visible = false;   // car lights removed
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), dir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1);
   const A = new THREE.Vector3(), Bv = new THREE.Vector3();
 
