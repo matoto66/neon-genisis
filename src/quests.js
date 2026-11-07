@@ -482,7 +482,7 @@ export function createGame(ctx) {
   }
   function boardClick(index) {
     const s = panelState;
-    if (index >= s.rows.length) return closePanel();
+    if (index >= s.rows.length) return s.def.onClose ? s.def.onClose() : closePanel();
     const r = s.rows[index];
     const msg = r.onClick?.();
     if (!panel.visible || panelState !== s) return;

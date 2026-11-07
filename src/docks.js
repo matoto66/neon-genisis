@@ -44,12 +44,12 @@ export function buildDocks(root, city) {
     const c = document.createElement("canvas"); c.width = c.height = 256; const x = c.getContext("2d");
     x.fillStyle = "#05080f"; x.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(${80 + rand() * 120},${120 + rand() * 120},255,${0.05 + rand() * 0.12})`; x.fillRect(rand() * 256, rand() * 256, 6 + rand() * 30, 1.5); }
-    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 10); t.colorSpace = THREE.SRGBColorSpace; return t;
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(20, 20); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(260, 220), new THREE.MeshStandardMaterial({
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(520, 520), new THREE.MeshStandardMaterial({
     color: 0x0a1424, map: waterTex, emissive: 0x1a3a6a, emissiveMap: waterTex, emissiveIntensity: 0.9, metalness: 0.9, roughness: 0.15
   }));
-  water.rotation.x = -Math.PI / 2; water.position.set(170, -1.4, -46); water.name = "DOCKS_WATER";
+  water.rotation.x = -Math.PI / 2; water.position.set(300, -1.4, -46); water.name = "DOCKS_WATER";
   root.add(water);
   // keep the player out of the water: edges of the yard and piers
   // yard edge (open only where the two piers join)
@@ -131,6 +131,18 @@ export function buildDocks(root, city) {
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.75), new THREE.MeshBasicMaterial({ map: signT, side: THREE.DoubleSide }));
   sign.position.set(49.2, 5.9, -46); sign.rotation.y = -Math.PI / 2; root.add(sign);
 
+  // ── fill the edges: ground strip between city and yard, plus warehouse
+  //    rows beyond the north/south fences so you never see off the map
+  box(solid, 6, 0.1, 140, 46, -0.07, -46, 0x2a2d34);                       // strip x 43 → 49
+  box(solid, 70, 0.2, 40, 80, -0.12, -101, 0x34373e); box(solid, 70, 0.2, 40, 80, -0.12, 9, 0x34373e);   // lots behind the fences
+  for (const [zc, side] of [[-92, -1], [0, 1]]) for (let x = 52; x < 112; x += 15) {
+    const h = 9 + rand() * 9, w = 13, d = 12;
+    box(solid, w, h, d, x + 6.5, h / 2, zc + side * 2, [0x2c3140, 0x33303a, 0x2a3236][Math.floor(rand() * 3)]);
+    box(solid, w + 0.4, 0.3, d + 0.4, x + 6.5, h + 0.15, zc + side * 2, 0x1c1f26);                        // roof lip
+    box(glow, w * 0.7, 0.12, 0.08, x + 6.5, h - 1.2, zc + side * 2 - side * (d / 2 + 0.05), [0x38f0e6, 0xff4fa3, 0xffb02e][Math.floor(rand() * 3)]);  // light strip facing the yard
+    for (let k = 0; k < 3; k++) box(solid, 3, 4, 0.1, x + 2 + k * 4.5, 2, zc + side * 2 - side * (d / 2 + 0.05), 0x15181e);   // loading doors
+    col(x, x + 13, zc + side * 2 - d / 2, zc + side * 2 + d / 2, h);
+  }
   // ── far shore skyline across the water ─────────────────────────────────
   for (let i = 0; i < 18; i++) { const h = 20 + rand() * 70, w = 8 + rand() * 10; box(solid, w, h, w, 210 + rand() * 40, h / 2 - 1.4, -150 + i * 16 + rand() * 6, 0x141824); box(glow, 0.3, h * 0.7, 0.3, 200 + rand() * 30, h * 0.35, -150 + i * 16, [0x38f0e6, 0xb24cff, 0xff4fa3][i % 3]); }
 

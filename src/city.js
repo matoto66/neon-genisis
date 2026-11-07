@@ -490,6 +490,10 @@ export function buildCity(scene, renderer) {
   { const g = new THREE.PlaneGeometry(90, 12); g.attributes.uv.array.forEach((v, i, a) => { a[i] = i % 2 === 0 ? v * 6 : v * 0.8; });
     roads.add(place(g, 0, 0.004, -46, 0, -Math.PI / 2)); }
   roads.plane(60, 26, 0, 0.0, -128, undefined, 0, -Math.PI / 2); // plaza base
+  // solid ground under the whole city (alleys, lots and gaps used to be open to the sky below)
+  { const gt = asphaltTex.clone(); gt.repeat.set(36, 70); gt.needsUpdate = true;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 200), new THREE.MeshStandardMaterial({ map: gt, color: 0x7a7e88, roughness: 0.45, metalness: 0.25 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.set(-2, -0.025, -55); ground.name = "CITY_GROUND"; root.add(ground); }
   const swH = 0.08;
   for (const side of [-1, 1]) {
     // avenue sidewalks, broken by the Ring Road
@@ -640,12 +644,12 @@ export function buildCity(scene, renderer) {
   root.add(cables);
   // paper lanterns strung across the Sump (warm, Japanese street feel)
   // dimmed and no glow halo, so they don't blind you
-  { const cap = glow.capture; glow.capture = null;
-    for (let z = 22; z > -30; z -= 9) for (let i = 1; i < 8; i++) {
-      const x = -11 + i * 2.75, y = 6.2 - Math.sin(i / 8 * Math.PI) * 0.9;
-      glow.sphere(0.22, x, y, z, i % 2 ? 0x8a3222 : 0x8a6232, 8, 6);
-    }
-    glow.capture = cap; }
+  // hover lanterns: anti-grav paper lanterns that bob gently over the street
+  const hoverLanterns = [];
+  for (let z = 22; z > -30; z -= 9) for (let i = 1; i < 8; i++) {
+    const x = -11 + i * 2.75, y = 6.2 - Math.sin(i / 8 * Math.PI) * 0.9;
+    hoverLanterns.push([x, y, z, i % 2 ? 0x8a3222 : 0x8a6232, 0.22]);
+  }
   // crates, trash bags, vending machines, AC units on facades
   const sumpClutter = [[-10.4, 20], [-10.3, 9], [-10.5, -18], [10.4, -10], [10.3, 1], [10.5, 30], [-10.4, -33]];
   for (const [x, z] of sumpClutter) {
@@ -890,12 +894,39 @@ export function buildCity(scene, renderer) {
     addCollider(x - 0.65, x + 0.65, z - 1.15, z + 1.15, 0, 2.3);
   }
   // lantern strings across the Mile
-  { const cap = glow.capture; glow.capture = null;     // dimmed, no glow halo
-    for (let z = -60; z > -112; z -= 8) for (let i = 1; i < 10; i++) {
-      const x = -11 + i * 2.2, y = 9 - Math.sin(i / 10 * Math.PI) * 1.2;
-      glow.sphere(0.2, x, y, z, i % 3 === 0 ? 0x8c8c8c : 0x8a2028, 8, 6);
-    }
-    glow.capture = cap; }
+  for (let z = -60; z > -112; z -= 8) for (let i = 1; i < 10; i++) {     // Mile hover lanterns
+    const x = -11 + i * 2.2, y = 9 - Math.sin(i / 10 * Math.PI) * 1.2;
+    hoverLanterns.push([x, y, z, i % 3 === 0 ? 0x8c8c8c : 0x8a2028, 0.2]);
+  }
+  {
+    const n = hoverLanterns.length, c = new THREE.Color();
+    const lg = new THREE.SphereGeometry(1, 12, 8); lg.scale(1, 1.25, 1);
+    const lantern = new THREE.InstancedMesh(lg, new THREE.MeshBasicMaterial(), n);
+    const capG = new THREE.CylinderGeometry(0.45, 0.55, 0.25, 10);                 // dark top/bottom caps
+    const caps = new THREE.InstancedMesh(capG, new THREE.MeshStandardMaterial({ color: 0x1a1c22, metalness: 0.7, roughness: 0.4 }), n * 2);
+    const ringG = new THREE.TorusGeometry(0.7, 0.05, 4, 20); ringG.rotateX(Math.PI / 2);
+    const rings = new THREE.InstancedMesh(ringG, new THREE.MeshBasicMaterial({ color: 0x1f6f78, transparent: true, opacity: 0.7, depthWrite: false }), n);
+    const glowG = new THREE.CircleGeometry(1, 16); glowG.rotateX(-Math.PI / 2);
+    const under = new THREE.InstancedMesh(glowG, new THREE.MeshBasicMaterial({ color: 0x38f0e6, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }), n);
+    hoverLanterns.forEach(([, , , hex], i) => lantern.setColorAt(i, c.set(hex)));
+    for (const m of [lantern, caps, rings, under]) { m.frustumCulled = false; root.add(m); }
+    lantern.name = "HOVER_LANTERNS";
+    const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    animated.push(t => {
+      const s = t * 0.001;
+      hoverLanterns.forEach(([x, y, z, , r], i) => {
+        const bob = Math.sin(s * 1.3 + i * 0.7) * 0.12, yy = y + bob;
+        q.setFromAxisAngle(up, s * 0.4 + i);
+        lantern.setMatrixAt(i, m4.compose(p.set(x, yy, z), q, sc.set(r, r, r)));
+        caps.setMatrixAt(i * 2, m4.compose(p.set(x, yy + r * 1.2, z), q, sc.set(r, r, r)));
+        caps.setMatrixAt(i * 2 + 1, m4.compose(p.set(x, yy - r * 1.2, z), q, sc.set(r, r, r)));
+        const pulse = 1 + Math.sin(s * 3 + i) * 0.08;
+        rings.setMatrixAt(i, m4.compose(p.set(x, yy - r * 1.75, z), q, sc.set(r * pulse, r, r * pulse)));
+        under.setMatrixAt(i, m4.compose(p.set(x, yy - r * 1.9, z), q, sc.set(r * 0.9, 1, r * 0.9)));
+      });
+      for (const m of [lantern, caps, rings, under]) m.instanceMatrix.needsUpdate = true;
+    });
+  }
   // Mile lamps: tall cyan poles
   for (let z = -60; z > -114; z -= 12) for (const side of [-1, 1]) {
     const x = side * 8.1;

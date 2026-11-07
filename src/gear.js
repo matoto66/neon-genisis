@@ -171,26 +171,45 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
   }
   const has = needs => Object.entries(needs).every(([k, n]) => (state.items?.[k] || 0) >= n);
   const needText = needs => Object.entries(needs).map(([k, n]) => `${n} ${ITEMS[k].name}${(state.items?.[k] || 0) < n ? ` (have ${state.items?.[k] || 0})` : ""}`).join(" · ");
+  // Workbench: a list of recipes → pick one → a detail screen with what it
+  // needs, a CRAFT button and a BACK button.
   function openCrafting() {
     game.openBoard({
       title: "MIKA'S WORKBENCH", accent: "#38f0e6",
-      subtitle: () => "\"Bring me junk, I'll bring you gear.\" — Mika",
+      subtitle: () => "\"Bring me junk, I'll bring you gear.\" — Mika. Pick something to build.",
       rows: () => RECIPES.map(r => {
         const done = r.once && state.flags["craft_" + r.id];
         const ok = !done && has(r.needs);
-        return { title: r.name + (done ? "  ✓ BUILT" : ""), desc: done ? r.desc : `${r.desc}  Needs: ${needText(r.needs)}`, dim: done,
-          label: done ? "BUILT" : ok ? "BUILD" : "MISSING", color: done ? "#2a8a6a" : ok ? "#a0287a" : "#56607a",
-          onClick: () => {
-            if (done) return "Already built.";
-            if (!has(r.needs)) return "Not enough materials.";
-            for (const [k, n] of Object.entries(r.needs)) state.items[k] -= n;
-            if (r.id === "patch") state.items.med_patch = Math.min(9, (state.items.med_patch || 0) + 1);
-            else state.flags["craft_" + r.id] = true;
-            saveGame(); audio.play("buy");
-            game.toast(`Built: ${r.name}`, "complete");
-            return `Built ${r.name}.`;
-          } };
+        return { title: r.name + (done ? "  ✓ BUILT" : ""), desc: r.desc, dim: done,
+          label: done ? "BUILT" : ok ? "READY ›" : "VIEW ›", color: done ? "#2a8a6a" : ok ? "#a0287a" : "#2a6a8a",
+          onClick: () => { openRecipe(r); } };
       })
+    });
+  }
+  function openRecipe(r) {
+    game.openBoard({
+      title: r.name.toUpperCase(), accent: "#ffcf4a", closeLabel: "‹ BACK", onClose: openCrafting,
+      subtitle: () => r.desc,
+      rows: () => {
+        const done = r.once && state.flags["craft_" + r.id];
+        const rows = Object.entries(r.needs).map(([k, n]) => {
+          const have = state.items?.[k] || 0, enough = have >= n;
+          return { title: `${enough ? "✓" : "✗"}  ${ITEMS[k].name}`, desc: `${ITEMS[k].desc}`, label: `${Math.min(have, n)} / ${n}`, color: enough ? "#2a8a6a" : "#8a2a3a", dim: !enough };
+        });
+        rows.push(done
+          ? { title: "Already built", desc: "You've got this one. Mika says it suits you.", label: "BUILT", color: "#2a8a6a" }
+          : { title: "CRAFT", desc: has(r.needs) ? "Uses the materials above." : "Find the missing materials around the city (Optic Scan helps).", label: has(r.needs) ? "CRAFT" : "MISSING", color: has(r.needs) ? "#a0287a" : "#56607a",
+              onClick: () => {
+                if (!has(r.needs)) return "Not enough materials.";
+                for (const [k, n] of Object.entries(r.needs)) state.items[k] -= n;
+                if (r.id === "patch") state.items.med_patch = Math.min(9, (state.items.med_patch || 0) + 1);
+                else state.flags["craft_" + r.id] = true;
+                saveGame(); audio.play("buy");
+                game.toast(`Built: ${r.name}`, "complete");
+                return `Built ${r.name}!`;
+              } });
+        return rows;
+      }
     });
   }
 

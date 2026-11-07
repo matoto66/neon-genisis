@@ -345,3 +345,5 @@ kbd { display: inline-block; min-width: 20px; margin-right: 6px; padding: 1px 6p
 #map-canvas { position: static; inset: auto; z-index: auto; width: 100%; max-width: 520px; height: auto; display: block; margin: 8px auto 12px; border-radius: 10px; }
 .travel-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .travel-list .ui-button[disabled] { opacity: 0.4; cursor: default; }
+
+#controls-art { position: static; inset: auto; z-index: auto; width: 100%; height: auto; display: block; margin: 6px 0 12px; background: #0b1324; border-radius: 10px; }

@@ -19,6 +19,7 @@ import { buildRadios } from "./radio.js";
 import { createGear } from "./gear.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
 import { createArcade } from "./arcade.js";
+import { drawControllerDiagram } from "./controlsart.js";
 import { CYBERWARE } from "./story.js";
 import {
   state, loadGame, saveGame, resetGame, pointsLeft, changeStat, gradeNames, maxHealth, slotCount,
@@ -97,7 +98,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-98", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-99", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -892,6 +893,7 @@ function replayIntro() {
   intro.play(() => {}, [cityWorld]);
 }
 document.querySelector("#replay-intro")?.addEventListener("click", replayIntro);
+{ const cv = document.querySelector("#controls-art"); if (cv) { const c = cv.getContext("2d"); c.fillStyle = "#0b1324"; c.fillRect(0, 0, cv.width, cv.height); drawControllerDiagram(c, 0, 4, cv.width, cv.height - 8); } }
 for (const [id, list] of [["#controls-vr", CONTROLS_VR], ["#controls-pc", CONTROLS_PC]]) {
   const el = document.querySelector(id);
   if (el) el.innerHTML = list.map(([a, k]) => `<div class="control-row"><span>${a}</span><kbd>${k}</kbd></div>`).join("");
@@ -1899,8 +1901,8 @@ for (let i = 0; i < 2; i++) {
 
 let vrMenuPage = "character";
 const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
-const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "map", label: "MAP" }, { id: "settings", label: "SETTINGS" }];
-const VR_TAB_W = 222, VR_TAB_STEP = 232;
+const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "map", label: "MAP" }, { id: "controls", label: "CONTROLS" }, { id: "settings", label: "SETTINGS" }];
+const VR_TAB_W = 176, VR_TAB_STEP = 186;
 let vrMapHover = -1;
 function drawVRMenu() {
   const ctx = vrMenuContext;
@@ -1924,7 +1926,7 @@ function drawVRMenu() {
     ctx.lineWidth = 4;
     ctx.strokeRect(x, 92, VR_TAB_W, 66);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 25px Arial";
+    ctx.font = "bold 22px Arial";
     ctx.textAlign = "center";
     ctx.fillText(t.label, x + VR_TAB_W / 2, 134);
     ctx.textAlign = "left";
@@ -1978,6 +1980,8 @@ function drawVRMenu() {
       ctx.fillStyle = on ? "#ffffff" : "#56607a"; ctx.font = "bold 21px Arial"; ctx.fillText(on ? t.name : "??? · not found yet", 606, y + 33);
       if (on) { ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 18px Arial"; ctx.textAlign = "right"; ctx.fillText("GO ▸", 955, y + 33); ctx.textAlign = "left"; }
     });
+  } else if (vrMenuPage === "controls") {
+    drawControllerDiagram(ctx, 50, 170, 924, 470);
   } else if (vrMenuPage === "settings") {
     const btn = (x, y, w, h, label, on, accent = "#5ff5e8") => {
       ctx.fillStyle = on ? "#0f6f74" : "#20465a"; ctx.fillRect(x, y, w, h);
@@ -1990,9 +1994,10 @@ function drawVRMenu() {
     row(318, "COMFORT"); btn(330, 288, 300, 46, "VIGNETTE " + (comfort.vignette ? "ON" : "OFF"), comfort.vignette); btn(650, 288, 300, 46, "SEATED " + (comfort.seated ? "ON" : "OFF"), comfort.seated);
     row(374, "HEIGHT / STORY"); btn(330, 344, 300, 46, "↕ RESET HEIGHT", false, "#ffcf4a"); btn(650, 344, 300, 46, "▶ REPLAY INTRO", false, "#b24cff");
     row(430, "PICTURE"); btn(330, 400, 300, 46, "STANDARD", comfort.picture === "standard"); btn(650, 400, 300, 46, "VIVID", comfort.picture === "vivid", "#ff4fa3");
-    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 18px Arial"; ctx.fillText("QUEST CONTROLS", 60, 474);
-    ctx.fillStyle = "#aab6cf"; ctx.font = "14px Arial"; ctx.fillText("Settings are saved on this headset. Reset height: stand (or sit) normally, then press it.", 240, 474);
-    CONTROLS_VR.forEach(([action, key], i) => {
+    ctx.fillStyle = "#aab6cf"; ctx.font = "16px Arial";
+    ctx.fillText("Settings are saved on this headset. Reset height: stand (or sit) normally, then press it.", 60, 478);
+    ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 20px Arial"; ctx.fillText("🎮 Every button and hand move is shown on the CONTROLS tab.", 60, 520);
+    [].forEach(([action, key], i) => {
       const col = i % 2, r = Math.floor(i / 2), x = 60 + col * 460, y = 494 + r * 15.5;
       ctx.fillStyle = "#dce7ff"; ctx.font = "14px Arial"; ctx.fillText(action, x, y);
       ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 14px Arial"; ctx.textAlign = "right"; ctx.fillText(key, x + 440, y); ctx.textAlign = "left";
