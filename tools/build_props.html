@@ -1,0 +1,142 @@
+<!doctype html>
+<!-- NEON GENESIS dev tool: builds the hard-surface street props with CSG
+     (three-bvh-csg) and exports them as assets/props_v2.glb.
+     Open in a browser and press "Build". Everything is original. -->
+<html><head><meta charset="utf-8"><title>Props builder</title>
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+  "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.18/src/index.js",
+  "three-bvh-csg": "https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.18/src/index.js"
+} }</script></head>
+<body style="background:#111;color:#ddd;font-family:sans-serif"><button id="go">Build</button><pre id="log"></pre>
+<script type="module">
+import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { Brush, Evaluator, SUBTRACTION, ADDITION } from "three-bvh-csg";
+
+const log = t => (document.querySelector("#log").textContent += t + "\n");
+const ev = new Evaluator(); ev.attributes = ["position", "normal"]; ev.useGroups = false;
+const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.5, ...o });
+const mats = {
+  shell: M(0x3c4a66, { metalness: 0.55, roughness: 0.35 }), dark: M(0x111419, { metalness: 0.6, roughness: 0.4 }),
+  steel: M(0x8a93a3, { metalness: 0.9, roughness: 0.25 }), paint: M(0x3a5a4a, { metalness: 0.4, roughness: 0.6 }),
+  rust: M(0x5a4232, { metalness: 0.3, roughness: 0.85 }), glass: M(0x0d1620, { metalness: 0.9, roughness: 0.08 }),
+  rubber: M(0x15161a, { metalness: 0.05, roughness: 0.9 }), body: M(0x1c2230, { metalness: 0.8, roughness: 0.22 }),
+  neonC: new THREE.MeshBasicMaterial({ color: 0x38f0e6 }), neonP: new THREE.MeshBasicMaterial({ color: 0xff4fa3 }),
+  neonY: new THREE.MeshBasicMaterial({ color: 0xffcf4a }), screen: new THREE.MeshBasicMaterial({ color: 0x1d6d88 })
+};
+const brush = (geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const b = new Brush(geo); b.position.set(x, y, z); b.rotation.set(rx, ry, rz); b.updateMatrixWorld(); return b; };
+const box = (w, h, d, ...p) => brush(new THREE.BoxGeometry(w, h, d), ...p);
+const rbox = (w, h, d, r, ...p) => brush(new RoundedBoxGeometry(w, h, d, 3, r), ...p);
+const cyl = (r1, r2, h, s, ...p) => brush(new THREE.CylinderGeometry(r1, r2, h, s), ...p);
+function csg(base, cuts = [], adds = []) {
+  let r = base;
+  for (const a of adds) { r = ev.evaluate(r, a, ADDITION); r.updateMatrixWorld(); }
+  for (const c of cuts) { r = ev.evaluate(r, c, SUBTRACTION); r.updateMatrixWorld(); }
+  // the result comes back in the first brush's local space: move it into place
+  return r.geometry.applyMatrix4(base.matrixWorld);
+}
+const part = (group, geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); group.add(m); return m; };
+
+// ── vending machine (front faces +Z, base at y=0) ─────────────────────────
+function vending(name, accent) {
+  const g = new THREE.Group(); g.name = name;
+  const shell = csg(rbox(0.82, 1.92, 0.78, 0.05, 0, 0.96, 0), [
+    box(0.62, 1.0, 0.52, -0.04, 1.28, 0.39),         // display window (deep, drinks sit inside)
+    box(0.5, 0.2, 0.3, -0.04, 0.32, 0.37),           // pickup bay
+    box(0.05, 0.12, 0.1, 0.33, 1.0, 0.39),           // coin slot
+    ...[0, 1, 2, 3, 4].map(i => box(0.7, 0.012, 0.06, 0, 0.06 + i * 0.03, 0.39))   // kick-plate vents
+  ]);
+  part(g, shell, mats.shell);
+  part(g, new THREE.PlaneGeometry(0.6, 0.98), new THREE.MeshStandardMaterial({ color: 0x9fdcff, emissive: accent.color, emissiveIntensity: 0.25, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.2, depthWrite: false }), -0.04, 1.28, 0.36);
+  part(g, new THREE.PlaneGeometry(0.6, 0.98), new THREE.MeshBasicMaterial({ color: accent.color.clone().multiplyScalar(0.25) }), -0.04, 1.28, 0.14);   // lit back wall
+  // drinks on 4 shelves behind the glass
+  const can = new THREE.CylinderGeometry(0.03, 0.03, 0.12, 10);
+  const cols = [mats.neonP, mats.neonC, mats.neonY];
+  for (let s = 0; s < 4; s++) { part(g, new THREE.BoxGeometry(0.6, 0.012, 0.12), mats.steel, -0.04, 0.84 + s * 0.24, 0.24); for (let i = 0; i < 6; i++) part(g, can, cols[(i + s) % 3], -0.29 + i * 0.1, 0.91 + s * 0.24, 0.24); }
+  part(g, new THREE.BoxGeometry(0.62, 0.008, 0.008), accent, -0.04, 1.79, 0.36);            // top light bar
+  part(g, new THREE.BoxGeometry(0.12, 0.3, 0.02), mats.screen, 0.33, 1.28, 0.36);           // side screen
+  for (let i = 0; i < 4; i++) part(g, new THREE.CylinderGeometry(0.012, 0.012, 0.01, 8), cols[i % 3], 0.33, 1.08 - i * 0.04, 0.39, Math.PI / 2);
+  part(g, new THREE.BoxGeometry(0.5, 0.012, 0.25), mats.dark, -0.04, 0.24, 0.26);
+  part(g, new THREE.BoxGeometry(0.84, 0.06, 0.8), mats.dark, 0, 0.03, 0);
+  part(g, new THREE.BoxGeometry(0.02, 1.6, 0.02), accent, -0.41, 1.0, 0.37); part(g, new THREE.BoxGeometry(0.02, 1.6, 0.02), accent, 0.41, 1.0, 0.37);
+  return g;
+}
+// ── wall AC unit (back at z=0, faces +Z) ──────────────────────────────────
+function acUnit() {
+  const g = new THREE.Group(); g.name = "ac_unit";
+  const shell = csg(rbox(0.9, 0.62, 0.48, 0.04, 0, 0, 0.24), [
+    cyl(0.23, 0.23, 0.3, 28, -0.15, 0, 0.45, Math.PI / 2),
+    ...[0, 1, 2, 3, 4, 5].map(i => box(0.22, 0.015, 0.2, 0.3, -0.18 + i * 0.07, 0.45))
+  ]);
+  part(g, shell, mats.steel);
+  part(g, new THREE.CylinderGeometry(0.22, 0.22, 0.02, 24), mats.dark, -0.15, 0, 0.36, Math.PI / 2);
+  for (let i = 0; i < 5; i++) part(g, new THREE.BoxGeometry(0.4, 0.06, 0.01), mats.steel, -0.15, 0, 0.38, 0, 0, i * Math.PI / 5 + 0.3).rotation.y = 0.3;
+  part(g, new THREE.CylinderGeometry(0.04, 0.04, 0.05, 12), mats.dark, -0.15, 0, 0.39, Math.PI / 2);
+  for (let i = -2; i <= 2; i++) part(g, new THREE.BoxGeometry(0.008, 0.46, 0.008), mats.dark, -0.15 + i * 0.09, 0, 0.475);
+  for (const sx of [-0.36, 0.36]) part(g, new THREE.BoxGeometry(0.05, 0.05, 0.5), mats.rust, sx, -0.34, 0.25);   // brackets
+  part(g, new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), mats.rubber, 0.42, -0.6, 0.1);                       // drip pipe
+  return g;
+}
+// ── dumpster (front faces +Z, base y=0) ───────────────────────────────────
+function dumpster() {
+  const g = new THREE.Group(); g.name = "dumpster";
+  const bodyGeo = new THREE.BoxGeometry(1.9, 1.1, 1.05); bodyGeo.translate(0, 0.65, 0);
+  const p = bodyGeo.attributes.position; for (let i = 0; i < p.count; i++) if (p.getY(i) > 0.6 && p.getZ(i) > 0) p.setZ(i, p.getZ(i) + 0.12);   // sloped front
+  const body = csg(brush(bodyGeo), [box(1.8, 1.1, 1.0, 0, 0.75, 0.04)], [box(2.0, 0.08, 1.2, 0, 1.18, 0.06), ...[-0.6, 0, 0.6].map(x => box(0.08, 1.0, 1.25, x, 0.62, 0.02))]);
+  part(g, body, mats.paint);
+  const lid = part(g, new THREE.BoxGeometry(1.92, 0.04, 0.62), mats.rubber, 0, 1.28, -0.3); lid.rotation.x = -0.25;
+  const lid2 = part(g, new THREE.BoxGeometry(1.92, 0.04, 0.62), mats.rubber, 0, 1.24, 0.32); lid2.rotation.x = 0.06;
+  for (const x of [-0.8, 0.8]) for (const z of [-0.4, 0.45]) part(g, new THREE.CylinderGeometry(0.07, 0.07, 0.06, 12), mats.rubber, x, 0.07, z, 0, 0, Math.PI / 2);
+  for (const x of [-1.0, 1.0]) part(g, new THREE.TorusGeometry(0.08, 0.015, 6, 12, Math.PI), mats.steel, x, 0.95, 0.1, 0, Math.PI / 2, 0);
+  part(g, new THREE.BoxGeometry(0.5, 0.18, 0.005), mats.neonY, 0.55, 0.75, 0.6);    // hazard tag
+  return g;
+}
+// ── hover car (nose faces -Z), no lights ─────────────────────────────────
+function hoverCar() {
+  const g = new THREE.Group(); g.name = "hover_car";
+  const hull = csg(rbox(1.9, 0.6, 4.4, 0.22, 0, 0, 0), [
+    ...[-1, 1].map(s => box(0.3, 0.22, 1.2, s * 0.95, -0.05, 0.9)),            // side intakes
+    box(1.2, 0.2, 0.5, 0, 0.0, -2.2),                                           // nose vent
+    ...[-1, 1].map(s => cyl(0.16, 0.16, 0.6, 16, s * 0.5, 0, 2.2, Math.PI / 2))  // exhausts
+  ], [rbox(1.4, 0.5, 2.2, 0.2, 0, 0.38, 0.1)]);
+  part(g, hull, mats.body);
+  const canopy = part(g, new THREE.SphereGeometry(0.7, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), mats.glass, 0, 0.55, -0.1); canopy.scale.set(0.95, 0.55, 1.45);
+  for (const s of [-1, 1]) {
+    const pod = csg(cyl(0.28, 0.24, 1.4, 18, s * 1.15, -0.15, 0.6, Math.PI / 2), [cyl(0.2, 0.2, 0.4, 16, s * 1.15, -0.15, 1.3, Math.PI / 2)]);
+    part(g, pod, mats.shell);
+    part(g, new THREE.BoxGeometry(0.5, 0.06, 0.8), mats.shell, s * 0.95, -0.12, 0.6);
+    part(g, new THREE.BoxGeometry(0.03, 0.4, 0.9), mats.dark, s * 0.96, 0.05, -0.8).rotation.z = s * -0.1;   // door seam
+  }
+  part(g, new THREE.BoxGeometry(1.5, 0.05, 0.3), mats.dark, 0, 0.42, 2.1).rotation.x = 0.2;            // spoiler
+  return g;
+}
+// ── street lamp post (base y=0) ───────────────────────────────────────────
+function lampPost() {
+  const g = new THREE.Group(); g.name = "lamp_post";
+  const pole = csg(cyl(0.07, 0.11, 4.6, 12, 0, 2.3, 0), [...[0, 1, 2].map(i => box(0.25, 0.02, 0.25, 0, 0.6 + i * 0.06, 0))], [cyl(0.18, 0.2, 0.3, 12, 0, 0.15, 0)]);
+  part(g, pole, mats.shell);
+  part(g, new THREE.BoxGeometry(0.06, 0.06, 0.9), mats.shell, 0, 4.55, 0.4);
+  const head = csg(rbox(0.3, 0.12, 0.55, 0.04, 0, 4.48, 0.75), [box(0.22, 0.06, 0.45, 0, 4.42, 0.75)]);
+  part(g, head, mats.shell);
+  part(g, new THREE.BoxGeometry(0.22, 0.01, 0.45), new THREE.MeshBasicMaterial({ color: 0xc8a070 }), 0, 4.43, 0.75);
+  return g;
+}
+
+document.querySelector("#go").onclick = async () => {
+  const scene = new THREE.Scene();
+  const items = [vending("vending_cyan", mats.neonC), vending("vending_pink", mats.neonP), acUnit(), dumpster(), hoverCar(), lampPost()];
+  for (const it of items) {
+    let tris = 0; it.traverse(o => { if (o.isMesh) { o.geometry = o.geometry.index ? o.geometry : mergeVertices(o.geometry, 1e-4); o.geometry.computeVertexNormals(); tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
+    scene.add(it); log(`${it.name}: ${Math.round(tris)} triangles`);
+  }
+  const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
+  window.__glb = new Uint8Array(glb);
+  log(`GLB ${(glb.byteLength / 1024).toFixed(0)} KB`);
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([glb])); a.download = "props_v2.glb"; a.click();
+};
+</script></body></html>

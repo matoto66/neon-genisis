@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Props preview</title>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/" } }</script></head>
+<body style="margin:0;background:#0b0e16"><script type="module">
+// Dev tool: shows every model in assets/props_v2.glb side by side.
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); r.toneMapping = THREE.ACESFilmicToneMapping; document.body.appendChild(r.domElement);
+const s = new THREE.Scene(); s.background = new THREE.Color(0x1a2030);
+s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+s.add(new THREE.HemisphereLight(0xbfd0ff, 0x302030, 1.2)); const d = new THREE.DirectionalLight(0xffffff, 2); d.position.set(3, 5, 6); s.add(d);
+const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100); cam.position.set(0, 2.2, 9); cam.lookAt(0, 1, 0);
+new GLTFLoader().load("../assets/props_v2.glb?" + Date.now(), g => {
+  const kids = [...g.scene.children]; kids.forEach((k, i) => { k.position.x = (i - (kids.length - 1) / 2) * 2.3; k.rotation.y = -0.5; if (k.name === "hover_car") { k.position.y = 1; k.scale.setScalar(0.45); } s.add(k); });
+  r.render(s, cam); const v = s.getObjectByName('vending_cyan'); window.__info = []; v.traverse(o => { if (o.isMesh) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox; window.__info.push(o.material.color?.getHexString() + ' ' + b.min.toArray().map(x=>x.toFixed(2)) + ' / ' + b.max.toArray().map(x=>x.toFixed(2)) + ' pos ' + o.position.toArray().map(x=>x.toFixed(2))); } }); window.__done = true;
+});
+</script></body></html>

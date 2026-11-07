@@ -13,6 +13,7 @@ import * as worlds from "./worlds.js";
 import { buildDocks } from "./docks.js";
 import { createCombat, makeZone } from "./combat.js";
 import { createCityFX } from "./fx.js";
+import { loadProps3D } from "./props3d.js";
 import { comfort, createComfort, applyPicture } from "./comfort.js";
 import { buildRadios } from "./radio.js";
 import { createGear } from "./gear.js";
@@ -96,6 +97,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
+loadProps3D(city.root, city, "neo-kasumi-98", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;

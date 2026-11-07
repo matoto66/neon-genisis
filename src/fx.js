@@ -375,11 +375,13 @@ export function createCityFX(root, city, renderer) {
       dir.subVectors(Bv, A).normalize();
       q.setFromRotationMatrix(m4.lookAt(dir, new THREE.Vector3(0, 0, 0), up));
       m4.compose(v, q, sc); cars.setMatrixAt(i, m4);
+      for (const p of carParts3d) { tmpM.multiplyMatrices(m4, p.local); p.inst.setMatrixAt(i, tmpM); }
       // head light in front (+dir), tail behind
       lightPos.set([v.x + dir.x * 2.3, v.y + 0.05, v.z + dir.z * 2.3], i * 6);
       lightPos.set([v.x - dir.x * 2.3, v.y + 0.05, v.z - dir.z * 2.3], i * 6 + 3);
     }
     cars.instanceMatrix.needsUpdate = true;
+    for (const p of carParts3d) p.inst.instanceMatrix.needsUpdate = true;
     // upgrade bits
     nightUniform.value = nightK; timeUniform.value = t;
     steamMat.uniforms.uScale.value = bloomMat.uniforms.uScale.value;
@@ -394,5 +396,19 @@ export function createCityFX(root, city, renderer) {
       blGeo.attributes.position.needsUpdate = true; }
     lightGeo.attributes.position.needsUpdate = true;
   }
-  return { update, bloom, cones, cars, blimp, ads };
+  // swap the box cars for the detailed CSG hover car once props_v2.glb loads
+  const carParts3d = [], tmpM = new THREE.Matrix4();
+  function setCarModel(model) {
+    model.updateMatrixWorld(true);
+    const turn = new THREE.Matrix4().makeRotationY(Math.PI);      // model nose is -Z; cars travel along +Z
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      const local = turn.clone().multiply(new THREE.Matrix4().copy(model.matrixWorld).invert().multiply(o.matrixWorld));
+      const inst = new THREE.InstancedMesh(o.geometry, o.material, CARS);
+      inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage); inst.frustumCulled = false; inst.name = "HOVER_CAR_PART";
+      root.add(inst); carParts3d.push({ inst, local });
+    });
+    cars.visible = false;
+  }
+  return { update, bloom, cones, cars, blimp, ads, setCarModel };
 }

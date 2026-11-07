@@ -108,6 +108,43 @@ function canvasTexture(w, h, painter, { repeat = false, aniso = 4, renderer } = 
   return t;
 }
 
+// ─── concrete wall maps: colour + normal map generated from a height field ────
+function makeConcreteMaps(renderer) {
+  const N = 256, r = mulberry32(77);
+  const hgt = new Float32Array(N * N);
+  // base noise (a few octaves of value noise)
+  const oct = (scale, amp) => { const g = []; const n = Math.ceil(N / scale) + 2; for (let i = 0; i < n * n; i++) g.push(r());
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const fx = x / scale, fy = y / scale, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const a = g[iy * n + ix], b = g[iy * n + ix + 1], c = g[(iy + 1) * n + ix], d = g[(iy + 1) * n + ix + 1];
+      hgt[y * N + x] += amp * ((a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty); } };
+  oct(32, 0.5); oct(8, 0.25); oct(2, 0.12);
+  // panel seams every 128 px (= 1.6 m) and tie-rod holes
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const sx = Math.min(x % 128, 128 - (x % 128)), sy = Math.min(y % 128, 128 - (y % 128));
+    if (sx < 2 || sy < 2) hgt[y * N + x] -= 0.9;
+    for (const [cx, cy] of [[32, 32], [96, 32], [32, 96], [96, 96]]) { const dx = (x % 128) - cx, dy = (y % 128) - cy; if (dx * dx + dy * dy < 9) hgt[y * N + x] -= 0.6; }
+  }
+  for (let i = 0; i < 260; i++) { const x = Math.floor(r() * N), y = Math.floor(r() * N); hgt[y * N + x] -= 0.5 + r() * 0.4; }   // pits
+  const col = document.createElement("canvas"); col.width = col.height = N; const cx = col.getContext("2d");
+  const nrm = document.createElement("canvas"); nrm.width = nrm.height = N; const nx = nrm.getContext("2d");
+  const ci = cx.createImageData(N, N), ni = nx.createImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const h = (xx, yy) => hgt[((yy + N) % N) * N + ((xx + N) % N)];
+    const dx = (h(x + 1, y) - h(x - 1, y)) * 2.2, dy = (h(x, y + 1) - h(x, y - 1)) * 2.2;
+    const l = Math.hypot(dx, dy, 1), i = (y * N + x) * 4;
+    ni.data[i] = (-dx / l * 0.5 + 0.5) * 255; ni.data[i + 1] = (dy / l * 0.5 + 0.5) * 255; ni.data[i + 2] = (1 / l * 0.5 + 0.5) * 255; ni.data[i + 3] = 255;
+    // colour: light concrete, darker in seams, rain streaks running down
+    const streak = 0.08 * Math.max(0, Math.sin(x * 0.37) * Math.sin(x * 0.11 + 1.3)) * (1 - (y % 128) / 128);
+    const v = 150 + hgt[y * N + x] * 60 - streak * 255;
+    ci.data[i] = v; ci.data[i + 1] = v * 0.98; ci.data[i + 2] = v * 0.95; ci.data[i + 3] = 255;
+  }
+  cx.putImageData(ci, 0, 0); nx.putImageData(ni, 0, 0);
+  const color = new THREE.CanvasTexture(col), normal = new THREE.CanvasTexture(nrm);
+  color.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [color, normal]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1; }
+  return { color, normal };
+}
+
 // ─── building facade textures ───────────────────────────────────────────────
 // Each texture is 8 columns × 8 floors of windows. The diffuse map is the wall
 // and glass; the emissive map holds only the lit windows, so windows glow at
@@ -249,6 +286,7 @@ export function buildCity(scene, renderer) {
   const anchors = {};          // named positions used by story/NPC code
   const animated = [];         // objects updated every frame
   const sidewalkPaths = [];    // polylines for walking NPCs
+  const propSpots = [];        // where the detailed GLB props go (see props3d.js)
 
   const addCollider = (minX, maxX, minZ, maxZ, minY = 0, maxY = 60) =>
     colliders.push({ minX, maxX, minZ, maxZ, minY, maxY });
@@ -324,6 +362,11 @@ export function buildCity(scene, renderer) {
   const sidewalkMat = new THREE.MeshStandardMaterial({ map: tileTex, color: 0x9aa0ad, roughness: 0.7, metalness: 0.15 });
 
   const propMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.45 });
+  // Weathered concrete panels with a generated normal map (real-looking seams,
+  // pitting and streaks that catch the neon) for the Sump street walls.
+  const concrete = makeConcreteMaps(renderer);
+  const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: concrete.color, normalMap: concrete.normal, normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.8, metalness: 0.15 });
+  const walls = new Batch(wallMat, "SUMP_WALLS");
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const beaconMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   const props = new Batch(propMat, "CITY_PROPS");
@@ -505,6 +548,62 @@ export function buildCity(scene, renderer) {
   building(26, 45, -12, 4, 28, "back", { band: false });
   building(26, 45, -36.5, -12, 24, "sump", { band: false });
 
+  // ── street-facing facade detail for the Sump avenue: real recessed windows,
+  //    sills, floor ledges, balconies, drainpipes, on a normal-mapped wall skin.
+  const signZones = [[-11, 27.4, 32.6, 9.8, 14.2], [11, -32.6, -27.4, 7.8, 12.2]];   // flat signs: x, z0, z1, y0, y1
+  function facadeDetail(x0, x1, z0, z1, h, side, tint) {
+    const fx = side > 0 ? x1 : x0;          // wall plane facing the avenue
+    const out = side;                       // +1: wall faces +x
+    const yb = BAND_H + 0.2;
+    // wall skin (covers the painted texture on the street face)
+    const g = new THREE.BoxGeometry(0.06, h - yb, z1 - z0);
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (z1 - z0) / 3.2, uv.getY(i) * (h - yb) / 3.2);
+    g.translate(fx + out * 0.03, yb + (h - yb) / 2, (z0 + z1) / 2);
+    colorize(g, tint); walls.add(g);
+    const cap = glow.capture; glow.capture = null;          // windows don't get bloom halos
+    const floorH = 3.3, bay = 2.6;
+    const nb = Math.floor((z1 - z0 - 1.2) / bay), zs = (z0 + z1) / 2 - (nb - 1) * bay / 2;
+    for (let y = yb + 0.9; y + 2.2 < h - 0.6; y += floorH) {
+      props.box(0.24, 0.14, z1 - z0, fx + out * 0.12, y - 0.55, (z0 + z1) / 2, 0x4a4640);                  // floor ledge
+      for (let i = 0; i < nb; i++) {
+        const z = zs + i * bay, wy = y + 0.85;
+        if (signZones.some(([sx, a, b, c, d]) => Math.sign(sx) === -out && z > a - 1 && z < b + 1 && wy + 1 > c && wy - 1 < d)) continue;
+        const ww = 1.5, wh = 1.7, fd = 0.18;
+        // frame (protrudes, so the glass sits in a recess)
+        props.box(fd, 0.1, ww + 0.2, fx + out * fd / 2, wy + wh / 2 + 0.05, z, 0x2c2e34);
+        props.box(fd, 0.1, ww + 0.2, fx + out * fd / 2, wy - wh / 2 - 0.05, z, 0x2c2e34);
+        props.box(fd, wh, 0.1, fx + out * fd / 2, wy, z - ww / 2 - 0.05, 0x2c2e34);
+        props.box(fd, wh, 0.1, fx + out * fd / 2, wy, z + ww / 2 + 0.05, 0x2c2e34);
+        props.box(0.3, 0.07, ww + 0.4, fx + out * 0.15, wy - wh / 2 - 0.13, z, 0x67625a);                  // sill
+        props.box(0.04, wh, 0.05, fx + out * 0.11, wy, z, 0x2c2e34);                                        // mullion
+        const k = rand();
+        if (k < 0.36) {           // lit window (dim, mostly warm)
+          glow.box(0.02, wh, ww, fx + out * 0.08, wy, z, [0x4a3418, 0x423019, 0x4a3418, 0x1f3a42, 0x3c2232, 0x46361e][Math.floor(rand() * 6)]);
+          if (rand() < 0.5) for (let b = 0; b < 6; b++) props.box(0.02, 0.05, ww, fx + out * 0.095, wy + wh / 2 - 0.12 - b * 0.26, z, 0x3a3630);  // blinds
+        } else props.box(0.02, wh, ww, fx + out * 0.08, wy, z, 0x0e1218);                                  // dark glass
+        if (k > 0.8 && y > yb + 2) {   // little balcony
+          props.box(1.0, 0.1, 2.0, fx + out * 0.5, wy - wh / 2 - 0.25, z, 0x3a3833);
+          props.box(0.04, 0.9, 2.0, fx + out * 0.98, wy - wh / 2 + 0.2, z, 0x55585f);
+          props.box(0.04, 0.04, 2.0, fx + out * 0.98, wy - wh / 2 + 0.65, z, 0x55585f);
+          for (const dz of [-0.95, 0.95]) props.box(0.95, 0.04, 0.04, fx + out * 0.5, wy - wh / 2 + 0.65, z + dz, 0x55585f);
+          if (rand() < 0.6) props.box(0.3, 0.35, 0.3, fx + out * 0.6, wy - wh / 2 - 0.02, z - 0.6, [0x3c6a3a, 0x8a4a3a][Math.floor(rand() * 2)]);   // plant pot
+        }
+      }
+    }
+    // drainpipe and a cable run at the ends
+    props.cyl(0.07, 0.07, h - 0.3, 8, fx + out * 0.12, (h - 0.3) / 2, z0 + 0.35, 0x3c4048);
+    props.cyl(0.03, 0.03, h - yb, 5, fx + out * 0.08, yb + (h - yb) / 2, z1 - 0.3, 0x1c1e22);
+    glow.capture = cap;
+  }
+  facadeDetail(-26, -11, 12, 42, 16, 1, 0x9a948a);
+  facadeDetail(-26, -11, -2.6, 7, 11, 1, 0x8f8a84);
+  facadeDetail(-26, -11, -24, -7.0, 19, 1, 0x8a8f96);
+  facadeDetail(-26, -11, -36.5, -28, 13, 1, 0x968e86);
+  facadeDetail(11, 26, 16, 42, 13, -1, 0x8e8a86);
+  facadeDetail(11, 26, -8, 4, 15, -1, 0x9a928a);
+  facadeDetail(11, 26, -36.5, -12, 22, -1, 0x868c94);
+
   // Sump signage (blade signs face the avenue)
   bladeSign("laundry", -11, 3.0, 6.8, 1);
   bladeSign("capsule", -11, -15, 8.5, 1, 1.2);
@@ -520,9 +619,7 @@ export function buildCity(scene, renderer) {
   const sumpLamps = [];
   for (let z = 36; z > -34; z -= 13) for (const side of [-1, 1]) sumpLamps.push([side * 8.1, z]);
   for (const [x, z] of sumpLamps) {
-    props.cyl(0.06, 0.09, 4.6, 6, x, 2.3, z, 0x3a3f48);
-    props.box(0.9, 0.07, 0.07, x - Math.sign(x) * 0.4, 4.55, z, 0x3a3f48);
-    glow.box(0.45, 0.06, 0.2, x - Math.sign(x) * 0.7, 4.48, z, 0xffd9a0);
+    propSpots.push({ type: "lamp_post", x, y: 0, z, ry: -Math.sign(x) * Math.PI / 2 });
     lampCones.push([x - Math.sign(x) * 0.7, 4.45, z, 0xffc68a]);
     pool(x - Math.sign(x) * 0.9, z, 3.4, 0xffb46a, 0.1, 0.5);
   }
@@ -560,8 +657,8 @@ export function buildCity(scene, renderer) {
   const vending = [[-10.5, -0.5, 0x38f0e6], [10.5, 13.5, 0xff4fa3], [-10.5, 15, 0xffcf4a], [10.5, -14, 0x7dff9e]];
   for (const [x, z, c] of vending) {
     const s = Math.sign(x);
-    props.box(0.8, 1.9, 0.9, x, 0.95, z, 0x2c3140);
-    glow.box(0.04, 1.3, 0.7, x - s * 0.42, 1.1, z, c);
+    // detailed CSG model (assets/props_v2.glb) placed by props3d.js
+    propSpots.push({ type: c === 0xff4fa3 || c === 0xffcf4a ? "vending_pink" : "vending_cyan", x, y: 0, z, ry: -s * Math.PI / 2 });
     pool(x - s * 1.2, z, 1.6, c, 0.1, 0.45);
     addCollider(x - 0.45, x + 0.45, z - 0.5, z + 0.5, 0, 2);
   }
@@ -571,7 +668,7 @@ export function buildCity(scene, renderer) {
   for (let z = 38; z > -34; z -= 5.5) for (const side of [-1, 1]) {
     if (rand() < 0.45 || sumpGap(side, z)) continue;
     const y = 5 + Math.floor(rand() * 3) * 3;
-    props.box(0.5, 0.6, 0.9, side * 11.35, y, z, 0x8a8e96);
+    propSpots.push({ type: "ac_unit", x: side * 11.0, y, z, ry: -side * Math.PI / 2 });
   }
   // laundry lines in Lantern Alley
   for (let x = -24; x < -12; x += 3.2) {
@@ -584,8 +681,7 @@ export function buildCity(scene, renderer) {
   puddle(-18, 9.5, 1.6, 0.9); puddle(-20, -26, 1.4, 0.8); puddle(18, -10, 1.2, 0.8);
 
   // Lantern Alley (z 7 → 12, west): dead-end with dumpster & graffiti
-  props.box(2.0, 1.3, 1.1, -24.7, 0.65, 10.8, 0x2f5a3a);
-  props.box(2.1, 0.12, 1.2, -24.7, 1.35, 10.8, 0x1d3a26);
+  propSpots.push({ type: "dumpster", x: -24.7, y: 0, z: 10.75, ry: Math.PI });
   addCollider(-25.8, -23.6, 10.2, 11.5, 0, 1.4);
   glow.box(0.05, 0.3, 3.2, -25.95, 2.6, 9.5, 0x5cff7a);  // graffiti neon tag
   glow.box(0.05, 0.9, 0.3, -25.95, 2.2, 8.4, 0xff4fa3);
@@ -593,8 +689,7 @@ export function buildCity(scene, renderer) {
   anchors.lanternAlley = new THREE.Vector3(-18, 0, 9.5);
 
   // Drain Alley (z -12 → -8, east): steam vent and a hidden spot behind a dumpster
-  props.box(1.1, 1.3, 2.0, 24.4, 0.65, -10.8, 0x4a3a5a);
-  props.box(1.2, 0.12, 2.1, 24.4, 1.35, -10.8, 0x2e2238);
+  propSpots.push({ type: "dumpster", x: 24.4, y: 0, z: -10.8, ry: -Math.PI / 2 });
   addCollider(23.8, 25.0, -11.9, -9.7, 0, 1.4);
   props.cyl(0.35, 0.35, 0.1, 12, 17, 0.06, -10, 0x22262e);
   anchors.drainVent = new THREE.Vector3(17, 0, -10);
@@ -1049,7 +1144,7 @@ export function buildCity(scene, renderer) {
 
   // ── build all batches ───────────────────────────────────────────────────
   for (const b of Object.values(buildings)) b.build(root);
-  storefronts.build(root); roads.build(root); walks.build(root);
+  storefronts.build(root); roads.build(root); walks.build(root); walls.build(root);
   props.build(root); glow.build(root); beacons.build(root);
   pools.build(root); puddles.build(root);
   for (const b of Object.values(signBatches)) b.build(root);
@@ -1133,7 +1228,7 @@ export function buildCity(scene, renderer) {
     if (playerPos) updateRain(dt, playerPos.x, playerPos.y, playerPos.z);
   }
 
-  return { root, colliders, floors, anchors, sidewalkPaths, collides, groundAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
+  return { root, colliders, floors, anchors, sidewalkPaths, propSpots, collides, groundAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
     setTimeOfDay(phase) { phaseOffset = (phase - (performance.now() / 1000 / CYCLE_SECONDS) % 1 + 2) % 1; updateDayNight(performance.now() / 1000); } };
 }
 
