@@ -66,11 +66,13 @@ export function createCityFX(root, city, renderer) {
 
   // ── flying cars ────────────────────────────────────────────────────────
   // Lanes: along the avenue, along the Ring Road, and a high crossing lane.
+  // Every lane starts and ends inside a lit two-way skyway passage that runs
+  // through a building, so cars never clip through towers.
   const LANES = [
-    { a: [ -4, 26, 60], b: [ -4, 26, -170], speed: 16 }, { a: [ 4, 30, -170], b: [ 4, 30, 60], speed: 14 },
-    { a: [ -2, 44, 60], b: [ -2, 44, -170], speed: 20 }, { a: [ 3, 52, -170], b: [ 3, 52, 60], speed: 22 },
-    { a: [-120, 24, -44], b: [140, 24, -44], speed: 15 }, { a: [140, 34, -48], b: [-120, 34, -48], speed: 18 },
-    { a: [-120, 64, -90], b: [140, 70, 10], speed: 26 }, { a: [140, 58, -130], b: [-120, 62, -20], speed: 24 }
+    { a: [ -4, 26, 80], b: [ -4, 26, -152], speed: 16 }, { a: [ 4, 30, -152], b: [ 4, 30, 80], speed: 14 },
+    { a: [ -3, 46, 80], b: [ -3, 46, -152], speed: 20 }, { a: [ 3, 52, -152], b: [ 3, 52, 80], speed: 22 },
+    { a: [-92, 28, -42], b: [212, 28, -42], speed: 15 }, { a: [212, 34, -50], b: [-92, 34, -50], speed: 18 },
+    { a: [-92, 50, -43], b: [212, 50, -43], speed: 24 }, { a: [212, 56, -49], b: [-92, 56, -49], speed: 26 }
   ];
   const CARS = 34;
   const carParts = [];
@@ -249,6 +251,47 @@ export function createCityFX(root, city, renderer) {
     beacons.push([x, -20 + h + 2, z, 0xff2030, 9], [x - w * 0.36, -20 + h * 0.55 + 1, z, 0xff2030, 6], [x + w * 0.36, -20 + h * 0.55 + 1, z, 0xff2030, 6]);
   }
   const megas = new THREE.Mesh(mergeGeometries(megaParts), megaMat); megas.name = "MEGASTRUCTURES"; megas.frustumCulled = false; root.add(megas);
+
+  // ── skyway passages: tunnels through buildings where the car lanes start/end
+  {
+    const shellMat = new THREE.MeshStandardMaterial({ color: 0x5a6070, map: winTex, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: 0.55, roughness: 0.6, metalness: 0.3 });
+    const innerMat = new THREE.MeshStandardMaterial({ color: 0x14171e, roughness: 0.5, metalness: 0.6 });
+    const voidMat = new THREE.MeshBasicMaterial({ color: 0x020306 });
+    const neon = (hex) => new THREE.MeshBasicMaterial({ color: hex, toneMapped: false });
+    const shellParts = [], innerParts = [], neonParts = { 0x38f0e6: [], 0xff4fa3: [] };
+    const bx = (list, w, h, d, x, y, z) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      if (list === shellParts) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.max(w, d) / 12, uv.getY(i) * h / 48); }
+      g.translate(x, y, z); list.push(g);
+    };
+    // axis "z": tunnel runs along z; "x": along x. (cx,cy,cz) = opening centre on the outer face side.
+    function passage(axis, cx, cz, z0, z1, ow, oy0, oy1, bw, bh, endVoidAt) {
+      const along = z1 - z0, mid = (z0 + z1) / 2;
+      const put = (list, w, h, d, a, y, b) => axis === "z" ? bx(list, w, h, d, cx + a, y, mid + b) : bx(list, d, h, w, mid + b, y, cz + a);
+      // building around the opening
+      put(shellParts, (bw - ow) / 2, bh, along, -(ow / 2 + (bw - ow) / 4), bh / 2, 0);
+      put(shellParts, (bw - ow) / 2, bh, along, ow / 2 + (bw - ow) / 4, bh / 2, 0);
+      put(shellParts, ow, oy0, along, 0, oy0 / 2, 0);
+      put(shellParts, ow, bh - oy1, along, 0, oy1 + (bh - oy1) / 2, 0);
+      // tunnel lining + lights (two-way: cyan one side, pink the other)
+      put(innerParts, ow - 0.2, 0.3, along, 0, oy0 + 0.15, 0); put(innerParts, ow - 0.2, 0.3, along, 0, oy1 - 0.15, 0);
+      for (let y = oy0 + 4; y < oy1 - 2; y += 7) { put(neonParts[0x38f0e6], 0.25, 0.25, along, -ow / 2 + 0.5, y, 0); put(neonParts[0xff4fa3], 0.25, 0.25, along, ow / 2 - 0.5, y, 0); }
+      for (const s of [-1, 1]) { put(neonParts[0x38f0e6], 0.4, oy1 - oy0, 0.4, s * ow / 2, (oy0 + oy1) / 2, -along / 2); put(neonParts[0xff4fa3], 0.4, oy1 - oy0, 0.4, s * ow / 2, (oy0 + oy1) / 2, along / 2); }
+      for (const e of [-along / 2, along / 2]) { put(neonParts[0x38f0e6], ow, 0.4, 0.4, 0, oy1, e); put(neonParts[0x38f0e6], ow, 0.4, 0.4, 0, oy0, e); }
+      // far wall of the tunnel is a dark void, so cars disappear into the distance
+      if (endVoidAt !== undefined) put(innerParts, ow, oy1 - oy0, 0.2, 0, (oy0 + oy1) / 2, endVoidAt);
+    }
+    passage("z", 0, 0, 66, 90, 22, 18, 62, 70, 92, 11.9);               // north skyway, beyond the Sump
+    passage("x", 0, -46, -100, -80, 20, 18, 62, 44, 96, -9.9);          // west skyway, end of the Ring Road
+    passage("x", 0, -46, 200, 222, 20, 18, 62, 44, 96, 10.9);           // east skyway, across the water
+    // Spire hangar: the avenue lanes fly into a lit bay in the Spire's face
+    { const g = new THREE.PlaneGeometry(20, 40); g.translate(0, 40, -145.8); const m = new THREE.Mesh(g, voidMat); root.add(m);
+      bx(neonParts[0x38f0e6], 20.6, 0.5, 0.5, 0, 60.2, -145.6); bx(neonParts[0x38f0e6], 20.6, 0.5, 0.5, 0, 19.8, -145.6);
+      bx(neonParts[0xff4fa3], 0.5, 40, 0.5, -10.2, 40, -145.6); bx(neonParts[0xff4fa3], 0.5, 40, 0.5, 10.2, 40, -145.6); }
+    const add = (parts, mat, name) => { if (!parts.length) return; const m = new THREE.Mesh(mergeGeometries(parts), mat); m.name = name; m.frustumCulled = false; root.add(m); return m; };
+    add(shellParts, shellMat, "SKYWAY_BLOCKS"); add(innerParts, innerMat, "SKYWAY_TUNNELS");
+    for (const [hex, parts] of Object.entries(neonParts)) add(parts, neon(+hex), "SKYWAY_NEON");
+  }
 
   // ── sky: light-pollution haze ring around the horizon ─────────────────
   const hazeMat = new THREE.ShaderMaterial({

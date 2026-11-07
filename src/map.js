@@ -35,7 +35,7 @@ const DISTRICTS = [
 ];
 const ROADS = [[-7.5, 7.5, -115, 42], [-45, 46, -52, -40], [46, 112, -52, -40], [-30, 30, -141, -115]];
 
-export function drawMap(c, x0, y0, w, h, { player, yaw, objective, hover = -1 }) {
+export function drawMap(c, x0, y0, w, h, { player, yaw, objective, hover = -1, lanes }) {
   const s = Math.min(w / (B.maxX - B.minX), h / (B.maxZ - B.minZ));
   const ox = x0 + (w - (B.maxX - B.minX) * s) / 2, oy = y0 + (h - (B.maxZ - B.minZ) * s) / 2;
   const P = (x, z) => [ox + (x - B.minX) * s, oy + (z - B.minZ) * s];
@@ -54,6 +54,8 @@ export function drawMap(c, x0, y0, w, h, { player, yaw, objective, hover = -1 })
   }
   c.fillStyle = "rgba(160,170,190,0.45)";
   for (const [a0, a1, b0, b1] of ROADS) { const [a, b] = P(a0, b0), [e, f] = P(a1, b1); c.fillRect(a, b, e - a, f - b); }
+  c.fillStyle = "rgba(140,150,175,0.35)";
+  for (const [a0, a1, b0, b1] of (lanes || [])) { const [a, b] = P(a0, b0), [e, f] = P(a1, b1); c.fillRect(a, b, e - a, f - b); }
   // travel points
   TRAVEL.forEach((t, i) => {
     const [a, b] = P(t.x, t.z), on = isUnlocked(t);

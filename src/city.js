@@ -286,6 +286,7 @@ export function buildCity(scene, renderer) {
   const anchors = {};          // named positions used by story/NPC code
   const animated = [];         // objects updated every frame
   const sidewalkPaths = [];    // polylines for walking NPCs
+  const laneRects = [];        // back lanes (map + finds)
   const propSpots = [];        // where the detailed GLB props go (see props3d.js)
 
   const addCollider = (minX, maxX, minZ, maxZ, minY = 0, maxY = 60) =>
@@ -538,19 +539,26 @@ export function buildCity(scene, renderer) {
   addCollider(-14.3, -14.15, -7.0, -2.6, 0, 8);
   building(-26, -11, -24, -7.0, 19, "sump");                         // capsule hotel (rooftop hideout)
   building(-26, -11, -36.5, -28, 13, "sump");
-  // West back row (x -45 → -26)
-  building(-45, -26, 12, 42, 24, "sump", { band: false });
-  building(-45, -26, -10, 12, 30, "back", { band: false });
-  building(-45, -26, -36.5, -10, 22, "sump", { band: false });
+  // West back row (x -45 → -26), cut by a winding back lane that links the
+  // alleys: x -31→-26 up north, jogs west (x -35.5→-30.5) mid-block, back east
+  // to the Ring Road.
+  building(-45, -31, 14, 42, 24, "sump", { band: false });
+  building(-45, -35.5, -12, 10, 30, "back", { band: false });
+  building(-30.5, -26, -10, 7, 14, "sump", { band: false });
+  building(-45, -31, -36.5, -16, 22, "sump", { band: false });
+  building(-31, -26, 42, 44.5, 9, "sump", { band: false });          // lane end wall (north)
   // East frontage (x 11 → 26)
   building(11, 26, 16, 42, 13, "sump");
   building(11, 26, -8, 4, 15, "sump");
   building(11, 26, -36.5, -12, 22, "sump");
-  // East back row
-  building(26, 45, 16, 42, 18, "sump", { band: false });
-  building(24, 45, 4, 16, 20, "sump", { band: false });
-  building(26, 45, -12, 4, 28, "back", { band: false });
-  building(26, 45, -36.5, -12, 24, "sump", { band: false });
+  // East back row, with its own winding lane (x 26→31, jogs east to x 35.5→40
+  // behind the market lot, then back west past Drain Alley to the Ring Road)
+  building(31, 45, 16, 42, 18, "sump", { band: false });
+  building(24, 35.5, 4, 12, 20, "sump", { band: false });
+  building(40, 45, -14, 16, 22, "sump", { band: false });
+  building(26, 35.5, -6, 4, 28, "back", { band: false });
+  building(31, 45, -36.5, -14, 24, "sump", { band: false });
+  building(26, 31, 42, 44.5, 9, "sump", { band: false });             // lane end wall (north)
 
   // ── street-facing facade detail for the Sump avenue: real recessed windows,
   //    sills, floor ledges, balconies, drainpipes, on a normal-mapped wall skin.
@@ -829,20 +837,65 @@ export function buildCity(scene, renderer) {
   // NEON MILE (z -55.5 → -115) — towers, glass, holograms, night market
   // ════════════════════════════════════════════════════════════════════════
   building(-26, -11, -84, -55.5, 48, "mile");
-  building(-45, -26, -84, -55.5, 62, "mile", { band: false });
-  building(-45, -30, -88, -84, 40, "mile", { band: false });
+  // west back lane: x -31→-26, with a jog west (x -36→-31) around a small block
+  building(-45, -31, -84, -55.5, 62, "mile", { band: false });
+  building(-45, -35, -88, -84, 40, "mile", { band: false });            // shrine niche
   building(-26, -11, -115, -88, 64, "mile");
-  building(-45, -26, -115, -88, 56, "mile", { band: false });
+  building(-45, -31, -92, -88, 56, "mile", { band: false });
+  building(-45, -36, -104, -92, 56, "mile", { band: false });
+  building(-30.5, -26, -102, -94, 18, "mile", { band: false });
+  building(-45, -31, -115, -104, 56, "mile", { band: false });
   building(11, 26, -72, -55.5, 52, "mile");
-  building(26, 45, -72, -55.5, 40, "mile", { band: false });
+  building(31, 45, -72, -55.5, 40, "mile", { band: false });
   // Second Skin clinic: storefront interior x 11 → 16.5, z -78 → -72
   building(11, 26, -78, -72, 10, "mile", { collide: false, band: false, y0: 4, roof: true });
   building(16.5, 26, -78, -72, 4, "mile", { band: false, roof: false });
   building(11, 26, -102, -78, 38, "mile");
-  building(26, 45, -102, -72, 44, "mile", { band: false });
-  building(30, 45, -106, -102, 36, "mile", { band: false });
+  // east back lane: x 26→31, jogs east (x 30.5→35.5) around a small block
+  building(35.5, 45, -92, -72, 44, "mile", { band: false });
+  building(26, 30.5, -90, -80, 16, "mile", { band: false });
+  building(31, 45, -102, -92, 44, "mile", { band: false });
+  building(31, 45, -106, -102, 36, "mile", { band: false });
   building(11, 26, -115, -106, 60, "mile");
-  building(26, 45, -115, -106, 50, "mile", { band: false });
+  building(31, 45, -115, -106, 50, "mile", { band: false });
+  // ── back lanes: dressing (wall lamps, neon, pipes, junk, puddles) ────────
+  const LANES = [
+    [-31, -26, 14, 42], [-35.5, -26, 10, 14], [-35.5, -30.5, -12, 10], [-35.5, -26, -16, -12], [-31, -26, -36.5, -16],
+    [26, 31, 16, 42], [26, 40, 12, 16], [35.5, 40, -6, 12], [26, 40, -12, -6], [26, 31, -36.5, -12],
+    [-31, -26, -92, -55.5], [-36, -26, -94, -92], [-36, -30.5, -102, -94], [-36, -26, -104, -102], [-31, -26, -115, -104],
+    [26, 31, -80, -55.5], [26, 35.5, -80, -72], [30.5, 35.5, -92, -80], [26, 35.5, -92, -90], [26, 31, -115, -92]
+  ];
+  laneRects.push(...LANES);
+  {
+    const cols = [0xff4fa3, 0x38f0e6, 0xb24cff, 0xffb02e];
+    LANES.forEach(([x0, x1, z0, z1], li) => {
+      const long = (z1 - z0) > (x1 - x0), len = long ? z1 - z0 : x1 - x0;
+      if (len < 6) return;
+      for (let t = 3; t < len - 2; t += 7 + rand() * 3) {
+        const side = rand() < 0.5 ? 0 : 1;
+        const c = cols[(li + Math.floor(t)) % 4];
+        if (long) {
+          const z = z0 + t, wx = side ? x1 - 0.05 : x0 + 0.05, out = side ? -1 : 1;
+          glow.box(0.08, 0.5, 0.25, wx + out * 0.04, 3.2, z, 0xffd9a0);                    // caged wall lamp
+          props.box(0.2, 0.08, 0.35, wx + out * 0.1, 3.5, z, 0x2a2d34);
+          pool(wx + out * 1.2, z, 2.0, 0xffc68a, 0.08, 0.4);
+          if (rand() < 0.5) glow.box(0.06, 2.2, 0.06, wx + out * 0.04, 5.6, z + 1.2, c);   // neon tube
+          if (rand() < 0.45) props.box(0.9, 0.7, 0.7, (x0 + x1) / 2 + (side ? 1.4 : -1.4), 0.35, z + 2.5, [0x3a3f48, 0x4a3a2c, 0x2f4a3a][Math.floor(rand() * 3)]);   // crates / bins
+          if (rand() < 0.4) puddle((x0 + x1) / 2 + (rand() - 0.5) * 2, z + 1.5, 1 + rand(), 0.6 + rand() * 0.5);
+        } else {
+          const x = x0 + t, wz = side ? z1 - 0.05 : z0 + 0.05, out = side ? -1 : 1;
+          glow.box(0.25, 0.5, 0.08, x, 3.2, wz + out * 0.04, 0xffd9a0);
+          pool(x, wz + out * 1.2, 2.0, 0xffc68a, 0.08, 0.4);
+          if (rand() < 0.5) glow.box(0.06, 2.2, 0.06, x + 1.2, 5.6, wz + out * 0.04, c);
+        }
+      }
+      // pipes and cables along the lane walls
+      if (long) for (const wx of [x0 + 0.15, x1 - 0.15]) { props.cyl(0.08, 0.08, z1 - z0, 6, wx, 6.5 + rand() * 3, (z0 + z1) / 2, 0x3c4048); }
+      // a cable strung across with a couple of small hover lanterns
+      if (long && len > 15) for (let t = 6; t < len - 4; t += 12) hoverLanterns.push([(x0 + x1) / 2, 6.4, z0 + t, cols[(li + t) % 4] & 0x8a8a8a, 0.18]);
+    });
+  }
+
   // plaza flanks
   building(-45, -30, -141, -115, 70, "mile", { band: false });
   building(30, 45, -141, -115, 66, "mile", { band: false });
@@ -979,7 +1032,7 @@ export function buildCity(scene, renderer) {
 
   // Shimmer Alley (z -88 → -84, west) → small hidden shrine with a torii gate
   {
-    const ax = -27.8, az = -86;
+    const ax = -32.8, az = -86;                 // shrine sits in a niche off the back lane
     for (const dz of [-1.3, 1.3]) props.cyl(0.12, 0.14, 2.8, 8, ax + 1.2, 1.4, az + dz, 0xc8282f);
     props.box(0.3, 0.2, 3.4, ax + 1.2, 2.75, az, 0xc8282f); props.box(0.4, 0.15, 3.8, ax + 1.2, 3.0, az, 0x1a1414);
     props.box(0.9, 0.9, 0.9, ax - 1.4, 0.45, az, 0x5a5a5a);
@@ -988,13 +1041,13 @@ export function buildCity(scene, renderer) {
     for (let i = 0; i < 8; i++) glow.sphere(0.05, ax - 1.5 + rand() * 0.4, 0.95, az - 0.4 + rand() * 0.8, 0xffa040, 4, 3);
     addCollider(ax - 1.9, ax - 0.9, az - 0.5, az + 0.5, 0, 1.6);
     pool(ax, az, 2.6, 0xffb060, 0.1, 0.5);
-    glow.box(0.05, 0.25, 2.5, -29.95, 3.0, -86, 0xb24cff);
+    glow.box(0.05, 0.25, 2.5, -34.95, 3.0, -86, 0xb24cff);
     anchors.shrine = new THREE.Vector3(ax, 0, az);
   }
   // East alley (z -106 → -102)
   props.box(1.2, 1.2, 1.2, 29.2, 0.6, -103, 0x3a3f48);
   addCollider(28.6, 29.8, -103.6, -102.4, 0, 1.2);
-  glow.box(0.04, 2.4, 0.06, 29.95, 2.2, -104.5, 0xff4fa3);
+  glow.box(0.04, 2.4, 0.06, 30.95, 2.2, -104.5, 0xff4fa3);
   anchors.eastAlley = new THREE.Vector3(28.5, 0, -104.6);
   pool(27, -104, 2.4, 0xff4fa3, 0.1, 0.35);
 
@@ -1066,6 +1119,8 @@ export function buildCity(scene, renderer) {
       const w = 8 + rand() * 12, d = 8 + rand() * 12;
       const x = x0 + rand() * (x1 - x0), z = z0 + rand() * (z1 - z0);
       const h = hMin + rand() * (hMax - hMin);
+      // keep the flying-car skyways clear (they pass through lit passages instead)
+      if ((z + d / 2 > 46 && Math.abs(x) < w / 2 + 16) || (x < -50 && z - d / 2 < -26 && z + d / 2 > -66)) continue;
       building(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h, "back", { collide: false, band: false, roof: h < 80 });
       if (rand() < 0.35) glow.box(0.25, h * 0.8, 0.25, x - w / 2 - 0.1, h * 0.45, z + d / 2 + 0.1, [0x38f0e6, 0xb24cff, 0xff4fa3][i % 3]);
     }
@@ -1199,6 +1254,15 @@ export function buildCity(scene, renderer) {
     }
     return g;
   }
+  // top of whatever you're standing on: roofs/containers, sidewalks (0.08) or street (0)
+  function surfaceAt(x, z, currentY = 0) {
+    const ax = Math.abs(x);
+    let s = 0;
+    if ((ax >= 7.5 && ax <= 11 && ((z >= -36.5 && z <= 42) || (z >= -115 && z <= -55.5))) ||
+        (ax >= 7.5 && ax <= 45 && ((z >= -40 && z <= -36.5) || (z >= -55.5 && z <= -52))) ||
+        (ax <= 30 && z >= -141 && z <= -115)) s = 0.08;
+    return Math.max(s, groundAt(x, z, currentY));
+  }
   function districtAt(z, y = 0, x = 0) {
     if (y > 10) return "ROOFTOPS · THE SUMP";
     if (x > 45.5) return "THE DOCKS";
@@ -1259,7 +1323,7 @@ export function buildCity(scene, renderer) {
     if (playerPos) updateRain(dt, playerPos.x, playerPos.y, playerPos.z);
   }
 
-  return { root, colliders, floors, anchors, sidewalkPaths, propSpots, collides, groundAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
+  return { root, colliders, floors, anchors, sidewalkPaths, propSpots, laneRects, collides, groundAt, surfaceAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
     setTimeOfDay(phase) { phaseOffset = (phase - (performance.now() / 1000 / CYCLE_SECONDS) % 1 + 2) % 1; updateDayNight(performance.now() / 1000); } };
 }
 

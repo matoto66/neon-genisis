@@ -98,7 +98,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-99", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-100", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -861,7 +861,7 @@ document.querySelector("#map-toggle")?.addEventListener("click", () => showPanel
 function drawPCMap() {
   const cv = document.querySelector("#map-canvas"); if (!cv) return;
   camera.getWorldDirection(cameraDirection);
-  drawMap(cv.getContext("2d"), 0, 0, cv.width, cv.height, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.() });
+  drawMap(cv.getContext("2d"), 0, 0, cv.width, cv.height, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.(), lanes: city.laneRects });
   const list = document.querySelector("#travel-list");
   list.innerHTML = TRAVEL.map((t, i) => `<button type="button" class="ui-button" data-travel="${i}" ${isUnlocked(t) ? "" : "disabled"}>${isUnlocked(t) ? t.name : "??? · not found yet"}</button>`).join("");
   list.querySelectorAll("[data-travel]").forEach(b => b.addEventListener("click", () => fastTravel(TRAVEL[+b.dataset.travel])));
@@ -1827,10 +1827,15 @@ function endDoorGrab(controller) {
   shopDoorTarget = shopDoorHinge.rotation.y;
 }
 const vrControllerRays = [];
+// Click cursor: drawn in the transparent pass with the highest render order and
+// no depth test, so it always sits in front of menus and panels.
 const vrCursor = new THREE.Mesh(
-  new THREE.SphereGeometry(0.018, 12, 12),
-  new THREE.MeshBasicMaterial({ color: 0x5ff5e8, depthTest: false })
+  new THREE.SphereGeometry(0.014, 12, 12),
+  new THREE.MeshBasicMaterial({ color: 0x5ff5e8, depthTest: false, depthWrite: false, transparent: true, toneMapped: false })
 );
+{ const ring = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.028, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9, side: THREE.DoubleSide, toneMapped: false }));
+  ring.renderOrder = 2001; ring.name = "CURSOR_RING"; vrCursor.add(ring); }
+vrCursor.renderOrder = 2000;
 vrCursor.visible = false;
 scene.add(vrCursor);
 
@@ -1970,7 +1975,7 @@ function drawVRMenu() {
     });
   } else if (vrMenuPage === "map") {
     camera.getWorldDirection(cameraDirection);
-    drawMap(ctx, 50, 170, 520, 470, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.(), hover: vrMapHover });
+    drawMap(ctx, 50, 170, 520, 470, { player: player.position, yaw: -Math.atan2(cameraDirection.x, -cameraDirection.z), objective: game?.debug.objectivePosition?.(), lanes: city.laneRects, hover: vrMapHover });
     ctx.fillStyle = "#5ff5e8"; ctx.font = "bold 22px Arial"; ctx.fillText("FAST TRAVEL", 590, 196);
     ctx.fillStyle = "#aab6cf"; ctx.font = "16px Arial"; ctx.fillText("Visit a place once to unlock it.", 760, 196);
     TRAVEL.forEach((t, i) => {
@@ -2138,6 +2143,7 @@ function updateVRMenuPointer() {
   if (hit && menuOpen) {
     vrCursor.position.copy(hit.point).addScaledVector(vrMenuRaycaster.ray.direction, -0.025);
     vrCursor.renderOrder = 2000;
+    vrCursor.children[0]?.lookAt(vrMenuRaycaster.ray.origin);   // ring faces you
     vrCursor.visible = true;
   } else {
     vrCursor.visible = false;

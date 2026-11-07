@@ -38,7 +38,8 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
     else { g.add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.006, 0.04), M(0x15171c))); const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.008, 0.03), glowM); g.add(c); }
     // soft glow under it so it's findable without UI clutter
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(), color: def.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5, toneMapped: false }));
-    halo.scale.setScalar(0.45); g.add(halo); g.userData.halo = halo;
+    halo.scale.setScalar(0.75); g.add(halo); g.userData.halo = halo;
+    g.children.forEach(ch => { if (ch !== halo) ch.scale.multiplyScalar(1.35); });   // a bit bigger so they're easy to spot
     return g;
   }
   let _halo = null;
@@ -63,7 +64,9 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
     [-17.5, 0.05, 9.0], [-23.6, 0.05, -24.5], [16.8, 0.05, -9.2], [24.5, 0.05, 14.8], [-12.6, 19.05, -20], [-24.5, 19.05, -9],
     [-10.4, 0.05, 31], [10.3, 0.05, -33], [-40, 0.05, -40], [38, 0.05, -52.5], [-10.3, 0.05, -60], [28, 0.05, -104],
     [-10.2, 0.05, -100], [24, 0.05, -130], [-26, 0.05, -134], [58, 5.25, -30], [80, 7.85, -64], [62, 9.05, 0],
-    [100, 0.05, -66], [132, 1.0, -36], [72, 0.05, -20], [110, 0.05, -40]
+    [100, 0.05, -66], [132, 1.0, -36], [72, 0.05, -20], [110, 0.05, -40],
+    // back lanes
+    [-28.5, 0, 30], [-33, 0, 0], [28.5, 0, 30], [37.7, 0, 3], [-28.5, 0, -70], [-33, 0, -98], [28.5, 0, -62], [33, 0, -86]
   ];
   const FIND_WEIGHTS = [["scrap", 5], ["circuit", 3], ["cell", 3], ["noodles", 2], ["neuro_cola", 2], ["data_chip", 2]];
   const rollFind = () => { let r = Math.random() * FIND_WEIGHTS.reduce((a, [, w]) => a + w, 0); for (const [id, w] of FIND_WEIGHTS) { r -= w; if (r <= 0) return id; } return "scrap"; };
@@ -72,6 +75,10 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
 
   function addObject(kind, type, x, y, z, itemId) {
     const mesh = kind === "find" ? makeFind(itemId) : SHAPES[type].make();
+    // sit on the real surface (sidewalks are 8 cm up, roofs/containers higher) — counters keep their height
+    const rest = kind === "find" ? 0.07 : ({ can: 0.06, bottle: 0.09, box: 0.12, cone: 0.21, bowl: 0.02 })[type];
+    const surf = city.surfaceAt(x, z, y + 0.5);
+    if (y < surf + 0.3 || y - surf < 0.6) y = surf + rest;
     mesh.position.set(x, y, z); mesh.rotation.y = Math.random() * Math.PI * 2;
     mesh.traverse(o => { if (o.isMesh) o.castShadow = false; });
     root.add(mesh);
@@ -421,7 +428,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
       if (combat.hitEnemyAt(p, o.r + 0.1, Math.min(30, speed * 2.2) * (o.type === "box" || o.type === "cone" ? 1.2 : 1), v2.copy(o.vel).normalize())) { o.vel.multiplyScalar(-0.25); impact(o, speed, true); }
       else for (const n of npcSys.npcs) if (n.enabled && n.holder.visible && !n.hologram && Math.hypot(n.holder.position.x - p.x, n.holder.position.z - p.z) < 0.45 && p.y < 2) { npcSys.startle(p, 3); o.vel.multiplyScalar(-0.2); break; }
     }
-    const ground = city.groundAt(p.x, p.z, p.y + 0.3) + (o.type === "cone" ? 0.2 : o.type === "box" ? 0.12 : o.r * 0.6);
+    const ground = city.surfaceAt(p.x, p.z, p.y + 0.3) + (o.type === "cone" ? 0.21 : o.type === "box" ? 0.12 : o.kind === "find" ? 0.07 : o.r * 0.6);
     if (p.y < ground) {
       p.y = ground;
       if (o.vel.y < -2.5) impact(o, -o.vel.y);

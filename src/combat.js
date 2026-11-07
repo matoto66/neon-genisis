@@ -118,12 +118,17 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     c.fillStyle = "#ff8ad8"; c.font = "bold 26px Arial"; c.fillText(`✚ ${state.items.med_patch || 0}`, 412, 108);
     wristTex.needsUpdate = true;
   }
-  function attachWrist(handObject) {
-    if (wristParent === handObject) return;
-    wristParent = handObject;
-    handObject.add(wrist);
-    // on the back of the forearm, facing up toward your eyes
-    wrist.position.set(0, -0.12, 0.05); wrist.rotation.set(-0.3, 0, 0);
+  // Worn like a watch on the left forearm: attached to the controller (not the
+  // mirrored hand model), lying on top of the wrist, reading along the arm.
+  const watchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
+  function attachWrist(handObject, controller) {
+    const host = controller || handObject;
+    if (wristParent === host) return;
+    wristParent = host;
+    host.add(wrist);
+    if (controller) { wrist.position.set(0, 0.035, 0.07); wrist.quaternion.copy(watchQ); }
+    else { wrist.position.set(0, -0.12, 0.05); wrist.rotation.set(-0.3, 0, 0); }
   }
 
   // Edge Fins: a hard-light blade on the back of each wrist, shown while you make a fist.
@@ -481,7 +486,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       // fist near the face counts toward a guard
       const toHead = handPos.distanceTo(head);
       if (h.grip > 0.6 && toHead < 0.42) fistsUp++;
-      if (h.side === "left") attachWrist(h.object);
+      if (h.side === "left") attachWrist(h.object, h.controller);
       const blades = isActive("edge_fins") && h.grip > 0.6;
       const bladeObj = bladeFor(h.object);
       if (bladeObj.visible !== blades) sfx(blades ? "bladeOut" : "bladeIn");
