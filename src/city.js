@@ -774,7 +774,6 @@ export function buildCity(scene, renderer) {
     // benches & a broken scooter in the lot
     props.box(2, 0.12, 0.5, 14, 0.45, 5.2, 0x5a4636); props.box(2, 0.45, 0.08, 14, 0.25, 5.2, 0x2a2a2a);
     addCollider(12.9, 15.1, 4.9, 5.5, 0, 0.6);
-    props.box(1.4, 0.5, 0.45, 22.5, 0.35, 14.5, 0x9c2f2f, 0.5);
     anchors.lotBench = new THREE.Vector3(14, 0, 5.2);
   }
   sidewalkPaths.push([[-9.2, 40], [-9.2, -36]], [[9.2, 40], [9.2, -36]], [[-8.6, 30], [-8.6, -30]], [[8.6, -30], [8.6, 30]]);

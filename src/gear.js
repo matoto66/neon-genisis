@@ -272,6 +272,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
       const d = o.mesh.position.distanceTo(v3); if (d > R) continue;
       out.push([o.mesh.position.clone().add(v1.set(0, 0.35, 0)), ITEMS[o.itemId].name.toUpperCase(), `${ITEMS[o.itemId].kind.toUpperCase()} · ${d.toFixed(0)} m`, "#" + new THREE.Color(ITEMS[o.itemId].color).getHexString()]);
     }
+    for (const f of scanExtras) { const tg = f(); if (tg && tg[0].distanceTo(v3) <= R) out.push(tg); }
     for (const p of tetherPoints) {
       const d = p.distanceTo(v3); if (d > R) continue;
       out.push([p.clone().add(v1.set(0, 0.8, 0)), "TETHER ANCHOR", state.flags.craft_tether ? `${d.toFixed(0)} m` : "NEEDS TETHER LINE", "#ffcf4a"]);
@@ -284,6 +285,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
     }
     return out.sort((a, b) => a[0].distanceTo(v3) - b[0].distanceTo(v3)).slice(0, 18);
   }
+  const scanExtras = [];
   const citizenId = n => "CITIZEN #" + String(Math.floor(n.phase * 100000)).padStart(5, "0");
 
   // ── Tether Line ────────────────────────────────────────────────────────
@@ -511,6 +513,8 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
   return {
     update, onTrigger, desktopThrow, toggleScan, openBackpack, openCrafting,
     desktopTether() { camera.getWorldPosition(v1); camera.getWorldDirection(v2); const i = findAnchor(v1, v2); if (i === null) { game.toast(state.flags.craft_tether ? "Aim at a glowing anchor." : "Build a Tether Line at Mika's workbench first.", "warn"); return false; } return fireTether(i, null); },
+    consume(o) { for (const st of handState.values()) if (st.held === o) st.held = null; findsLog()[o.spot] = Date.now(); saveGame(); hide(o); },
+    scanExtras,
     get tethering() { return !!tether; }, get scanT() { return scanT; }, debugTargets: () => scanTargets(), get holding() { return !!pcHeld; }, objects, tetherPoints
   };
 }

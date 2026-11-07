@@ -24,7 +24,8 @@ export const GESTURES = [
   ["Med patch", "Squeeze grip at your hip, press it to your other arm"],
   ["Eat food", "Hold it up to your mouth"],
   ["Optic Scan", "Hand to the side of your head + pull trigger"],
-  ["Pick up / throw", "Grip near something, swing, let go"]
+  ["Pick up / throw", "Grip near something, swing, let go"],
+  ["Hover scooter", "Push a Power Cell into its back bay, trigger to ride, A to hop off"]
 ];
 
 export function drawControllerDiagram(c, x0, y0, w, h, opts = {}) {

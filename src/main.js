@@ -17,6 +17,7 @@ import { loadProps3D } from "./props3d.js";
 import { comfort, createComfort, applyPicture } from "./comfort.js";
 import { buildRadios } from "./radio.js";
 import { createGear } from "./gear.js";
+import { createScooter } from "./scooter.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
 import { createArcade } from "./arcade.js";
 import { drawControllerDiagram } from "./controlsart.js";
@@ -98,7 +99,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-102", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-103", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -840,7 +841,7 @@ document.addEventListener("keydown", event => {
   }
   if (game && isInCity && !renderer.xr.isPresenting) {
     if (game.handleKey(event.code)) { event.preventDefault(); return; }
-    if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); game.desktopInteract(); return; }
+    if (event.code === "KeyF" && !gameUI.classList.contains("menu-open")) { event.preventDefault(); if (scooter.riding) { scooter.dismount(); return; } game.desktopInteract(); return; }
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
     if (event.code === "KeyV") { combat.useChrono(); return; }
     if (arcade.active && (event.code === "KeyF" || event.code === "Escape")) { arcade.stop(); return; }
@@ -2308,6 +2309,7 @@ function blocked(x, z) {
 }
 
 let sprinting = false;
+let prevHopButton = false;
 let previousSprintButton = false;
 let wasGrounded = true;
 function getLeftStickClick() {
@@ -2332,6 +2334,8 @@ function movePlayer(delta) {
     if (yPressed && !previousMenuButton) { setVRMenuOpen(!vrMenu.visible); audio.play(vrMenu.visible ? "open" : "close"); }
     previousMenuButton = yPressed;
     jumpPressed = getRightAButton();
+    if (scooter?.riding) { if (jumpPressed && !prevHopButton) scooter.dismount(); prevHopButton = jumpPressed; jumpPressed = false; }
+    else prevHopButton = jumpPressed;
     // Sprint: click the left stick to start running; it stops when you let go of the stick.
     const sprintButton = getLeftStickClick();
     if (sprintButton && !previousSprintButton) sprinting = !sprinting;
@@ -2380,7 +2384,8 @@ function movePlayer(delta) {
   const movementAmount = Math.min(1, movement.length());
   if (movement.lengthSq() > 1) movement.normalize();
   if (movementAmount < 0.1) sprinting = false;
-  const step = movement.multiplyScalar(moveSpeed() * (sprinting ? 1.65 : 1) * delta);
+  if (scooter?.riding) sprinting = false;
+  const step = movement.multiplyScalar(moveSpeed() * (sprinting ? 1.65 : 1) * (scooter?.speedMult() || 1) * delta);
 
   // Resolve each axis separately so the player slides along walls instead of
   // sticking to them.
@@ -2388,7 +2393,7 @@ function movePlayer(delta) {
   if (step.z && !blocked(player.position.x + offX, player.position.z + offZ + step.z)) player.position.z += step.z;
   // Footsteps: wet street, rooftop gravel, or clinic tile.
   const surface = player.position.y > 10 ? "roof" : (player.position.x > 11 && player.position.z < -72 && player.position.z > -78) ? "tile" : "street";
-  audio.footsteps(delta, grounded ? movementAmount : 0, sprinting, surface);
+  audio.footsteps(delta, grounded && !scooter?.riding ? movementAmount : 0, sprinting, surface);
   return movementAmount;
 }
 
@@ -2452,6 +2457,8 @@ const combat = createCombat({
 });
 const gear = createGear({ root: cityWorld, scene, camera, player, renderer, city, combat, game, audio, haptic,
   mikaBench: { position: mikaShop.localToWorld(new THREE.Vector3(-1.55, 0.92, -1.75)) } });
+const scooter = createScooter({ root: cityWorld, scene, camera, player, renderer, city, game, audio, haptic, gear });
+gear.scanExtras.push(() => scooter.scanTarget());
 const arcade = createArcade({ root: cityWorld, scene, game, audio, player, camera, position: new THREE.Vector3(10.45, 0, -28), yaw: -Math.PI / 2 });
 city.colliders.push({ minX: 9.95, maxX: 11, minZ: -28.5, maxZ: -27.5, minY: 0, maxY: 2.1 });
 let arcadeFire = false;
@@ -2502,7 +2509,7 @@ if (DEBUG) {
     setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get scooter() { return scooter; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2576,6 +2583,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       arcadeFire = false;
       arcade.update(time, delta, { x: ax, fire, back });
     }
+    scooter.update(time, delta);
     gear.update(time, delta, renderer.xr.isPresenting ? combatHands : (firstPersonHands?.children || []).map(o => ({ object: o })), worldDelta);
     radios.update(worldTime);
     updateHealthHUD();

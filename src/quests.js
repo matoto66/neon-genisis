@@ -763,7 +763,7 @@ export function createGame(ctx) {
   scene.add(promptSprite);
   let promptKey = "";
   function drawPrompt(rec, vr) {
-    const key = rec.id + vr;
+    const key = rec.id + vr + rec.verb + rec.label;
     if (key === promptKey) return;
     promptKey = key;
     const c = prctx; c.clearRect(0, 0, 512, 112);
