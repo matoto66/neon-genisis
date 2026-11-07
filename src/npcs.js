@@ -75,7 +75,7 @@ export function createNPCSystem(parent, rand) {
       offset: opts.offset || 0, phase: rand() * 10, barks: opts.barks || null,
       faceTarget: opts.faceTarget || null, baseYaw: opts.yaw || 0, talkTo: opts.talkTo || null,
       interactive: opts.interactive !== false, named: !!opts.name, hologram: !!opts.hologram,
-      paused: 0, bubbleTimer: 0, bubble: null, tag: null, marker: null, enabled: opts.enabled !== false, gesture: 0
+      paused: 0, bubbleTimer: 0, bubble: null, tag: null, marker: null, enabled: opts.enabled !== false, gesture: 0, gang: opts.gang || null
     };
     holder.visible = npc.enabled;
     // invisible hit capsule for pointing/interaction
@@ -266,6 +266,7 @@ export function createNPCSystem(parent, rand) {
       let wantYaw = npc.baseYaw;
       if (npc.talkTo) { const o = byId[npc.talkTo]?.holder; if (o) wantYaw = Math.atan2(o.position.x - h.position.x, o.position.z - h.position.z); }
       if ((npc.named || npc.id === activeTalkId) && dist < 4.5 && npc.mode !== "sit") wantYaw = Math.atan2(-dx, -dz);
+      if (npc.glare > 0) { npc.glare -= dt; if (npc.mode !== "sit") wantYaw = Math.atan2(-dx, -dz); }   // punks you poke turn and stare you down
       h.rotation.y = dampAngle(h.rotation.y, wantYaw, npc.mode === "sit" ? 0 : 3, dt);
       if (dist > 26) continue;
       // Look at the player with the head when close (even while seated).

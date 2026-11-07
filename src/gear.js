@@ -66,7 +66,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
     [-10.2, 0.05, -100], [24, 0.05, -130], [-26, 0.05, -134], [58, 5.25, -30], [80, 7.85, -64], [62, 9.05, 0],
     [100, 0.05, -66], [132, 1.0, -36], [72, 0.05, -20], [110, 0.05, -40],
     // back lanes
-    [-28.5, 0, 30], [-33, 0, 0], [28.5, 0, 30], [37.7, 0, 3], [-28.5, 0, -70], [-33, 0, -98], [28.5, 0, -62], [33, 0, -86]
+    [-28.5, 0, 30], [-33, 0, 0], [28.5, 0, 30], [37, 0, 10], [-28.5, 0, -70], [-33, 0, -98], [28.5, 0, -62], [31.6, 0, -79]
   ];
   const FIND_WEIGHTS = [["scrap", 5], ["circuit", 3], ["cell", 3], ["noodles", 2], ["neuro_cola", 2], ["data_chip", 2]];
   const rollFind = () => { let r = Math.random() * FIND_WEIGHTS.reduce((a, [, w]) => a + w, 0); for (const [id, w] of FIND_WEIGHTS) { r -= w; if (r <= 0) return id; } return "scrap"; };

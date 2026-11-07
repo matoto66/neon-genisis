@@ -6,9 +6,9 @@
 //   Desktop look at it (centre dot) + press F or click; 1-4 picks options
 
 import * as THREE from "three";
-import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, CONSUMABLES, PICKUPS, AMBIENT_BARKS, entryFor } from "./story.js";
+import { CHARACTERS, MISSIONS, DIALOGUE, CYBERWARE, CONSUMABLES, PICKUPS, AMBIENT_BARKS, PUNK_BARKS, entryFor } from "./story.js";
 import { state, saveGame, creditMultiplier, effectiveStrength, slotCount, isActive, toggleInstall, addXP, level, XP_REWARDS } from "./state.js";
-import { createNPCSystem } from "./npcs.js";
+import { createNPCSystem, randomAppearance } from "./npcs.js";
 import { createGuide, guideSettings } from "./guide.js";
 
 const PANEL_W = 1024, PANEL_H = 768;
@@ -61,7 +61,7 @@ export function createGame(ctx) {
     doc: { position: A.doc, yaw: -Math.PI / 2 },
     pip: { position: new THREE.Vector3(-16, 0, 10.6), yaw: Math.PI / 2 },
     lulu: { position: A.lulu, yaw: Math.PI / 2 },
-    whisper: { position: new THREE.Vector3(-27.3, 0, -85), yaw: Math.PI / 2 },
+    whisper: { position: new THREE.Vector3(-30.4, 0, -84.6), yaw: Math.PI / 2 },
     ishida: { position: A.ishida, yaw: 0, hologram: true, scale: 1.55 }
   };
   for (const [id, n] of Object.entries(named)) {
@@ -89,6 +89,30 @@ export function createGame(ctx) {
   npcSys.addNPC({ mode: "lean", position: new THREE.Vector3(-18, 0, -88 + 0.45), yaw: 0, barks: AMBIENT_BARKS });
   for (const s of A.satoStools.slice(0, 2)) npcSys.addNPC({ mode: "sit", position: s.clone().setX(s.x - 0.25), yaw: Math.PI / 2, seatHeight: 0.74, barks: AMBIENT_BARKS });
   npcSys.addNPC({ mode: "sit", position: A.lotBench.clone().setZ(A.lotBench.z + 0.2), yaw: 0, seatHeight: 0.48, barks: AMBIENT_BARKS });
+  // ── back lanes: Void Rats punk crews up to no good, plus locals ─────────
+  const punkLook = () => {
+    const a = randomAppearance(rand);
+    a.hair = ["mohawk", "spiky", "undercut", "mohawk", "buzz"][Math.floor(rand() * 5)];
+    a.hairGlow = rand() < 0.6; a.hairColor = [0xff2a8a, 0x38f0e6, 0x7dff3a, 0xb24cff, 0xffcf4a][Math.floor(rand() * 5)];
+    a.top = ["jacket", "vest", "bomber", "hoodie"][Math.floor(rand() * 4)]; a.topColor = [0x111111, 0x1a1a22, 0x2a1020, 0x151a10][Math.floor(rand() * 4)];
+    a.accent = [0xff2a8a, 0x7dff3a, 0xffcf4a, 0x38f0e6][Math.floor(rand() * 4)];
+    a.pantsStyle = rand() < 0.5 ? "cargo" : "slim"; a.pants = 0x15151a; a.shoesStyle = "boots"; a.shoes = 0x101010;
+    a.faceTech = ["mask", "goggles", "visor", "face lines", "none"][Math.floor(rand() * 5)];
+    a.extra = ["chain", "shoulder pad", "chain", "none"][Math.floor(rand() * 4)];
+    a.cyberArm = rand() < 0.45 ? ["left", "right", "both"][Math.floor(rand() * 3)] : "none";
+    a.implants = ["tattoo", "jaw", "sleeve lights", "eye"].filter(() => rand() < 0.45);
+    a.umbrella = false; a.hat = rand() < 0.25 ? "hood" : "none";
+    return a;
+  };
+  const crew = (members) => {
+    const made = members.map(([x, z, yaw, mode]) => npcSys.addNPC({ mode: mode || "talk", position: new THREE.Vector3(x, 0, z), yaw, appearance: punkLook(), barks: PUNK_BARKS, gang: "VOID RATS" }));
+    for (let i = 0; i + 1 < made.length; i += 2) { if (made[i].mode === "talk" && made[i + 1].mode === "talk") { made[i].talkTo = made[i + 1].id; made[i + 1].talkTo = made[i].id; } }
+    return made;
+  };
+  for (const c of city.punkCrews || []) crew(c);
+  // locals in the lanes (detailed citizens with cyberware)
+  for (const [x, z, yaw] of [[-30.4, 24, Math.PI / 2], [30.4, 22, -Math.PI / 2], [-30.4, -60, Math.PI / 2], [30.4, -104, -Math.PI / 2]])
+    npcSys.addNPC({ mode: "lean", position: new THREE.Vector3(x, 0, z), yaw, barks: AMBIENT_BARKS });
   for (let i = 0; i < 6; i++) {
     const side = i % 2 ? 1 : -1;
     if (i === 0) continue; // Lulu stands at the first stall
@@ -609,7 +633,7 @@ export function createGame(ctx) {
   function setHover(i) { if (i !== hoverIndex) { hoverIndex = i; if (i >= 0) audio.play("hover"); if (panelState) drawPanel(); } }
 
   function talkTo(npc) {
-    if (!npc.named) { const line = AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)]; npcSys.say(npc, line); audio.speak("citizen", line); return; }
+    if (!npc.named) { const pool = npc.gang ? npc.barks : AMBIENT_BARKS; const line = pool[Math.floor(Math.random() * pool.length)]; npcSys.say(npc, line); audio.speak("citizen", line); if (npc.gang) npc.glare = 5; return; }
     const node = entryFor(npc.id, api);
     if (node) openDialogue(node, npc);
   }

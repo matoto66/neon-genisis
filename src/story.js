@@ -92,6 +92,13 @@ export const CHARACTERS = {
       accent: 0x2a2f3a, pants: 0x101218, shoes: 0x101010, glow: 0x38f0e6, glasses: true } }
 };
 
+// Back-lane punks (the Void Rats). Click them and they tell you to get lost.
+export const PUNK_BARKS = [
+  "Walk away, chrome-head. Nothing to see.", "This ain't a tourist lane. Bug off.", "You didn't see nothing. Keep moving.",
+  "Leave. Now. Before we strip your arms for parts.", "Scram, corpo pet.", "Eyes forward, wirehead.",
+  "Tenkai send you? No? Then beat it.", "Shop's closed. Especially for you.", "Keep walking or start bleeding. Your pick.",
+  "Void Rats business. Not yours.", "Ping us again and your optics go dark.", "Go back to the bright streets, glowstick."
+];
 export const AMBIENT_BARKS = [
   "Rain again. Rain forever.", "My landlord raised the rent on AIR.", "Stare at the koi long enough and it stares back.",
   "Tenkai drones were buzzing around here earlier.", "Don't buy chrome from the guy behind the laundromat.",

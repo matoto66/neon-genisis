@@ -695,8 +695,8 @@ export function buildCity(scene, renderer) {
   // Lantern Alley (z 7 → 12, west): dead-end with dumpster & graffiti
   propSpots.push({ type: "dumpster", x: -24.7, y: 0, z: 10.75, ry: Math.PI });
   addCollider(-25.8, -23.6, 10.2, 11.5, 0, 1.4);
-  glow.box(0.05, 0.3, 3.2, -25.95, 2.6, 9.5, 0x5cff7a);  // graffiti neon tag
-  glow.box(0.05, 0.9, 0.3, -25.95, 2.2, 8.4, 0xff4fa3);
+  glow.box(0.05, 0.3, 3.2, -35.45, 2.6, 6.5, 0x5cff7a);  // graffiti neon tag (on the wall at the end of the alley)
+  glow.box(0.05, 0.9, 0.3, -35.45, 2.2, 5.4, 0xff4fa3);
   pool(-23, 9.5, 2.5, 0x5cff7a, 0.1, 0.4);
   anchors.lanternAlley = new THREE.Vector3(-18, 0, 9.5);
 
@@ -868,6 +868,8 @@ export function buildCity(scene, renderer) {
   laneRects.push(...LANES);
   {
     const cols = [0xff4fa3, 0x38f0e6, 0xb24cff, 0xffb02e];
+    // only hang things on walls that really exist (a building right behind the spot)
+    const wallAt = (x, z, y, out) => colliders.some(c => x - out * 0.35 >= c.minX && x - out * 0.35 <= c.maxX && z >= c.minZ && z <= c.maxZ && c.maxY >= y && c.maxY > 6);
     LANES.forEach(([x0, x1, z0, z1], li) => {
       const long = (z1 - z0) > (x1 - x0), len = long ? z1 - z0 : x1 - x0;
       if (len < 6) return;
@@ -876,6 +878,7 @@ export function buildCity(scene, renderer) {
         const c = cols[(li + Math.floor(t)) % 4];
         if (long) {
           const z = z0 + t, wx = side ? x1 - 0.05 : x0 + 0.05, out = side ? -1 : 1;
+          if (!wallAt(wx, z, 6, out)) continue;
           glow.box(0.08, 0.5, 0.25, wx + out * 0.04, 3.2, z, 0xffd9a0);                    // caged wall lamp
           props.box(0.2, 0.08, 0.35, wx + out * 0.1, 3.5, z, 0x2a2d34);
           pool(wx + out * 1.2, z, 2.0, 0xffc68a, 0.08, 0.4);
@@ -884,17 +887,95 @@ export function buildCity(scene, renderer) {
           if (rand() < 0.4) puddle((x0 + x1) / 2 + (rand() - 0.5) * 2, z + 1.5, 1 + rand(), 0.6 + rand() * 0.5);
         } else {
           const x = x0 + t, wz = side ? z1 - 0.05 : z0 + 0.05, out = side ? -1 : 1;
+          if (!colliders.some(c => x >= c.minX && x <= c.maxX && wz - out * 0.35 >= c.minZ && wz - out * 0.35 <= c.maxZ && c.maxY > 6)) continue;
           glow.box(0.25, 0.5, 0.08, x, 3.2, wz + out * 0.04, 0xffd9a0);
           pool(x, wz + out * 1.2, 2.0, 0xffc68a, 0.08, 0.4);
           if (rand() < 0.5) glow.box(0.06, 2.2, 0.06, x + 1.2, 5.6, wz + out * 0.04, c);
         }
       }
       // pipes and cables along the lane walls
-      if (long) for (const wx of [x0 + 0.15, x1 - 0.15]) { props.cyl(0.08, 0.08, z1 - z0, 6, wx, 6.5 + rand() * 3, (z0 + z1) / 2, 0x3c4048); }
-      // a cable strung across with a couple of small hover lanterns
-      if (long && len > 15) for (let t = 6; t < len - 4; t += 12) hoverLanterns.push([(x0 + x1) / 2, 6.4, z0 + t, cols[(li + t) % 4] & 0x8a8a8a, 0.18]);
+      // pipes: only along stretches with a wall behind them
+      if (long) for (const [wx, out] of [[x0 + 0.15, 1], [x1 - 0.15, -1]]) {
+        const py = 6.5 + rand() * 3; let start = null;
+        for (let z = z0; z <= z1 + 0.01; z += 0.5) {
+          const ok = z <= z1 && wallAt(wx - out * 0.1, z, py + 0.5, out);
+          if (ok && start === null) start = z;
+          if (!ok && start !== null) { if (z - start > 1.5) props.cyl(0.08, 0.08, z - start - 0.5, 6, wx, py, (start + z - 0.5) / 2, 0x3c4048); start = null; }
+        }
+        if (start !== null && z1 - start > 1.5) props.cyl(0.08, 0.08, z1 - start, 6, wx, py, (start + z1) / 2, 0x3c4048);
+      }
     });
   }
+
+  // ── Void Rats: punk crews doing shady business in the back lanes ────────
+  const punkCrews = [];
+  {
+    const fx = [];       // flickering bits (sparks, fire, screens)
+    const flick = (geo, hex, kind) => { const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: hex, toneMapped: false, transparent: kind === "fire", opacity: 0.9, blending: kind === "fire" ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: kind !== "fire" })); root.add(m); fx.push({ m, kind, base: m.scale.clone(), seed: Math.random() * 10 }); return m; };
+    // 1) chop shop (Sump west lane): a stripped cyber-arm on a work slab
+    { const x = -34.6, z = -4;
+      props.box(1.0, 0.08, 2.0, x, 0.92, z, 0x3a3d44); for (const dz of [-0.85, 0.85]) props.box(0.9, 0.9, 0.08, x, 0.45, z + dz, 0x2a2c31);
+      addCollider(x - 0.55, x + 0.55, z - 1.05, z + 1.05, 0, 1);
+      props.cyl(0.07, 0.06, 0.75, 8, x, 1.03, z - 0.3, 0x9aa3b4, Math.PI / 2); props.cyl(0.06, 0.05, 0.6, 8, x + 0.05, 1.03, z + 0.4, 0x9aa3b4, Math.PI / 2);   // arm parts
+      glow.sphere(0.06, x, 1.05, z + 0.08, 0x38f0e6); glow.sphere(0.04, x + 0.15, 1.0, z - 0.7, 0xff3a4a);
+      for (let i = 0; i < 5; i++) glow.box(0.04, 0.02, 0.18, x - 0.3 + i * 0.12, 0.98, z + 0.85, [0x38f0e6, 0xffcf4a, 0x7dff3a][i % 3]);   // pulled chips
+      props.box(0.7, 0.5, 0.6, x + 0.1, 0.25, z + 2.0, 0x4a3a2c); props.box(0.6, 0.4, 0.5, x + 0.1, 0.7, z + 2.0, 0x3a3f48);     // parts crates
+      glow.box(0.04, 0.3, 1.6, -35.45, 2.2, z, 0xff3a4a);     // red "OPEN" strip on the wall
+      pool(x + 0.8, z, 2.2, 0x38f0e6, 0.1, 0.35);
+      flick(new THREE.SphereGeometry(0.05, 6, 4), 0xfff1b0, "spark").position.set(x + 0.05, 1.08, z - 0.05);
+      punkCrews.push([[-33.4, -3.4, -Math.PI / 2, "talk"], [-33.5, -5.0, -Math.PI / 2, "talk"], [-34.9, 2.4, Math.PI / 2, "lean"]]);
+    }
+    // 2) graffiti crew (Sump east lane): fresh glowing tag + burn barrel
+    { const wx = 39.95, z = 3.2;
+      const tag = [[0, 0.9, 2.6, 0x7dff3a], [0.6, 0.12, 2.2, 0xff2a8a], [-0.55, 0.12, 1.6, 0x7dff3a], [1.15, 0.5, 0.12, 0x38f0e6]];
+      for (const [dy, h, w, c] of tag) glow.box(0.04, h, w, wx, 2.0 + dy, z + (c === 0x38f0e6 ? 1.2 : 0), c);
+      for (let i = 0; i < 5; i++) glow.box(0.04, 0.6 + (i % 3) * 0.2, 0.08, wx, 1.4 + (i % 2) * 0.2, z - 1.1 + i * 0.55, 0x7dff3a);   // drips
+      props.cyl(0.04, 0.04, 0.22, 8, 39.2, 0.11, z - 1.1, 0xc8ccd6); props.cyl(0.04, 0.04, 0.22, 8, 39.35, 0.11, z - 0.85, 0xff2a8a);   // spray cans
+      const bx = 38.9, bz = 0.6;
+      props.cyl(0.32, 0.3, 0.9, 12, bx, 0.45, bz, 0x4a3022); addCollider(bx - 0.35, bx + 0.35, bz - 0.35, bz + 0.35, 0, 1);
+      flick(new THREE.ConeGeometry(0.26, 0.7, 8, 1, true), 0xc8501a, "fire").position.set(bx, 1.2, bz);
+      flick(new THREE.ConeGeometry(0.15, 0.5, 6, 1, true), 0xb88a2a, "fire").position.set(bx + 0.05, 1.12, bz);
+      glow.sphere(0.12, bx, 0.95, bz, 0xff7a2a);   // embers
+      pool(bx, bz, 3.2, 0xff8a2a, 0.12, 0.6);
+      punkCrews.push([[38.9, 3.6, Math.PI / 2, "idle"], [38.8, 6.6, Math.PI, "lean"], [37.9, 1.4, Math.PI * 0.75, "talk"], [38.1, -0.4, Math.PI * 0.2, "talk"]]);
+    }
+    // 3) ATM jack (Neon Mile west lane): a pried-open Tenkai terminal, sparking
+    { const wx = -30.95, z = -70;
+      props.box(0.5, 1.9, 1.1, wx + 0.25, 0.95, z, 0x2b3240); addCollider(wx, wx + 0.5, z - 0.55, z + 0.55, 0, 1.9);
+      glow.box(0.04, 0.5, 0.75, wx + 0.52, 1.45, z, 0x38f0e6);                  // screen
+      props.box(0.5, 0.6, 0.06, wx + 0.75, 0.7, z + 0.75, 0x2b3240, -0.9);      // ripped-off panel
+      for (let i = 0; i < 4; i++) glow.box(0.03, 0.03, 0.5 + i * 0.1, wx + 0.53, 0.7 + i * 0.07, z - 0.2 + i * 0.05, [0xff2a8a, 0x38f0e6, 0xffcf4a, 0x7dff3a][i]);   // spliced wires
+      props.box(0.35, 0.06, 0.25, wx + 0.9, 0.03, z + 0.2, 0x111318); glow.box(0.25, 0.01, 0.16, wx + 0.9, 0.065, z + 0.2, 0xff2a8a);   // cracker deck on the floor
+      flick(new THREE.SphereGeometry(0.05, 6, 4), 0xbfefff, "spark").position.set(wx + 0.55, 0.95, z + 0.1);
+      flick(new THREE.PlaneGeometry(0.7, 0.45), 0xff2a8a, "screen").position.set(wx + 0.545, 1.45, z);
+      fx[fx.length - 1].m.rotation.y = Math.PI / 2;
+      pool(wx + 1.3, z, 2.4, 0x38f0e6, 0.1, 0.45);
+      punkCrews.push([[-29.9, -69.5, -Math.PI / 2, "idle"], [-29.6, -71.2, -Math.PI * 0.6, "talk"], [-28.6, -72.6, -Math.PI * 0.1, "talk"]]);
+    }
+    // 4) data-chip deal (Neon Mile east lane): a case of glowing chips on a crate
+    { const x = 34.3, z = -86;
+      props.box(0.9, 0.75, 0.9, x, 0.375, z, 0x3d3226); addCollider(x - 0.45, x + 0.45, z - 0.45, z + 0.45, 0, 0.8);
+      props.box(0.7, 0.1, 0.5, x, 0.8, z, 0x15171c); props.box(0.7, 0.45, 0.04, x, 1.05, z - 0.27, 0x15171c, 0);   // open case
+      for (let i = 0; i < 6; i++) glow.box(0.08, 0.02, 0.14, x - 0.25 + (i % 3) * 0.25, 0.86, z - 0.1 + Math.floor(i / 3) * 0.2, [0xffcf4a, 0x38f0e6, 0xb24cff][i % 3]);
+      props.box(0.25, 0.04, 0.12, x + 0.2, 0.77, z + 0.32, 0x2a6a3a);   // cred stick bundle
+      pool(x, z, 2.0, 0xb24cff, 0.12, 0.45);
+      punkCrews.push([[x, -84.9, Math.PI, "talk"], [x, -87.1, 0, "talk"], [33.0, -82.6, Math.PI, "lean"]]);
+    }
+    animated.push(t => {
+      const s = t * 0.001;
+      for (const f of fx) {
+        if (f.kind === "spark") { const on = Math.sin(s * 37 + f.seed) * Math.sin(s * 11.3 + f.seed * 2) > 0.35; f.m.visible = on; f.m.scale.setScalar(on ? 0.6 + Math.random() * 1.4 : 1); }
+        else if (f.kind === "fire") { const k = 1 + Math.sin(s * 13 + f.seed) * 0.12 + Math.sin(s * 29 + f.seed) * 0.08; f.m.scale.set(1, k, 1); f.m.material.opacity = 0.75 + Math.sin(s * 17 + f.seed) * 0.15; }
+        else f.m.visible = Math.sin(s * 3 + f.seed) > -0.6;    // glitching hacked screen
+      }
+    });
+  }
+  // locals walk the back lanes too
+  sidewalkPaths.push(
+    [[-28.5, 40], [-28.5, 12], [-31.3, 12], [-31.3, -14], [-28.5, -14], [-28.5, -36]],
+    [[28.5, 40], [28.5, 14], [36.4, 14], [36.4, -9], [28.5, -9], [28.5, -36]],
+    [[-27.3, -57], [-27.3, -93], [-33.2, -93], [-33.2, -103], [-28.5, -103], [-28.5, -114]],
+    [[28.5, -57], [28.5, -76], [31.5, -76], [31.5, -91], [28.5, -91], [28.5, -114]]);
 
   // plaza flanks
   building(-45, -30, -141, -115, 70, "mile", { band: false });
@@ -1275,9 +1356,9 @@ export function buildCity(scene, renderer) {
   // ── day / night cycle ───────────────────────────────────────────────
   // One full day = 24 minutes (about 12 night, 12 day). Daylight is kept dim
   // and hazy: Neo Kasumi never gets a clear sunny sky.
-  const CYCLE_SECONDS = 24 * 60, DAY_MAX = 0.62;
+  const CYCLE_SECONDS = 24 * 60, DAY_MAX = 0.62, NIGHT_LIFT = 0.35;
   let phaseOffset = 0.72;                                   // start in the evening
-  const dayNight = { day: 0, phase: 0 };
+  const dayNight = { day: 0, phase: 0, lit: 0 };
   const sunDir = new THREE.Vector3();
   const nightHemi = new THREE.Color(0x8fa8ff), dayHemi = new THREE.Color(0xc4cede);
   const nightSun = new THREE.Color(0x9fc4ff), daySun = new THREE.Color(0xffe0bd);
@@ -1291,10 +1372,14 @@ export function buildCity(scene, renderer) {
     skyUniforms.uDay.value = day / DAY_MAX * 0.85;
     skyUniforms.uSunDir.value.copy(sunDir);
     skyUniforms.uTime.value = seconds;
-    hemi.intensity = 1.2 + day * 2.25;   // lower night fill = deeper shadows, neon does the lighting
-    hemi.color.copy(nightHemi).lerp(dayHemi, day / DAY_MAX);
-    moon.intensity = 1.15 + day * 2.4;
-    moon.color.copy(nightSun).lerp(daySun, day / DAY_MAX);
+    // NIGHT_LIFT: at night the city itself is lit a bit closer to daytime
+    // (brighter, more neutral fill so facades read), the sky is left alone.
+    const lit = day + (DAY_MAX - day) * NIGHT_LIFT;
+    dayNight.lit = lit;
+    hemi.intensity = 1.2 + lit * 2.25;
+    hemi.color.copy(nightHemi).lerp(dayHemi, lit / DAY_MAX);
+    moon.intensity = 1.15 + lit * 2.4;
+    moon.color.copy(nightSun).lerp(daySun, lit / DAY_MAX * 0.7);
     moon.position.copy(elev > 0 ? sunDir : sunDir.clone().negate()).multiplyScalar(80);
     // lit windows and fake light pools matter less in daylight
     for (const [k, m] of Object.entries(facadeMats)) m.emissiveIntensity = facadeBase[k] * (1 - day * 0.95);
@@ -1307,8 +1392,8 @@ export function buildCity(scene, renderer) {
   const fogTmp = new THREE.Color();
   function applyAtmosphere(sceneRef, z) {
     const t = THREE.MathUtils.clamp((-z - 20) / 50, 0, 1);
-    fogTmp.copy(fogSump).lerp(fogMile, t).lerp(fogDay, dayNight.day / DAY_MAX);
-    sceneRef.environmentIntensity = 0.6 + dayNight.day * 0.6;
+    fogTmp.copy(fogSump).lerp(fogMile, t).lerp(fogDay, THREE.MathUtils.lerp(dayNight.lit, dayNight.day, 0.4) / DAY_MAX);
+    sceneRef.environmentIntensity = 0.6 + dayNight.lit * 0.6;
     if (!sceneRef.fog) sceneRef.fog = new THREE.Fog(fogTmp, 14, 150);
     sceneRef.fog.color.copy(fogTmp);
     sceneRef.fog.near = THREE.MathUtils.lerp(10, 18, t);
@@ -1323,7 +1408,7 @@ export function buildCity(scene, renderer) {
     if (playerPos) updateRain(dt, playerPos.x, playerPos.y, playerPos.z);
   }
 
-  return { root, colliders, floors, anchors, sidewalkPaths, propSpots, laneRects, collides, groundAt, surfaceAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
+  return { root, colliders, floors, anchors, sidewalkPaths, propSpots, laneRects, punkCrews, collides, groundAt, surfaceAt, districtAt, applyAtmosphere, update, dayNight, glowPoints, lampCones,
     setTimeOfDay(phase) { phaseOffset = (phase - (performance.now() / 1000 / CYCLE_SECONDS) % 1 + 2) % 1; updateDayNight(performance.now() / 1000); } };
 }
 
