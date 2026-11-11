@@ -642,12 +642,66 @@ export function createGame(ctx) {
   // Beacons, toasts, fades
   // ════════════════════════════════════════════════════════════════════════
   const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffcf4a, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
-  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.35, 70, 10, 1, true), beaconMat);
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.5, 70, 12, 1, true), beaconMat);
   beacon.visible = false; beacon.name = "OBJECTIVE_BEACON";
   cityWorld.add(beacon);
   const beaconRing = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.04, 6, 32), new THREE.MeshBasicMaterial({ color: 0xffcf4a, fog: false }));
   beaconRing.rotation.x = Math.PI / 2; beacon.add(beaconRing); beaconRing.position.y = -34.9;
+  // see-through copy: a softer beam drawn on top of buildings so you can
+  // spot where to go at eye level instead of looking up over the roofs
+  const beaconXrayMat = new THREE.MeshBasicMaterial({ color: 0xffcf4a, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide });
+  const beaconXray = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 70, 10, 1, true), beaconXrayMat);
+  beaconXray.renderOrder = 900; beacon.add(beaconXray);
+  // a bright marker at head height over the target, also visible through walls
+  const beaconPin = new THREE.Mesh(new THREE.OctahedronGeometry(0.4), new THREE.MeshBasicMaterial({ color: 0xffcf4a, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
+  beaconPin.renderOrder = 901; beaconPin.scale.y = 1.6; beaconPin.visible = false; cityWorld.add(beaconPin);
   const guide = createGuide(cityWorld);
+
+  // ── VR objective panel: top-left of your view, with a turn arrow ────────
+  const objCanvas = document.createElement("canvas"); objCanvas.width = 640; objCanvas.height = 200;
+  const octx = objCanvas.getContext("2d");
+  const objTex = new THREE.CanvasTexture(objCanvas); objTex.colorSpace = THREE.SRGBColorSpace;
+  const objPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.256, 0.08), new THREE.MeshBasicMaterial({ map: objTex, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
+  objPanel.position.set(-0.2, 0.15, -0.72); objPanel.rotation.set(-0.12, 0.22, 0); objPanel.renderOrder = 10000; objPanel.visible = false; objPanel.name = "VR_OBJECTIVE";
+  camera.add(objPanel);
+  const arrowShape = new THREE.Shape(); arrowShape.moveTo(0, 0.5); arrowShape.lineTo(0.42, -0.1); arrowShape.lineTo(0.15, -0.1); arrowShape.lineTo(0.15, -0.5); arrowShape.lineTo(-0.15, -0.5); arrowShape.lineTo(-0.15, -0.1); arrowShape.lineTo(-0.42, -0.1); arrowShape.closePath();
+  const objArrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), new THREE.MeshBasicMaterial({ color: 0xffcf4a, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
+  objArrow.scale.setScalar(0.034); objArrow.position.set(-0.1, 0, 0.001); objArrow.renderOrder = 10001; objPanel.add(objArrow);
+  let objKey = "";
+  function drawObjectivePanel(title, text, dist, col) {
+    const key = title + text + dist + col; if (key === objKey) return; objKey = key;
+    const c = octx; c.clearRect(0, 0, 640, 200);
+    c.fillStyle = "rgba(4,8,20,0.72)"; roundRect(c, 4, 4, 632, 192, 20); c.fill();
+    c.strokeStyle = col; c.lineWidth = 4; c.stroke();
+    c.fillStyle = col; c.fillRect(4, 20, 8, 160);
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    c.fillStyle = col; c.font = "bold 30px Arial"; c.fillText(title.length > 30 ? title.slice(0, 29) + "…" : title, 150, 52);
+    c.fillStyle = "#ffffff"; c.font = "26px Arial";
+    wrapText(c, text, 470).slice(0, 3).forEach((l, i) => c.fillText(l, 150, 92 + i * 32));
+    c.textAlign = "center"; c.fillStyle = "#dce7ff"; c.font = "bold 28px Arial"; c.fillText(dist, 78, 178);
+    objTex.needsUpdate = true;
+  }
+  const headDir = new THREE.Vector3();
+  function updateObjectivePanel(target, dist) {
+    const show = (renderer.xr.isPresenting || window.__forceVRHud) && !panel.visible;
+    objPanel.visible = show; if (!show) return;
+    const id = trackedMission();
+    const sum = objectiveSummary();
+    const main = id && MISSIONS[id]?.kind === "main";
+    const col = !id ? "#9fe9ff" : main ? "#ffcf4a" : "#5ff5e8";
+    const near = target && dist != null && dist < 3.5 && Math.abs(target.y - tmpV2.y) < 5;
+    drawObjectivePanel((id ? (main ? "OBJECTIVE · " : "SIDE JOB · ") : "") + sum.title, sum.text, !target ? "" : near ? "HERE" : `${Math.round(dist)} m`, col);
+    objArrow.material.color.set(col);
+    objArrow.visible = !!target && !near;
+    if (objArrow.visible) {
+      camera.getWorldDirection(headDir);
+      const headYaw = Math.atan2(headDir.x, headDir.z), tYaw = Math.atan2(target.x - headPos.x, target.z - headPos.z);
+      const rel = Math.atan2(Math.sin(tYaw - headYaw), Math.cos(tYaw - headYaw));
+      objArrow.rotation.z = rel;   // up = straight ahead, tilts left/right toward the goal
+      const ahead = Math.abs(rel) < 0.35;
+      objArrow.scale.setScalar(0.034 * (ahead ? 1 : 1 + Math.sin(performance.now() * 0.008) * 0.12));
+    }
+  }
   const distLabel = textPlate("", "#ffcf4a"); distLabel.visible = false; cityWorld.add(distLabel);
   let lastDistText = "";
   const shardBeaconMat = new THREE.MeshBasicMaterial({ color: 0xc58bff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
@@ -937,7 +991,11 @@ export function createGame(ctx) {
       beacon.position.set(target.x, target.y + 35, target.z);
       const main = MISSIONS[trackedMission()]?.kind === "main";
       beaconMat.color.set(main ? 0xffcf4a : 0x5ff5e8); beaconRing.material.color.copy(beaconMat.color);
-      beaconMat.opacity = 0.22 + Math.sin(time * 0.004) * 0.08;
+      beaconMat.opacity = 0.3 + Math.sin(time * 0.004) * 0.08;
+      beaconXrayMat.color.copy(beaconMat.color); beaconXrayMat.opacity = 0.16 + Math.sin(time * 0.004) * 0.04;
+      { const k = THREE.MathUtils.clamp(dist * 0.035, 1, 5); beacon.scale.set(k, 1, k); }   // thicker when far so it doesn't shrink to a hairline
+      beaconPin.visible = beacon.visible;
+      if (beaconPin.visible) { beaconPin.material.color.copy(beaconMat.color); beaconPin.position.set(target.x, target.y + 2.6 + Math.sin(time * 0.003) * 0.15, target.z); beaconPin.rotation.y = time * 0.002; const ps = THREE.MathUtils.clamp(dist * 0.035, 0.6, 3.5); beaconPin.scale.set(ps, ps * 1.6, ps); }
       // Wayfinder optic: floating distance read-out above the target
       distLabel.visible = isActive("wayfinder") && (dist > 3.5 || !sameLevel);
       if (distLabel.visible) {
@@ -946,7 +1004,8 @@ export function createGame(ctx) {
         distLabel.position.set(target.x, target.y + 3.4, target.z);
         const s = THREE.MathUtils.clamp(dist * 0.05, 0.8, 4); distLabel.scale.set(1.6 * s, 0.3 * s, 1);
       }
-    } else { beacon.visible = false; distLabel.visible = false; }
+    } else { beacon.visible = false; beaconPin.visible = false; distLabel.visible = false; }
+    updateObjectivePanel(target, dist);
     guide.update(time, tmpV2, target && (Math.hypot(target.x - tmpV2.x, target.z - tmpV2.z) > 2.2 || Math.abs(target.y - tmpV2.y) > 4) ? target : null, MISSIONS[trackedMission()]?.kind === "main");
     for (const { b, p } of shardBeacons) b.visible = isActive("wayfinder") && p.enabled();
     // district name toast when you cross into a new area
