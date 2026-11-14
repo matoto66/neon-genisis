@@ -13,7 +13,7 @@ export const gradeName = c => gradeNames[Math.min(c, 5)] + (c > 5 ? ` +${c - 5}`
 // ── XP & levels ── 10 XP per level. Main quest = +5 levels, side job = +1 level,
 // enemies and data shards give a little XP. Each level = 1 attribute point.
 export const XP_PER_LEVEL = 10;
-export const XP_REWARDS = { main: 50, side: 10, scav: 1, sentry: 2, enforcer: 3, shard: 3 };
+export const XP_REWARDS = { main: 15, side: 10, scav: 1, sentry: 2, enforcer: 3, shard: 3 };
 
 export const state = {
   version: 2,

@@ -80,8 +80,8 @@ export function drawControllerDiagram(c, x0, y0, w, h, opts = {}) {
   const rowH = Math.max(18, (y0 + h - gy - 14) / Math.ceil(GESTURES.length / 2));
   GESTURES.forEach(([k, v], i) => {
     const gx = x0 + 10 + (i % 2) * half, yy = gy + 22 + Math.floor(i / 2) * rowH;
-    c.fillStyle = "#ffcf4a"; c.font = "bold 15px Arial"; c.fillText(k, gx, yy);
-    c.fillStyle = "#dce7ff"; c.font = "14px Arial"; wrap(c, v, gx + 140, yy, half - 160, 16);
+    c.fillStyle = "#ffcf4a"; c.font = "bold 17px Arial"; c.fillText(k, gx, yy);
+    c.fillStyle = "#dce7ff"; c.font = "16px Arial"; wrap(c, v, gx + 150, yy, half - 165, 17);
   });
   c.restore();
 }

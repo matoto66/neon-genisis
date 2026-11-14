@@ -546,6 +546,8 @@ export function buildCity(scene, renderer) {
   building(-45, -35.5, -12, 10, 30, "back", { band: false });
   building(-30.5, -26, -10, 7, 14, "sump", { band: false });
   building(-45, -31, -36.5, -16, 22, "sump", { band: false });
+  building(-45, -35.5, 10, 14, 16, "sump", { band: false });     // seal the lane ends (no walking out of the city)
+  building(-45, -35.5, -16, -12, 16, "sump", { band: false });
   building(-31, -26, 42, 44.5, 9, "sump", { band: false });          // lane end wall (north)
   // East frontage (x 11 → 26)
   building(11, 26, 16, 42, 13, "sump");

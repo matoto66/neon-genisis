@@ -99,7 +99,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-104", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-105", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -2598,6 +2598,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
     city.applyAtmosphere(scene, player.position.z);
     city.update(worldTime, worldDelta, player.position);   // rain, holograms, signs all slow in Chrono Spike
     animateGenesisCore(time);
+    game.setHudSuppressed(intro.active);
     game.update(time, delta, vrControllerRays.map(item => item.controller), worldTime, worldDelta);
   }
   updateVRMenuPointer();

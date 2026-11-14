@@ -522,7 +522,7 @@ export function createGame(ctx) {
     drawPanel(); onPanelOpen();
   }
   // TEST MODE: everything at Second Skin costs $0. Set to false to restore prices.
-  const FREE_SHOP = true;
+  const FREE_SHOP = false;
   const priceOf = item => FREE_SHOP ? 0 : item.price;
   const priceLabel = item => FREE_SHOP ? "GET · FREE" : `BUY $${item.price}`;
 
@@ -664,12 +664,9 @@ export function createGame(ctx) {
   const objPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.256, 0.08), new THREE.MeshBasicMaterial({ map: objTex, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
   objPanel.position.set(-0.2, 0.15, -0.72); objPanel.rotation.set(-0.12, 0.22, 0); objPanel.renderOrder = 10000; objPanel.visible = false; objPanel.name = "VR_OBJECTIVE";
   camera.add(objPanel);
-  const arrowShape = new THREE.Shape(); arrowShape.moveTo(0, 0.5); arrowShape.lineTo(0.42, -0.1); arrowShape.lineTo(0.15, -0.1); arrowShape.lineTo(0.15, -0.5); arrowShape.lineTo(-0.15, -0.5); arrowShape.lineTo(-0.15, -0.1); arrowShape.lineTo(-0.42, -0.1); arrowShape.closePath();
-  const objArrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), new THREE.MeshBasicMaterial({ color: 0xffcf4a, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
-  objArrow.scale.setScalar(0.034); objArrow.position.set(-0.1, 0, 0.001); objArrow.renderOrder = 10001; objPanel.add(objArrow);
-  let objKey = "";
-  function drawObjectivePanel(title, text, dist, col) {
-    const key = title + text + dist + col; if (key === objKey) return; objKey = key;
+  let objKey = "", hudSuppressed = false;
+  function drawObjectivePanel(title, text, dist, col, arrowAngle) {
+    const key = title + text + dist + col + arrowAngle; if (key === objKey) return; objKey = key;
     const c = octx; c.clearRect(0, 0, 640, 200);
     c.fillStyle = "rgba(4,8,20,0.72)"; roundRect(c, 4, 4, 632, 192, 20); c.fill();
     c.strokeStyle = col; c.lineWidth = 4; c.stroke();
@@ -679,28 +676,29 @@ export function createGame(ctx) {
     c.fillStyle = "#ffffff"; c.font = "26px Arial";
     wrapText(c, text, 470).slice(0, 3).forEach((l, i) => c.fillText(l, 150, 92 + i * 32));
     c.textAlign = "center"; c.fillStyle = "#dce7ff"; c.font = "bold 28px Arial"; c.fillText(dist, 78, 178);
+    if (arrowAngle != null) {   // turn arrow: up = straight ahead
+      c.save(); c.translate(78, 86); c.rotate(-arrowAngle * Math.PI / 180); c.fillStyle = col;
+      c.beginPath(); c.moveTo(0, -50); c.lineTo(42, 10); c.lineTo(15, 10); c.lineTo(15, 50); c.lineTo(-15, 50); c.lineTo(-15, 10); c.lineTo(-42, 10); c.closePath(); c.fill(); c.restore();
+    }
     objTex.needsUpdate = true;
   }
   const headDir = new THREE.Vector3();
   function updateObjectivePanel(target, dist) {
-    const show = (renderer.xr.isPresenting || window.__forceVRHud) && !panel.visible;
+    const show = (renderer.xr.isPresenting || window.__forceVRHud) && !panel.visible && !hudSuppressed;
     objPanel.visible = show; if (!show) return;
     const id = trackedMission();
     const sum = objectiveSummary();
     const main = id && MISSIONS[id]?.kind === "main";
     const col = !id ? "#9fe9ff" : main ? "#ffcf4a" : "#5ff5e8";
     const near = target && dist != null && dist < 3.5 && Math.abs(target.y - tmpV2.y) < 5;
-    drawObjectivePanel((id ? (main ? "OBJECTIVE · " : "SIDE JOB · ") : "") + sum.title, sum.text, !target ? "" : near ? "HERE" : `${Math.round(dist)} m`, col);
-    objArrow.material.color.set(col);
-    objArrow.visible = !!target && !near;
-    if (objArrow.visible) {
+    let ang = null;
+    if (target && !near) {
       camera.getWorldDirection(headDir);
       const headYaw = Math.atan2(headDir.x, headDir.z), tYaw = Math.atan2(target.x - headPos.x, target.z - headPos.z);
       const rel = Math.atan2(Math.sin(tYaw - headYaw), Math.cos(tYaw - headYaw));
-      objArrow.rotation.z = rel;   // up = straight ahead, tilts left/right toward the goal
-      const ahead = Math.abs(rel) < 0.35;
-      objArrow.scale.setScalar(0.034 * (ahead ? 1 : 1 + Math.sin(performance.now() * 0.008) * 0.12));
+      ang = Math.round(rel * 180 / Math.PI / 15) * 15;   // 15° steps keeps redraws cheap
     }
+    drawObjectivePanel((id ? (main ? "OBJECTIVE · " : "SIDE JOB · ") : "") + sum.title, sum.text, !target ? "" : near ? "HERE" : `${Math.round(dist)} m`, col, ang);
   }
   const distLabel = textPlate("", "#ffcf4a"); distLabel.visible = false; cityWorld.add(distLabel);
   let lastDistText = "";
@@ -1031,6 +1029,8 @@ export function createGame(ctx) {
       state.introSeen = true; saveGame();
       fadeMat.opacity = 1; fade.visible = true;
       setTimeout(() => { fadeTo(0, 1.6); openDialogue("intro"); }, 400);
+    } else if (!state.missions.m1) {
+      setTimeout(() => openDialogue("intro"), 400);     // intro was closed before "Get up." — don't strand the story
     } else {
       const s = objectiveSummary();
       toast(`${s.title.toUpperCase()} · ${s.text}`, "objective");
@@ -1042,7 +1042,7 @@ export function createGame(ctx) {
 
   return {
     update, onTrigger, desktopInteract, desktopClick, handleKey, cursorPoint, beginSession, onExit,
-    isPanelOpen: () => panel.visible, closePanel, openBoard, addInteractable, teleport: (pos, title) => teleport(pos, title), textPlate: (t, c) => textPlate(t, c),
+    isPanelOpen: () => panel.visible, closePanel, setHudSuppressed: v => { hudSuppressed = !!v; }, openBoard, addInteractable, teleport: (pos, title) => teleport(pos, title), textPlate: (t, c) => textPlate(t, c),
     refreshBoard: () => { if (panelState?.mode === "board") drawPanel(); }, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why), awardXP: n => awardXP(n),
     debug: { startMission, completeStep, emit, openDialogue, state, interactables, choose, objectivePosition }
   };

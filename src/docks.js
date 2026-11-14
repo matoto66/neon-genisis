@@ -59,7 +59,12 @@ export function buildDocks(root, city) {
   col(112, 124, -79.6, -79, 3); col(112, 124, -53, -52.4, 3);              // south pier
   // pier ends (north pier has a gap for the barge gangway)
   col(124, 125, -79, -53, 3); col(124, 125, -43, -35.5, 3); col(124, 125, -32.5, -17, 3);
-  col(46, 112, -81.5, -80.5, 3); col(46, 112, -11.5, -10.5, 3);           // yard north/south edge fences
+  col(44.6, 112, -81.5, -80.5, 3); col(44.6, 112, -11.5, -10.5, 3);       // yard north/south edge fences (sealed against the city walls)
+  // water by the barge: keep you on the pier, the gangway and the deck
+  col(125, 127.4, -45, -35.6, 3); col(125, 127.4, -32.4, -15, 3);
+  col(136.7, 137.3, -44, -16, 3); col(127, 137.3, -43.8, -43.2, 3); col(127, 137.3, -16.8, -16.2, 3);
+  col(127, 127.4, -43.2, -35.6, 3); col(127, 127.4, -32.4, -16.8, 3);
+  for (const z of [-81, -11]) box(solid, 0.12, 2.4, 0.12, 45.3, 1.2, z, 0x6a6f7a);
   for (let x = 47; x < 112; x += 3) { box(solid, 0.08, 2.4, 0.08, x, 1.2, -81, 0x6a6f7a); box(solid, 0.08, 2.4, 0.08, x, 1.2, -11, 0x6a6f7a); }
   box(solid, 65, 0.06, 0.06, 79, 2.3, -81, 0x6a6f7a); box(solid, 65, 0.06, 0.06, 79, 2.3, -11, 0x6a6f7a);
   box(solid, 65, 0.04, 0.04, 79, 1.2, -81, 0x6a6f7a); box(solid, 65, 0.04, 0.04, 79, 1.2, -11, 0x6a6f7a);

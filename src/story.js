@@ -120,7 +120,7 @@ export const PICKUPS = [
   { id: "shard3", type: "shard", pos: [29.2, 1.55, -103], credits: 80 },
   { id: "shard4", type: "shard", pos: [-24.7, 1.75, 10.8], credits: 50 },
   { id: "shard5", type: "shard", pos: [-43.6, 0.6, -38.6], credits: 70 },
-  { id: "drone", type: "drone", pos: [25.4, 0.25, -8.6], mission: "s1", needsStrength: 1 }
+  { id: "drone", type: "drone", pos: [25.4, 0.25, -8.6], mission: "s1" }
 ];
 
 // ─── missions (all part of Chapter 1: Static Signal) ───────────────────────────────────────────────────────────────
@@ -368,6 +368,7 @@ export function entryFor(id, g) {
   const st = m => g.status(m), step = m => g.step(m);
   switch (id) {
     case "mika":
+      if (!st("m1")) return "intro";        // story never started (intro closed early): offer it again
       if (st("m1") === "active") return step("m1") === 0 ? "mika_m1_start" : step("m1") === 1 ? "mika_m1_waiting" : "mika_m1_done";
       if (st("m2") === "active") return step("m2") === 0 ? "mika_m2_wait" : "mika_m2_after";
       if (st("m6") === "active" && step("m6") === 2) return "mika_m6_end";
