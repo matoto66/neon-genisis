@@ -516,13 +516,16 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       const speed = handVel.length();
       // fist near the face counts toward a guard
       const toHead = handPos.distanceTo(head);
-      if (h.grip > 0.6 && toHead < 0.42) fistsUp++;
+      if (h.grip > 0.6 && toHead < 0.42 && !h.busy) fistsUp++;
       if (h.side === "left") attachWrist(h.object, h.controller);
-      const blades = isActive("edge_fins") && h.grip > 0.6;
+      // Edge Fins only come out on an EMPTY fist — never while you're holding a weapon or an item
+      const emptyHand = !h.busy && !h.holdingItem;
+      const ud = h.object.userData; ud.fistT = h.grip > 0.6 && emptyHand ? (ud.fistT || 0) + dt : 0;
+      const blades = isActive("edge_fins") && ud.fistT > 0.18;        // a short delay so grabbing something never flicks them out
       const bladeObj = bladeFor(h.object);
       if (bladeObj.visible !== blades) sfx(blades ? "bladeOut" : "bladeIn");
       bladeObj.visible = blades;
-      if (h.grip < 0.6 || speed < 2.0) continue;
+      if (h.grip < 0.6 || speed < 2.0 || !emptyHand) continue;
       // world-space punch direction
       const dir = handVel.clone().transformDirection(player.matrixWorld);
       for (const e of enemies) {

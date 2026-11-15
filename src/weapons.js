@@ -26,13 +26,14 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
 
   // ── holsters on your body (VR) ────────────────────────────────────────
   const HOLSTER = {
-    sidearm: { at: new THREE.Vector3(0.22, -0.78, -0.04), r: 0.18, dir: new THREE.Vector3(0, -1, 0.15) },
-    long:    { at: new THREE.Vector3(0.0, -0.4, -0.2), r: 0.17, dir: new THREE.Vector3(-0.55, 0.8, 0.1) },
-    blade:   { at: new THREE.Vector3(-0.2, -0.13, -0.02), r: 0.15, dir: new THREE.Vector3(0.25, -0.55, 0.8) },
-    grenade: { at: new THREE.Vector3(0.0, -0.66, -0.25), r: 0.11, dir: new THREE.Vector3(0, 0, -1) }
+    // tucked in against your body; grab radius is generous so you don't have to be exact
+    sidearm: { at: new THREE.Vector3(0.2, -0.72, 0.0), r: 0.27, dir: new THREE.Vector3(0, -1, 0.15) },
+    long:    { at: new THREE.Vector3(0.0, -0.36, -0.13), r: 0.24, dir: new THREE.Vector3(-0.55, 0.8, 0.1) },
+    blade:   { at: new THREE.Vector3(-0.2, -0.12, -0.0), r: 0.2, dir: new THREE.Vector3(0.25, -0.55, 0.8) },
+    grenade: { at: new THREE.Vector3(-0.02, -0.62, -0.19), r: 0.15, dir: new THREE.Vector3(0, 0, -1) }
   };
   const body = new THREE.Group(); body.name = "WEAPON_HOLSTERS"; scene.add(body);
-  const holsterModels = {};       // slot → { id, model }
+  const holsterModels = {};       // slot → { id, model: marker }  (weapons stay invisible on your body; a small tag shows where they are)
   function equippedIn(slot) { return slot === "grenade" ? (W.grenades > 0 ? "emp" : null) : W.loadout[slot] || null; }
   function refreshHolsters() {
     for (const slot of SLOTS) {
@@ -40,12 +41,22 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       if (cur?.id === id) continue;
       if (cur) body.remove(cur.model);
       if (!id) { delete holsterModels[slot]; continue; }
-      const m = buildWeaponModel(id);
+      const m = holsterMarker(id, slot);
       m.position.copy(HOLSTER[slot].at);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), HOLSTER[slot].dir.clone().normalize());
-      m.scale.setScalar(0.92);
+      m.visible = false;
       body.add(m); holsterModels[slot] = { id, model: m };
     }
+  }
+  function holsterMarker(id, slot) {
+    const def = WEAPONS[id], col = "#" + new THREE.Color(def.color).getHexString();
+    const c = document.createElement("canvas"); c.width = 256; c.height = 128; const x = c.getContext("2d");
+    x.strokeStyle = col; x.lineWidth = 8; x.beginPath(); x.arc(64, 64, 44, 0, Math.PI * 2); x.stroke();
+    x.fillStyle = col; x.beginPath(); x.arc(64, 64, 14, 0, Math.PI * 2); x.fill();
+    x.font = "bold 40px Arial"; x.textBaseline = "middle"; x.fillText(def.short || def.name.split(" ")[0].toUpperCase(), 120, 64);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+    sp.scale.set(0.12, 0.06, 1); sp.renderOrder = 960; sp.center.set(0.25, 0.5);
+    return sp;
   }
   refreshHolsters();
   let bodyYaw = 0;
@@ -102,14 +113,12 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
     const h = { id, slot, def, model, cd: 0, charge: 0, reloadT: 0, kick: 0, hist: [], pc, host: hostObj, display: def.kind === "gun" ? ammoDisplay(model) : null, swingT: 0, hitCd: new Map() };
     if (W.mags[id] === undefined && def.mag) W.mags[id] = Math.min(def.mag, W.ammo[def.ammo] || 0);
     held.set(side, h);
-    if (holsterModels[slot]) holsterModels[slot].model.visible = false;
     sfx("draw");
     return h;
   }
   function holster(side, silent) {
     const h = held.get(side); if (!h) return;
     h.host.remove(h.model); held.delete(side);
-    if (holsterModels[h.slot]) holsterModels[h.slot].model.visible = true;
     if (!silent) sfx("holster");
   }
 
@@ -175,10 +184,60 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
     game.npcSys?.startle(end, 7);
     return end;
   }
+  // ── smart-link: lock on to the enemy closest to where you point, rounds steer onto it
+  const reticleTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d");
+    x.strokeStyle = "#7dff9a"; x.lineWidth = 7;
+    for (let k = 0; k < 4; k++) { x.beginPath(); x.arc(64, 64, 48, k * Math.PI / 2 + 0.25, k * Math.PI / 2 + Math.PI / 2 - 0.25); x.stroke(); }
+    x.fillStyle = "#7dff9a"; x.beginPath(); x.arc(64, 64, 7, 0, Math.PI * 2); x.fill();
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+  reticle.renderOrder = 970; reticle.visible = false; root.add(reticle);
+  function findLock(o, d) {
+    let best = null, bestA = 0.42;                 // ~24° cone
+    for (const e of combat.enemies) {
+      if (e.dead || e.cine) continue;
+      const c = combat.hitCenter(e, new THREE.Vector3()), to = c.clone().sub(o), dist = to.length();
+      if (dist > 32 || dist < 0.5) continue;
+      const a = to.normalize().angleTo(d);
+      if (a < bestA && wallDistance(o, to, dist) >= dist - 0.3) { bestA = a; best = e; }
+    }
+    return best;
+  }
+  const smartRounds = [];
+  const roundGeo = new THREE.CapsuleGeometry(0.012, 0.09, 3, 6), roundMat = new THREE.MeshBasicMaterial({ color: 0x9dffb5, toneMapped: false });
+  function fireSmart(h, origin, dir, muzzlePos) {
+    const m = new THREE.Mesh(roundGeo, roundMat); m.position.copy(muzzlePos); root.add(m);
+    smartRounds.push({ m, vel: dir.clone().multiplyScalar(34), target: h.lock && !h.lock.dead ? h.lock : null, life: 1.6, dmg: h.def.damage, prev: muzzlePos.clone() });
+  }
+  function updateSmart(dt) {
+    for (let i = smartRounds.length - 1; i >= 0; i--) {
+      const r = smartRounds[i]; r.life -= dt;
+      if (r.target && !r.target.dead) {
+        const want = combat.hitCenter(r.target, v3).sub(r.m.position).normalize().multiplyScalar(34);
+        r.vel.lerp(want, 1 - Math.exp(-9 * dt));        // steer onto the locked target
+      }
+      r.prev.copy(r.m.position); r.m.position.addScaledVector(r.vel, dt);
+      r.m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v1.copy(r.vel).normalize());
+      tracer(r.prev, r.m.position, 0x7dff9a, 0.12);
+      let hit = r.life <= 0 || r.m.position.y < 0.02 || city.collides(r.m.position.x, r.m.position.z, r.m.position.y - 1, 0.02);
+      if (!hit) for (const e of combat.enemies) {
+        if (e.dead || e.cine) continue;
+        const c = combat.hitCenter(e, v3);
+        const near = e.human ? Math.hypot(r.m.position.x - c.x, r.m.position.z - c.z) < e.def.radius * 0.9 && r.m.position.y > e.group.position.y + 0.2 && r.m.position.y < e.group.position.y + 2 : r.m.position.distanceTo(c) < e.def.radius + 0.14;
+        if (near) { combat.damageEnemy(e, r.dmg, v1.copy(r.vel).normalize(), { stun: 0.1, color: 0x7dff9a }); hit = true; break; }
+      }
+      if (hit) { combat.burst(r.m.position, 0x7dff9a, 8, 1.8); game.npcSys?.startle(r.m.position, 6); root.remove(r.m); smartRounds.splice(i, 1); }
+    }
+  }
   function fire(h, origin, dir, muzzlePos, side) {
     const def = h.def;
     if ((W.mags[h.id] || 0) <= 0) { sfx("dryFire"); h.cd = 0.25; emptyHint(); return; }
     W.mags[h.id]--;
+    if (def.smart) {
+      fireSmart(h, origin, dir, muzzlePos);
+      combat.flash(muzzlePos, 0x7dff9a, 0.4); sfx("smart"); haptic?.(side, 0.45, 40);
+      h.kick = 0.12; h.cd = def.rate; saveGameSoon(); return;
+    }
     const shots = def.pellets || 1;
     for (let i = 0; i < shots; i++) {
       const d = dir.clone();
@@ -187,7 +246,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       tracer(muzzlePos, end, def.pierce ? 0x9ffcff : def.color, def.pierce ? 0.25 : 0.06);
     }
     combat.flash(muzzlePos, def.pierce ? 0x9ffcff : 0xffd27a, def.pierce ? 1.1 : def.pellets ? 0.9 : 0.45);
-    sfx(h.id === "p9" ? "pistol" : h.id === "rattler" ? "smg" : h.id === "breacher" ? "shotgun" : "rail");
+    sfx(h.id === "p9" || h.id === "seeker" ? "pistol" : h.id === "rattler" ? "smg" : h.id === "breacher" ? "shotgun" : "rail");
     haptic?.(side, def.pierce || def.pellets ? 1 : 0.55, def.pierce ? 140 : 50);
     h.kick = def.pierce ? 0.35 : def.pellets ? 0.28 : def.auto ? 0.06 : 0.14;
     h.cd = def.rate;
@@ -287,6 +346,19 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       if (g.fuse <= 0) { blast(g.m.position.clone()); root.remove(g.m); live.splice(i, 1); }
     }
     if (saveT > 0 && (saveT -= dt) <= 0) saveGame();
+    updateSmart(dt);
+    // smart-link lock-on for whichever hand holds the Seeker
+    let locked = null;
+    for (const [, h] of held) {
+      if (!h.def.smart) continue;
+      if (h.pc) { camera.getWorldPosition(v1); camera.getWorldDirection(v2); }
+      else { h.model.userData.muzzle.getWorldPosition(v1); h.model.getWorldDirection(v2).negate(); }
+      const e = findLock(v1.clone(), v2.clone());
+      if (e !== h.lock && e) sfx("click");
+      h.lock = e; if (e) locked = e;
+    }
+    reticle.visible = !!locked;
+    if (locked) { combat.hitCenter(locked, reticle.position); camera.getWorldPosition(v1); const d = reticle.position.distanceTo(v1); reticle.scale.setScalar(0.06 * d + 0.25); reticle.material.rotation += dt * 2; }
     if (vr) updateVR(hands, dt); else updatePC(dt, opts);
     // per-weapon timers, recoil, ammo display
     for (const [side, h] of held) {
@@ -302,14 +374,25 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   function updateVR(hands, dt) {
     // holsters stay hidden until a free hand comes near one (keeps your view clean when you look down)
-    const near = new Set();
+    const near = new Map();          // slot → 0..1 how close a free hand is
     for (const hd of hands) {
       if (!hd.controller || held.has(hd.side)) continue;
       hd.controller.getWorldPosition(v1); toBody(v1, v2);
-      for (const slot of SLOTS) if (equippedIn(slot) && v2.distanceTo(HOLSTER[slot].at) < HOLSTER[slot].r * 2.2) { near.add(slot); if (!hd.prevNear?.has(slot)) haptic?.(hd.side, 0.12, 15); }
-      hd.prevNear = near;
+      const st = handState.get(hd.side) || {};
+      const inNow = new Set();
+      for (const slot of SLOTS) {
+        if (!equippedIn(slot) || [...held.values()].some(h => h.slot === slot)) continue;
+        const d = v2.distanceTo(HOLSTER[slot].at), r = HOLSTER[slot].r;
+        if (d < r * 1.8) near.set(slot, Math.max(near.get(slot) || 0, d < r ? 1 : 0.45));
+        if (d < r) { inNow.add(slot); if (!st.inZone?.has(slot)) haptic?.(hd.side, 0.15, 18); }     // little tick when you can grab
+      }
+      st.inZone = inNow;
     }
-    for (const slot of SLOTS) { const hm = holsterModels[slot]; if (hm) hm.model.visible = near.has(slot) && ![...held.values()].some(h => h.slot === slot) || (window.__showHolsters && !held.size); }
+    for (const slot of SLOTS) {
+      const hm = holsterModels[slot]; if (!hm) continue;
+      const k = near.get(slot) || (window.__showHolsters ? 1 : 0);
+      hm.model.visible = k > 0; hm.model.material.opacity = k;
+    }
     for (const hd of hands) {
       if (!hd.object || !hd.controller) continue;
       const side = hd.side;
@@ -449,7 +532,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
     rows(cat) {
       const can = p => state.credits >= cost(p) ? "#a8641a" : "#56607a";
       if (cat === "ammo") return Object.entries(AMMO).map(([k, a]) => ({ id: "ammo:" + k, name: `${a.name} ×${a.pack}`, tag: `YOU HAVE ${W.ammo[k] || 0} / ${a.max}`, desc: k === "light" ? "Fits the Kasumi P9 and the Rattler." : k === "shell" ? "Breacher-6 shells." : "Longspike rail cells.", label: (W.ammo[k] || 0) >= a.max ? "FULL" : buyLabel(a.price), buttonColor: (W.ammo[k] || 0) >= a.max ? "#56607a" : can(a.price) }));
-      const ids = cat === "guns" ? ["p9", "rattler", "breacher", "longspike"] : ["katana", "baton", "emp"];
+      const ids = cat === "guns" ? ["p9", "seeker", "rattler", "breacher", "longspike"] : ["katana", "baton", "emp"];
       return ids.map(id => {
         const d = WEAPONS[id], owned = W.owned.includes(id), equipped = W.loadout[d.slot] === id;
         let label, col;

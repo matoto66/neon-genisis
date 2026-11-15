@@ -357,7 +357,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
       st.prevGrip = h.grip;
       if (grabbing && !st.held && !game.isPanelOpen()) {
         let best = null, bd = 1e9;
-        for (const o of objects) { if (o.hidden || o.held) continue; const d = o.mesh.position.distanceTo(palm) - o.r; if (d < 0.14 && d < bd) { bd = d; best = o; } }
+        for (const o of objects) { if (o.hidden || o.held) continue; const d = o.mesh.position.distanceTo(palm) - o.r; if (d < 0.22 && d < bd) { bd = d; best = o; } }      // generous grab range
         if (best) { best.held = { hand: h.object }; best.resting = false; st.held = best; haptic?.(h.side, 0.35, 40); audio.play("click"); }
         else if (inBackpackZone(palm, hf)) { openBackpack(); haptic?.(h.side, 0.4, 60); }
         else if (inHipZone(palm, hf)) {
@@ -514,6 +514,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
   return {
     update, onTrigger, desktopThrow, toggleScan, openBackpack, openCrafting,
     desktopTether() { camera.getWorldPosition(v1); camera.getWorldDirection(v2); const i = findAnchor(v1, v2); if (i === null) { game.toast(state.flags.craft_tether ? "Aim at a glowing anchor." : "Build a Tether Line at Mika's workbench first.", "warn"); return false; } return fireTether(i, null); },
+    isHolding: hand => !!handState.get(hand)?.held,
     consume(o) { for (const st of handState.values()) if (st.held === o) st.held = null; findsLog()[o.spot] = Date.now(); saveGame(); hide(o); },
     scanExtras,
     get tethering() { return !!tether; }, get scanT() { return scanT; }, debugTargets: () => scanTargets(), get holding() { return !!pcHeld; }, objects, tetherPoints

@@ -101,7 +101,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-107", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-108", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -2586,6 +2586,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   if ((uiToneTimer -= delta) <= 0) { uiToneTimer = 1.5; keepUIUntoned(); }
   if (isInCity && !intro.active && combat) {
     weapons.update(time, delta, combatHands);
+    for (const h of combatHands) h.holdingItem = gear.isHolding(h.object);
     encounters.update(delta);
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(worldTime);

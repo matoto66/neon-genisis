@@ -5,8 +5,10 @@
 import * as THREE from "three";
 
 export const WEAPONS = {
-  p9:      { name: "Kasumi P9", kind: "gun", slot: "sidearm", ammo: "light", mag: 12, damage: 22, rate: 0.16, spread: 0.012, speed: 0, auto: false, color: 0x38f0e6, price: 0,
+  p9:      { name: "Kasumi P9", short: "P9", kind: "gun", slot: "sidearm", ammo: "light", mag: 12, damage: 22, rate: 0.16, spread: 0.012, speed: 0, auto: false, color: 0x38f0e6, price: 0,
              desc: "Mika's old sidearm. Reliable, accurate, 12 rounds." },
+  seeker:  { name: "Seeker S-7 Smartlink", short: "SEEKER", kind: "gun", slot: "sidearm", ammo: "light", mag: 15, damage: 17, rate: 0.2, spread: 0, smart: true, color: 0x7dff9a, price: 1100,
+             desc: "Smart pistol. Locks onto whoever you point near and its rounds curve to hit them." },
   rattler: { name: "Rattler SMG", kind: "gun", slot: "sidearm", ammo: "light", mag: 30, damage: 11, rate: 0.075, spread: 0.035, auto: true, color: 0xff4fd8, price: 650,
              desc: "Hold the trigger and it never stops talking. 30 rounds." },
   breacher:{ name: "Breacher-6", kind: "gun", slot: "long", ammo: "shell", mag: 6, damage: 9, pellets: 8, rate: 0.75, spread: 0.09, auto: false, color: 0xff8a2a, price: 900,
@@ -62,6 +64,20 @@ export function buildWeaponModel(id) {
     add(new THREE.TorusGeometry(0.018, 0.004, 6, 12, Math.PI), m.mid, 0, -0.008, -0.03, 0, Math.PI / 2, Math.PI);   // trigger guard
     add(B(0.024, 0.018, 0.04), glow, 0, -0.095, 0.022, -0.25);                // mag base glow
     g.userData.muzzle.position.set(0, 0.03, -0.195); g.userData.magWell.position.set(0, -0.1, 0.02);
+  } else if (id === "seeker") {
+    add(B(0.03, 0.105, 0.042), m.grip, 0, -0.035, 0.012, -0.22);
+    add(B(0.036, 0.05, 0.21), m.light, 0, 0.036, -0.065);                     // white slide
+    add(B(0.032, 0.022, 0.18), m.dark, 0, 0.003, -0.06);
+    add(C(0.011, 0.011, 0.05), m.dark, 0, 0.034, -0.19, Math.PI / 2);
+    for (const s of [-1, 1]) add(B(0.004, 0.006, 0.19), glow, s * 0.0185, 0.05, -0.065);
+    // smart-link module: a little lens + antenna on top
+    add(B(0.024, 0.02, 0.045), m.dark, 0, 0.07, -0.02);
+    add(new THREE.CircleGeometry(0.008, 12), glowMat(def.color), 0, 0.07, -0.0435);
+    add(C(0.0025, 0.0025, 0.05, 6), m.mid, 0.01, 0.1, -0.005, 0.3);
+    add(new THREE.SphereGeometry(0.005, 6, 4), glow, 0.0175, 0.124, 0.002);
+    add(new THREE.TorusGeometry(0.018, 0.004, 6, 12, Math.PI), m.dark, 0, -0.008, -0.03, 0, Math.PI / 2, Math.PI);
+    add(B(0.024, 0.016, 0.04), glow, 0, -0.095, 0.024, -0.22);
+    g.userData.muzzle.position.set(0, 0.034, -0.22); g.userData.magWell.position.set(0, -0.1, 0.02);
   } else if (id === "rattler") {
     add(B(0.032, 0.1, 0.04), m.grip, 0, -0.04, 0.03, -0.2);
     add(B(0.045, 0.065, 0.26), m.dark, 0, 0.03, -0.06);                      // body

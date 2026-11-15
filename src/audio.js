@@ -288,6 +288,7 @@ export function createAudio(camera) {
     // ── combat ──
     blaster: () => { tone({ freq: 1900, type: "square", d: 0.16, peak: 0.07, glide: 260, filter: { freq: 3500 } }); tone({ freq: 950, type: "sawtooth", d: 0.12, peak: 0.04, glide: 180 }); noiseHit({ d: 0.12, peak: 0.06, type: "highpass", freq: 4000 }); },
     pistol: () => { noiseHit({ d: 0.09, peak: 0.3, type: "lowpass", freq: 2600 }); noiseHit({ d: 0.22, peak: 0.08, type: "bandpass", freq: 900 }); tone({ freq: 160, d: 0.12, peak: 0.22, glide: 55 }); },
+    smart: () => { noiseHit({ d: 0.07, peak: 0.22, type: "lowpass", freq: 3000 }); tone({ freq: 1400, type: "sine", d: 0.12, peak: 0.07, glide: 2600 }); tone({ freq: 170, d: 0.09, peak: 0.16, glide: 60 }); },
     smg: () => { noiseHit({ d: 0.05, peak: 0.2, type: "lowpass", freq: 3200 }); tone({ freq: 210, d: 0.05, peak: 0.12, glide: 90 }); },
     shotgun: () => { noiseHit({ d: 0.3, peak: 0.42, type: "lowpass", freq: 1500 }); tone({ freq: 95, d: 0.3, peak: 0.3, glide: 35 }); noiseHit({ t: now() + 0.32, d: 0.06, peak: 0.12, type: "highpass", freq: 2500 }); noiseHit({ t: now() + 0.42, d: 0.05, peak: 0.12, type: "highpass", freq: 2000 }); },
     railCharge: () => { tone({ freq: 300, type: "sawtooth", d: 0.7, peak: 0.05, glide: 2400, filter: { freq: 3000 } }); },
