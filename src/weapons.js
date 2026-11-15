@@ -49,6 +49,10 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   refreshHolsters();
   let bodyYaw = 0;
+  if (state.missions?.m2?.status === "done" && !W.owned.includes("p9")) {
+    W.owned.push("p9"); W.loadout.sidearm ||= "p9"; W.mags.p9 = 12; W.ammo.light = Math.max(W.ammo.light || 0, 36); saveGame(); refreshHolsters();
+    setTimeout(() => game.toast("Mika left you her Kasumi P9 · it's on your right hip", "objective"), 4000);
+  }
   function placeBody(dt) {
     camera.getWorldPosition(headP);
     camera.getWorldDirection(v1); v1.y = 0;
@@ -433,23 +437,27 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
     game.toast(`WEAPON ACQUIRED · ${def.name.toUpperCase()}`, "chapter");
   }
   function addAmmo(type, n) { W.ammo[type] = Math.min(AMMO[type].max, (W.ammo[type] || 0) + n); saveGameSoon(); }
+  // TEST MODE: everything at Rook's is free. Set to false to restore prices.
+  const FREE_ARMS = true;
+  const cost = p => FREE_ARMS ? 0 : p;
+  const buyLabel = p => FREE_ARMS ? "GET · FREE" : `BUY $${p}`;
   const where = { sidearm: "RIGHT HIP", long: "CHEST", blade: "LEFT SHOULDER", grenade: "BELT" };
   const store = {
     title: "ROOK'S · THINGS THAT GO BANG", accent: "#ffb02e", tabColor: "#a8641a",
     tabs: [{ id: "guns", label: "GUNS" }, { id: "blades", label: "BLADES & EMP" }, { id: "ammo", label: "AMMO" }],
     subtitle: () => `HIP ${WEAPONS[W.loadout.sidearm]?.name || "—"} · CHEST ${WEAPONS[W.loadout.long]?.name || "—"}`,
     rows(cat) {
-      const can = p => state.credits >= p ? "#a8641a" : "#56607a";
-      if (cat === "ammo") return Object.entries(AMMO).map(([k, a]) => ({ id: "ammo:" + k, name: `${a.name} ×${a.pack}`, tag: `YOU HAVE ${W.ammo[k] || 0} / ${a.max}`, desc: k === "light" ? "Fits the Kasumi P9 and the Rattler." : k === "shell" ? "Breacher-6 shells." : "Longspike rail cells.", label: (W.ammo[k] || 0) >= a.max ? "FULL" : `BUY $${a.price}`, buttonColor: (W.ammo[k] || 0) >= a.max ? "#56607a" : can(a.price) }));
+      const can = p => state.credits >= cost(p) ? "#a8641a" : "#56607a";
+      if (cat === "ammo") return Object.entries(AMMO).map(([k, a]) => ({ id: "ammo:" + k, name: `${a.name} ×${a.pack}`, tag: `YOU HAVE ${W.ammo[k] || 0} / ${a.max}`, desc: k === "light" ? "Fits the Kasumi P9 and the Rattler." : k === "shell" ? "Breacher-6 shells." : "Longspike rail cells.", label: (W.ammo[k] || 0) >= a.max ? "FULL" : buyLabel(a.price), buttonColor: (W.ammo[k] || 0) >= a.max ? "#56607a" : can(a.price) }));
       const ids = cat === "guns" ? ["p9", "rattler", "breacher", "longspike"] : ["katana", "baton", "emp"];
       return ids.map(id => {
         const d = WEAPONS[id], owned = W.owned.includes(id), equipped = W.loadout[d.slot] === id;
         let label, col;
-        if (id === "emp") { label = W.grenades >= 6 ? "FULL" : `BUY $${d.price}`; col = W.grenades >= 6 ? "#56607a" : can(d.price); }
+        if (id === "emp") { label = W.grenades >= 6 ? "FULL" : buyLabel(d.price); col = W.grenades >= 6 ? "#56607a" : can(d.price); }
         else if (equipped) { label = "EQUIPPED"; col = "#2a8a6a"; }
         else if (owned) { label = "EQUIP"; col = "#2a6a8a"; }
-        else if (!d.price) { label = "NOT FOR SALE"; col = "#56607a"; }
-        else { label = `BUY $${d.price}`; col = can(d.price); }
+        else if (!d.price && !FREE_ARMS) { label = "NOT FOR SALE"; col = "#56607a"; }
+        else { label = buyLabel(d.price); col = can(d.price); }
         return { id, name: d.name, color: "#" + new THREE.Color(d.color).getHexString(), tag: id === "emp" ? `${where.grenade} · YOU HAVE ${W.grenades}` : `${where[d.slot]}`, desc: d.desc, label, buttonColor: col };
       });
     },
@@ -457,15 +465,15 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       if (id.startsWith("ammo:")) {
         const k = id.slice(5), a = AMMO[k];
         if ((W.ammo[k] || 0) >= a.max) return "Can't carry more.";
-        if (state.credits < a.price) return "Not enough credits.";
-        state.credits -= a.price; addAmmo(k, a.pack); saveGame(); return `+${a.pack} ${a.name.toLowerCase()}.`;
+        if (state.credits < cost(a.price)) return "Not enough credits.";
+        state.credits -= cost(a.price); addAmmo(k, a.pack); saveGame(); return `+${a.pack} ${a.name.toLowerCase()}.`;
       }
       const d = WEAPONS[id];
-      if (id === "emp") { if (W.grenades >= 6) return "Six is plenty."; if (state.credits < d.price) return "Not enough credits."; state.credits -= d.price; W.grenades++; refreshHolsters(); saveGame(); return `EMP grenade. You have ${W.grenades}.`; }
+      if (id === "emp") { if (W.grenades >= 6) return "Six is plenty."; if (state.credits < cost(d.price)) return "Not enough credits."; state.credits -= cost(d.price); W.grenades++; refreshHolsters(); saveGame(); return `EMP grenade. You have ${W.grenades}.`; }
       if (W.owned.includes(id)) { W.loadout[d.slot] = id; for (const [s, h] of held) if (h.slot === d.slot) holster(s, true); refreshHolsters(); saveGame(); return `${d.name} equipped (${where[d.slot].toLowerCase()}).`; }
-      if (!d.price) return id === "baton" ? "Take one off a Tenkai enforcer." : "Not for sale.";
-      if (state.credits < d.price) return "Not enough credits.";
-      state.credits -= d.price; give(id, d.ammo ? AMMO[d.ammo].pack * 2 : 0, true); return `${d.name} is yours. It's on your ${where[d.slot].toLowerCase()}.`;
+      if (!d.price && !FREE_ARMS) return id === "baton" ? "Take one off a Tenkai enforcer." : "Not for sale.";
+      if (state.credits < cost(d.price)) return "Not enough credits.";
+      state.credits -= cost(d.price); give(id, d.ammo ? AMMO[d.ammo].pack * 2 : 0, true); return `${d.name} is yours. It's on your ${where[d.slot].toLowerCase()}.`;
     }
   };
 
