@@ -18,6 +18,8 @@ import { comfort, createComfort, applyPicture } from "./comfort.js";
 import { buildRadios } from "./radio.js";
 import { createGear } from "./gear.js";
 import { createScooter } from "./scooter.js";
+import { createWeapons, buildRookStall } from "./weapons.js";
+import { createEncounters } from "./encounters.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
 import { createArcade } from "./arcade.js";
 import { drawControllerDiagram } from "./controlsart.js";
@@ -99,7 +101,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-105", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-106", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -845,7 +847,8 @@ document.addEventListener("keydown", event => {
     if (event.code === "KeyQ") { combat.useMedPatch(); return; }
     if (event.code === "KeyV") { combat.useChrono(); return; }
     if (arcade.active && (event.code === "KeyF" || event.code === "Escape")) { arcade.stop(); return; }
-    if (event.code === "KeyR") { gear.toggleScan(); return; }
+    if (event.code === "KeyR") { if (weapons.pcHolding) weapons.pcReload(); else gear.toggleScan(); return; }
+    if (["Digit1", "Digit2", "Digit3", "Digit4"].includes(event.code) && !encounters.cutscene) { weapons.pcEquip(["sidearm", "long", "blade", "grenade"][+event.code.slice(5) - 1]); return; }
     if (event.code === "KeyG") { gear.desktopTether(); return; }
     if (event.code === "KeyI") { gear.openBackpack(); return; }
   }
@@ -1880,7 +1883,9 @@ for (let i = 0; i < 2; i++) {
     if (intro.active) { intro.triggerDown(); return; }
     if (!isInCity || vrMenu.visible || vrStart.visible) return;
     // Physical door handle first, then NPCs / pickups / dialogue buttons.
+    if (encounters.cutscene) { encounters.skip(); return; }
     if (game?.isPanelOpen()) { game.onTrigger(controller); return; }
+    if (weapons.isHolding(controller.userData.handedness)) return;     // the held weapon uses the trigger
     if (arcade.active) return;                                          // trigger = fire on the cabinet
     if (gear.onTrigger(controller, robotHandOf(controller))) return;     // scan gesture / tether
     if (beginDoorGrab(controller)) return;
@@ -2181,7 +2186,7 @@ renderer.domElement.addEventListener("mousedown", event => {
   lastX = event.clientX;
   lastY = event.clientY;
 });
-window.addEventListener("mouseup", () => { dragging = false; });
+window.addEventListener("mouseup", () => { dragging = false; weapons?.pcTrigger(false); });
 document.addEventListener("mousemove", event => {
   if (renderer.xr.isPresenting) return;
   if (document.pointerLockElement === renderer.domElement) {
@@ -2458,6 +2463,12 @@ const combat = createCombat({
 const gear = createGear({ root: cityWorld, scene, camera, player, renderer, city, combat, game, audio, haptic,
   mikaBench: { position: mikaShop.localToWorld(new THREE.Vector3(-1.55, 0.92, -1.75)) } });
 const scooter = createScooter({ root: cityWorld, scene, camera, player, renderer, city, game, audio, haptic, gear });
+const weapons = createWeapons({ root: cityWorld, scene, camera, player, renderer, city, game, combat, audio, haptic, getPCHand: () => firstPersonHands?.children[1] });
+const encounters = createEncounters({ root: cityWorld, scene, camera, player, renderer, city, game, combat, audio, haptic, weapons });
+game.hooks.weapons = weapons;
+buildRookStall(cityWorld, city);
+game.hooks.fightPos = id => encounters.fightPos(id);
+combat.hooks.onKill = e => weapons.onKill(e);
 gear.scanExtras.push(() => scooter.scanTarget());
 const arcade = createArcade({ root: cityWorld, scene, game, audio, player, camera, position: new THREE.Vector3(10.45, 0, -28), yaw: -Math.PI / 2 });
 city.colliders.push({ minX: 9.95, maxX: 11, minZ: -28.5, maxZ: -27.5, minY: 0, maxY: 2.1 });
@@ -2493,6 +2504,8 @@ renderer.domElement.addEventListener("mousedown", event => {
   if (!renderer.xr.isPresenting && isInCity && document.pointerLockElement === renderer.domElement && !game.isPanelOpen()) {
     if (event.button === 2) { combat.firePulse(camera); return; }
     if (arcade.active) { if (event.button === 0) arcadeFire = true; return; }
+    if (event.button === 0 && encounters.cutscene) { encounters.skip(); return; }
+    if (event.button === 0 && weapons.pcHolding) { weapons.pcTrigger(true); return; }
     if (event.button === 0 && gear.desktopThrow()) return;
     if (event.button === 0 && !game.desktopInteract()) { desktopJab = 1; if (!combat.desktopPunch()) startleInFront(); return; }
     if (event.button === 0) return;
@@ -2509,7 +2522,7 @@ if (DEBUG) {
     setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get scooter() { return scooter; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get scooter() { return scooter; }, get weapons() { return weapons; }, get encounters() { return encounters; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2533,7 +2546,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   // Initialize only after this frame has updated Three.js' tracked XR camera.
   const needsVRIntro = renderer.xr.isPresenting && !vrSessionIntroActive && !vrStartReady;
   lastTurnRate = 0;
-  const movementAmount = isInCity && !intro.active && !gear.tethering && !arcade.active ? movePlayer(delta) : 0;
+  const movementAmount = isInCity && !intro.active && !gear.tethering && !arcade.active && !encounters?.cutscene ? movePlayer(delta) : 0;
   comfortSys.update(delta, xrFrame, movementAmount, lastTurnRate);
   intro.update(time, delta);
   updateAvatarHeightFromHeadset(xrFrame, delta);
@@ -2554,7 +2567,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       hover, holding: activeDoorGrab?.controller === controller
     };
     animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI, handInput);
-    if (side && robotHand) combatHands.push({ side, object: robotHand, grip, controller });
+    if (side && robotHand) combatHands.push({ side, object: robotHand, grip, controller, trigger: bt[0]?.value || 0 });
   }
   if (renderer.xr.isPresenting) {
     const xPressed = !!getGamepad("left")?.buttons?.[4]?.pressed;   // X: med patch
@@ -2572,6 +2585,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   // Menus, dialogue boards and labels skip tone mapping so text stays crisp.
   if ((uiToneTimer -= delta) <= 0) { uiToneTimer = 1.5; keepUIUntoned(); }
   if (isInCity && !intro.active && combat) {
+    weapons.update(time, delta, combatHands);
+    encounters.update(delta);
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(worldTime);
     cityFX.update(worldTime, worldDelta);

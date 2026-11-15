@@ -324,7 +324,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
   }
   function toHeadLocal(p, hf) { return v1.copy(p).sub(hf.head).applyQuaternion(q1.copy(hf.q).invert()); }
   function inBackpackZone(p, hf) { const l = toHeadLocal(p, hf); return l.z > 0.02 && l.y > -0.45 && l.y < 0.35 && Math.hypot(l.x, l.z) < 0.5; }
-  function inHipZone(p, hf) { const l = v1.copy(p).sub(hf.head); const yaw = new THREE.Euler().setFromQuaternion(hf.q, "YXZ").y; l.applyAxisAngle(v2.set(0, 1, 0), -yaw); return l.y < -0.5 && l.y > -1.05 && Math.abs(l.x) > 0.08 && Math.abs(l.x) < 0.42 && Math.abs(l.z) < 0.32; }
+  function inHipZone(p, hf) { const l = v1.copy(p).sub(hf.head); const yaw = new THREE.Euler().setFromQuaternion(hf.q, "YXZ").y; l.applyAxisAngle(v2.set(0, 1, 0), -yaw); return l.y < -0.5 && l.y > -1.05 && l.x < -0.08 && l.x > -0.42 && Math.abs(l.z) < 0.32; }   // LEFT hip (right hip holds your sidearm)
   function nearMouth(p, hf) { const l = toHeadLocal(p, hf); return l.z < 0.02 && l.z > -0.2 && l.y < -0.03 && l.y > -0.2 && Math.abs(l.x) < 0.1; }
   function nearTemple(p, hf) { const l = toHeadLocal(p, hf); return Math.abs(l.x) > 0.04 && Math.abs(l.x) < 0.22 && l.y > -0.08 && l.y < 0.15 && l.z > -0.12 && l.z < 0.12; }
 
@@ -348,6 +348,7 @@ export function createGear({ root, scene, camera, player, renderer, city, combat
       if (!h.object) continue;
       let st = handState.get(h.object);
       if (!st) { st = { prevGrip: 0, held: null, hist: [], mouthT: 0 }; handState.set(h.object, st); }
+      if (h.busy) { st.prevGrip = h.grip; continue; }       // this hand is holding a weapon
       h.object.getWorldPosition(v2);
       const palm = v2.clone();
       st.hist.push([palm.clone(), dt]); if (st.hist.length > 5) st.hist.shift();

@@ -87,6 +87,9 @@ export const CHARACTERS = {
   whisper: { name: "Whisper", role: "Archivist · Shimmer Alley",
     appearance: { eyes: 0x8a8f96, shirt: 0x2a2520, extra: "scarf", build: "old", scale: 0.97, skin: 0x5a3420, hair: "long", hairColor: 0xc9c1b4, top: "coat", topColor: 0x3a2f28,
       accent: 0x5a4a3a, pants: 0x2a2520, shoes: 0x2a2520, glow: 0xffcf8a, hat: "hood", mask: true } },
+  rook: { name: "Rook", role: "Arms Dealer · Neon Mile back lane",
+    appearance: { eyes: 0xffb02e, shirt: 0x1a1a1a, faceShape: "angular", facialHair: "stubble", extra: "chain", pantsStyle: "cargo", shoesStyle: "boots", build: "male", scale: 1.06, skin: 0x8a5a3a, hair: "undercut", hairColor: 0x2a2a2a, top: "vest", topColor: 0x2a2620,
+      accent: 0xffb02e, pants: 0x22201c, shoes: 0x111111, glow: 0xffb02e, cyberArm: "both", implants: true, goggles: true } },
   ishida: { name: "Director Ishida", role: "Tenkai Dynamics · Security",
     appearance: { eyes: 0x38f0e6, shirt: 0xd8dce6, faceShape: "angular", hair: "swept", build: "male", scale: 1.06, skin: 0xe0ac86, hairColor: 0x111111, top: "coat", topColor: 0x101218,
       accent: 0x2a2f3a, pants: 0x101218, shoes: 0x101010, glow: 0x38f0e6, glasses: true } }
@@ -136,7 +139,9 @@ export const MISSIONS = {
   m2: { chapter: 1, kind: "main", title: "The Thing on the Workbench", giver: "mika", reward: { credits: 100 }, next: "m3",
     steps: [
       { text: "Touch the Genesis Core in Mika's workshop", done: { interact: "genesis_core" }, target: { object: "genesis_core" } },
-      { text: "Ask Mika what just happened", target: { npc: "mika" } }
+      { text: "Ask Mika what just happened", target: { npc: "mika" } },
+      { text: "Draw the P9 from your right hip and fight off the Tenkai drones outside", done: { fight: "m2_ambush" }, target: { fight: "m2_ambush" } },
+      { text: "Check on Mika", target: { npc: "mika" } }
     ] },
   m3: { chapter: 1, kind: "main", title: "Noodles & Rumours", giver: "sato", reward: { credits: 0 }, next: "m4",
     steps: [
@@ -146,6 +151,7 @@ export const MISSIONS = {
   m4: { chapter: 1, kind: "main", title: "Rooftop Runner", giver: "rei", reward: { credits: 300 }, next: "m5",
     steps: [
       { text: "Plant jammers on the Tenkai sensor pylons in Neon Mile", done: { interact: "pylon", count: 3 }, target: { object: "pylon" } },
+      { text: "Survive the Tenkai response team", done: { fight: "m4_squad" }, target: { fight: "m4_squad" } },
       { text: "Report back to Rei on the rooftop", target: { npc: "rei", via: "liftGround" } }
     ] },
   m5: { chapter: 1, kind: "main", title: "Second Skin", giver: "doc", reward: { credits: 0 }, next: "m6",
@@ -158,6 +164,7 @@ export const MISSIONS = {
     steps: [
       { text: "Go to Spire Plaza at the north end of Neon Mile", done: { visit: "plaza" }, target: { anchor: "plaza" } },
       { text: "Hear out the broadcast from Tenkai Dynamics", target: { npc: "ishida" } },
+      { text: "Take down Sgt. Okabe and his squad", done: { fight: "m6_boss" }, target: { fight: "m6_boss" } },
       { text: "Return to Mika's Repair and tell her what you decided", target: { npc: "mika" } }
     ] },
   s1: { chapter: 0, kind: "side", title: "Bolt Has Fallen", giver: "pip", reward: { credits: 120 },
@@ -222,12 +229,16 @@ export const DIALOGUE = {
       { text: "We should sell it before someone comes looking.", do: g => g.setFlag("mika_trust", (g.flag("mika_trust") || 0) - 1), to: "mika_m2_sell" }] }),
   mika_m2_why: g => ({ speaker: "mika",
     text: "Because someone should remember it was good. Sentimental mechanic, terrible business plan.",
-    options: [{ text: "So what now?", to: "mika_m2_next" }] }),
+    options: [{ text: "So what now?", to: "mika_m2_alarm" }] }),
   mika_m2_sell: g => ({ speaker: "mika",
     text: "Sell it to who? Tenkai? They'd pay us in bullets. No. We keep it, and we keep quiet.",
-    options: [{ text: "Fair. So what now?", to: "mika_m2_next" }] }),
+    options: [{ text: "Fair. So what now?", to: "mika_m2_alarm" }] }),
+  mika_m2_alarm: g => ({ speaker: "mika",
+    text: "Wait. Hear that whine? Drones. That ping was a flare and they followed it straight here. Take this — my old Kasumi P9. It's on your right hip. Reach down, grab it, point, squeeze. Twelve rounds; slap your other hand to the bottom of the grip to reload.",
+    options: [{ text: "Got it. Stay inside.", do: g => { g.giveWeapon("p9", 36); g.completeStep("m2"); } }] }),
+  mika_m2_fight: g => ({ speaker: "mika", text: "They're right outside! Go! I'll keep the Core powered down.", options: [{ text: "Going." }] }),
   mika_m2_next: g => ({ speaker: "mika",
-    text: "That ping will have been felt. Go see Old Sato at the noodle stand across the street. If anyone's been asking about my shop, he'll know. He'll also try to sell you noodles. Buy the noodles.",
+    text: "You're shaking. That's fine, so am I. Keep the P9. That ping will have been felt all the way up the Spire — go see Old Sato at the noodle stand across the street. If anyone's been asking about my shop, he'll know. He'll also try to sell you noodles. Buy the noodles.",
     options: [{ text: "Heading to Sato's.", do: g => g.completeStep("m2") }] }),
   mika_idle: g => ({ speaker: "mika",
     text: g.flag("chapter1_done") ? "The core's been humming all night. Whatever's at the Spire, it's waiting for you. When you're ready, so am I." :
@@ -282,6 +293,7 @@ export const DIALOGUE = {
   rei_m4_where: g => ({ speaker: "rei",
     text: "Head north up the main street, past the Ring Road junction with the giant fish. White poles, red eye, very smug. Two on the sidewalks, one in Spire Plaza.",
     options: [{ text: "Got it." }] }),
+  rei_m4_fight: g => ({ speaker: "rei", text: "[comms crackling] Tenkai dropship on the Mile! They felt the jammers. Don't run — they'll follow you home. Put them down, then get up here.", options: [{ text: "On it." }] }),
   rei_m4_wait: g => ({ speaker: "rei", text: `Jammers planted: ${g.count("pylon")} of 3. The pylons are up north in Neon Mile. Go, go.`, options: [{ text: "On it." }] }),
   rei_m4_done: g => ({ speaker: "rei",
     text: "Trace is dead — the drones just wandered off toward the docks. Nice work. Now let me see that implant of yours… Huh. Serial GEN-0. That's not junk-grade. That's Tenkai prototype stock.",
@@ -327,8 +339,11 @@ export const DIALOGUE = {
     options: [
       { text: "Deal. Five thousand.", do: g => { g.setFlag("sided_tenkai", true); g.completeStep("m6"); }, to: "ishida_yes" },
       { text: "No.", do: g => { g.setFlag("refused_tenkai", true); g.completeStep("m6"); }, to: "ishida_no" }] }),
-  ishida_yes: g => ({ speaker: "ishida", text: "Wise. You have until the next blackout. Don't make me come down to the Sump; I hate the smell.", options: [{ text: "(The hologram flickers out.)" }] }),
-  ishida_no: g => ({ speaker: "ishida", text: "Then enjoy the dark, Static. It's coming for your friends first.", options: [{ text: "(The hologram flickers out.)" }] }),
+  ishida_yes: g => ({ speaker: "ishida", text: "Wise. Sergeant Okabe will collect the Core from you now. Don't make this messy — oh. He's already drawn his baton. Pity.", options: [{ text: "(The hologram flickers out. Engines roar overhead.)" }] }),
+  ishida_no: g => ({ speaker: "ishida", text: "Then enjoy the dark, Static. Sergeant Okabe — take it off their corpse.", options: [{ text: "(The hologram flickers out. Engines roar overhead.)" }] }),
+  rook_hi: g => ({ speaker: "rook",
+    text: g.flag("met_rook") ? "Back again. Credits first, questions never." : "Mika's stray. Yeah, I heard. Name's Rook. I sell things that go bang, things that go shing, and the little round things that go both. No refunds if you shoot yourself.",
+    options: [{ text: "Show me what you've got.", do: g => { g.setFlag("met_rook", true); g.openArms(); } }, { text: "Just looking." , do: g => g.setFlag("met_rook", true) }] }),
 
   // ── PIP ──
   pip_s1: g => ({ speaker: "pip",
@@ -370,15 +385,15 @@ export function entryFor(id, g) {
     case "mika":
       if (!st("m1")) return "intro";        // story never started (intro closed early): offer it again
       if (st("m1") === "active") return step("m1") === 0 ? "mika_m1_start" : step("m1") === 1 ? "mika_m1_waiting" : "mika_m1_done";
-      if (st("m2") === "active") return step("m2") === 0 ? "mika_m2_wait" : "mika_m2_after";
-      if (st("m6") === "active" && step("m6") === 2) return "mika_m6_end";
+      if (st("m2") === "active") return ["mika_m2_wait", "mika_m2_after", "mika_m2_fight", "mika_m2_next"][step("m2")];
+      if (st("m6") === "active" && step("m6") === 3) return "mika_m6_end";
       return "mika_idle";
     case "sato":
       if (st("m3") === "active" && step("m3") === 0) return "sato_m3";
       return "sato_idle";
     case "rei":
       if (st("m3") === "active" && step("m3") === 1) return "rei_m3";
-      if (st("m4") === "active") return step("m4") === 0 ? "rei_m4_wait" : "rei_m4_done";
+      if (st("m4") === "active") return ["rei_m4_wait", "rei_m4_fight", "rei_m4_done"][step("m4")];
       return "rei_idle";
     case "doc":
       if (st("m5") === "active") return step("m5") === 0 ? "doc_m5" : step("m5") === 1 ? "doc_m5_wait" : "doc_m5_done";
@@ -386,6 +401,7 @@ export function entryFor(id, g) {
     case "ishida":
       if (st("m6") === "active" && step("m6") === 1) return "ishida_m6";
       return null;
+    case "rook": return "rook_hi";
     case "pip":
       if (!st("s1")) return "pip_s1";
       if (st("s1") === "active") return step("s1") === 0 ? "pip_s1_wait" : "pip_s1_done";

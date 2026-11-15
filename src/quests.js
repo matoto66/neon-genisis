@@ -12,7 +12,7 @@ import { createNPCSystem, randomAppearance } from "./npcs.js";
 import { createGuide, guideSettings } from "./guide.js";
 
 const PANEL_W = 1024, PANEL_H = 768;
-const SPEAKER_COLORS = { mika: "#38f0e6", sato: "#ffcf7a", rei: "#ff4f6d", doc: "#ff6fe0", pip: "#9fff6a", lulu: "#ff4fa3", whisper: "#ffcf8a", ishida: "#8fd8ff" };
+const SPEAKER_COLORS = { mika: "#38f0e6", sato: "#ffcf7a", rei: "#ff4f6d", doc: "#ff6fe0", pip: "#9fff6a", lulu: "#ff4fa3", whisper: "#ffcf8a", ishida: "#8fd8ff", rook: "#ffb02e" };
 
 function mulberry32(seed) {
   return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -62,6 +62,7 @@ export function createGame(ctx) {
     pip: { position: new THREE.Vector3(-16, 0, 10.6), yaw: Math.PI / 2 },
     lulu: { position: A.lulu, yaw: Math.PI / 2 },
     whisper: { position: new THREE.Vector3(-30.4, 0, -84.6), yaw: Math.PI / 2 },
+    rook: { position: new THREE.Vector3(30.2, 0, -97.6), yaw: -Math.PI / 2 },
     ishida: { position: A.ishida, yaw: 0, hologram: true, scale: 1.55 }
   };
   for (const [id, n] of Object.entries(named)) {
@@ -387,10 +388,13 @@ export function createGame(ctx) {
     status, step: stepOf, count, startMission, completeStep, give: n => give(n),
     spend: n => { state.credits = Math.max(0, state.credits - n); changed(); },
     openShop: () => { pendingShop = true; },
+    openArms: () => { pendingStore = hooks.weapons?.store || null; },
+    giveWeapon: (id, ammo) => hooks.weapons?.give(id, ammo),
     get name() { return (ctx.getName?.() || "").trim(); }, bark: () => AMBIENT_BARKS[Math.floor(Math.random() * AMBIENT_BARKS.length)],
     coreFlare: () => coreFlare(), toast: (t, k) => toast(t, k), finale: () => { finaleMood = 90; }
   };
-  let pendingShop = false;
+  let pendingShop = false, pendingStore = null;
+  const hooks = {};      // filled in by main.js: weapons, fightPos
 
   function placePanel(distance = 1.05) {
     camera.getWorldPosition(headPos);
@@ -421,11 +425,13 @@ export function createGame(ctx) {
     audio.play("click");
     if (panelState.mode === "shop") return shopClick(index);
     if (panelState.mode === "board") return boardClick(index);
+    if (panelState.mode === "store") return storeClick(index);
     const opt = panelState.options[index];
     if (!opt) return;
-    pendingShop = false;
+    pendingShop = false; pendingStore = null;
     opt.do?.(api);
     if (pendingShop) { pendingShop = false; return openShop(); }
+    if (pendingStore) { const st = pendingStore; pendingStore = null; return openStore(st); }
     if (opt.to) openDialogue(opt.to);
     else closePanel();
   }
@@ -446,11 +452,12 @@ export function createGame(ctx) {
     const c = pctx, s = panelState;
     c.clearRect(0, 0, PANEL_W, PANEL_H);
     c.fillStyle = "rgba(6,10,24,0.94)"; roundRect(c, 6, 6, PANEL_W - 12, PANEL_H - 12, 26); c.fill();
-    const accent = s.mode === "board" ? s.def.accent : s.mode === "shop" ? "#ff6fe0" : (SPEAKER_COLORS[s.node?.speaker] || (s.node?.narration ? "#c58bff" : "#38f0e6"));
+    const accent = s.mode === "board" ? s.def.accent : s.mode === "store" ? s.store.accent : s.mode === "shop" ? "#ff6fe0" : (SPEAKER_COLORS[s.node?.speaker] || (s.node?.narration ? "#c58bff" : "#38f0e6"));
     c.strokeStyle = accent; c.lineWidth = 5; c.stroke();
     c.fillStyle = accent; c.fillRect(40, 96, 120, 4);
     s.buttons = [];
     if (s.mode === "shop") return drawShop(accent);
+    if (s.mode === "store") return drawStore();
     if (s.mode === "board") return drawBoard();
     const sp = CHARACTERS[s.node.speaker];
     c.fillStyle = accent; c.font = "bold 40px Arial"; c.textBaseline = "alphabetic";
@@ -621,6 +628,53 @@ export function createGame(ctx) {
     drawPanel();
   }
 
+  // ── generic store board (Rook's arms): rows come from the store object ──
+  function openStore(store) {
+    if (!panel.visible) placePanel();
+    panelState = { mode: "store", store, cat: store.tabs[0].id, message: "" };
+    panel.visible = true; hoverIndex = -1;
+    drawPanel(); onPanelOpen();
+  }
+  function drawStore() {
+    const c = pctx, s = panelState, st = s.store, accent = st.accent;
+    s.rows = st.rows(s.cat);
+    c.textBaseline = "alphabetic";
+    c.fillStyle = accent; c.font = "bold 36px Arial"; c.fillText(st.title, 40, 64);
+    c.fillStyle = "#ffffff"; c.font = "bold 26px Arial"; c.fillText(`$${state.credits.toLocaleString()}`, 760, 50);
+    c.fillStyle = "#8ea3bf"; c.font = "20px Arial"; c.fillText(st.subtitle?.() || "", 640, 80);
+    st.tabs.forEach((t, k) => {
+      const x = 40 + k * 205, on = s.cat === t.id, hov = hoverIndex === 100 + k;
+      c.fillStyle = on ? st.tabColor : hov ? "rgba(255,176,46,0.2)" : "rgba(22,32,54,0.9)"; roundRect(c, x, 96, 195, 44, 10); c.fill();
+      c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(t.label, x + 97, 125); c.textAlign = "left";
+      s.buttons.push({ x, y: 96, w: 195, h: 44, index: 100 + k });
+    });
+    const rowH = 76;
+    s.rows.forEach((r, i) => {
+      const y = 152 + i * rowH, hov = i === hoverIndex;
+      c.fillStyle = hov ? "rgba(255,176,46,0.16)" : "rgba(22,32,54,0.9)"; roundRect(c, 32, y, PANEL_W - 64, rowH - 6, 12); c.fill();
+      c.fillStyle = r.color || "#ffffff"; c.font = "bold 25px Arial"; c.fillText(r.name, 50, y + 30);
+      if (r.tag) { const nw = c.measureText(r.name).width; c.fillStyle = "#9fe9ff"; c.font = "17px Arial"; c.fillText(r.tag, 50 + Math.max(240, nw + 30), y + 30); }
+      c.fillStyle = "#b8c4d8"; c.font = "18px Arial"; c.fillText(r.desc.length > 84 ? r.desc.slice(0, 82) + "…" : r.desc, 50, y + 56);
+      c.fillStyle = r.buttonColor; roundRect(c, PANEL_W - 230, y + 8, 180, rowH - 22, 10); c.fill();
+      c.fillStyle = "#ffffff"; c.font = "bold 20px Arial"; c.textAlign = "center"; c.fillText(r.label, PANEL_W - 140, y + rowH / 2 + 2); c.textAlign = "left";
+      s.buttons.push({ x: 32, y, w: PANEL_W - 64, h: rowH - 6, index: i });
+    });
+    const ly = PANEL_H - 74, li = s.rows.length, hov = hoverIndex === li;
+    c.fillStyle = hov ? "rgba(56,240,230,0.28)" : "rgba(30,44,70,0.92)"; roundRect(c, 40, ly, 300, 54, 12); c.fill();
+    c.fillStyle = "#ffffff"; c.font = "bold 26px Arial"; c.fillText("LEAVE", 150, ly + 36);
+    s.buttons.push({ x: 40, y: ly, w: 300, h: 54, index: li });
+    if (s.message) { c.fillStyle = "#ffcf4a"; c.font = "bold 22px Arial"; c.fillText(s.message, 370, ly + 36); }
+    panelTex.needsUpdate = true;
+  }
+  function storeClick(index) {
+    const s = panelState;
+    if (index >= 100) { s.cat = s.store.tabs[index - 100].id; s.message = ""; return drawPanel(); }
+    if (index === s.rows.length) return closePanel();
+    const r = s.rows[index]; if (!r) return;
+    s.message = s.store.click(r.id) || "";
+    changed(); drawPanel();
+  }
+
   function panelHit(ray) {
     if (!panel.visible) return null;
     raycaster.ray.copy(ray);
@@ -722,6 +776,7 @@ export function createGame(ctx) {
       return npc.holder.position;
     }
     if (t.anchor) return A[t.anchor];
+    if (t.fight) return hooks.fightPos?.(t.fight) || null;
     if (t.object === "genesis_core") return core.group.getWorldPosition(tmpV);
     const nearestOf = list => { let best = null, bd = Infinity; for (const r of list) { const d = r.object.position.distanceToSquared(tmpV2); if (d < bd) { bd = d; best = r.object.position; } } return best; };
     if (t.object) return nearestOf(interactables.filter(r => r.kind === t.object && r.enabled()));
@@ -1042,7 +1097,7 @@ export function createGame(ctx) {
 
   return {
     update, onTrigger, desktopInteract, desktopClick, handleKey, cursorPoint, beginSession, onExit,
-    isPanelOpen: () => panel.visible, closePanel, setHudSuppressed: v => { hudSuppressed = !!v; }, openBoard, addInteractable, teleport: (pos, title) => teleport(pos, title), textPlate: (t, c) => textPlate(t, c),
+    isPanelOpen: () => panel.visible, closePanel, hooks, emit, openStore, setHudSuppressed: v => { hudSuppressed = !!v; }, openBoard, addInteractable, teleport: (pos, title) => teleport(pos, title), textPlate: (t, c) => textPlate(t, c),
     refreshBoard: () => { if (panelState?.mode === "board") drawPanel(); }, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why), awardXP: n => awardXP(n),
     debug: { startMission, completeStep, emit, openDialogue, state, interactables, choose, objectivePosition }
   };

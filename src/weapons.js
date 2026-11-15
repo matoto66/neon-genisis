@@ -1,0 +1,521 @@
+// NEON GENESIS — weapons.
+//
+// VR (holsters ride on your body, following where you face):
+//   RIGHT HIP     sidearm (Kasumi P9 / Rattler SMG)   squeeze grip there to draw
+//   CHEST         long gun (Breacher-6 / Longspike)    squeeze grip at your chest
+//   LEFT SHOULDER blade (Neon Edge / Stun Baton)       reach to the top of your left shoulder
+//   BELT BUCKLE   EMP grenade                          grab, throw, it pops after a short fuse
+//   Let go of grip and the weapon snaps back to its holster.
+//   TRIGGER fires. RELOAD: touch the bottom of the gun's grip with your other hand.
+//   Longspike: hold the trigger to charge, let go to fire.
+//   Blades: swing. Faster swing = harder hit. The katana knocks enemy bolts back.
+// PC: 1 sidearm · 2 long gun · 3 blade (press again to put away) · 4 throw EMP
+//     left click fire / swing · R reload.
+import * as THREE from "three";
+import { WEAPONS, AMMO, buildWeaponModel } from "./weaponmodels.js";
+import { state, saveGame, effectiveStrength } from "./state.js";
+
+export { WEAPONS, AMMO };
+const SLOTS = ["sidearm", "long", "blade", "grenade"];
+
+export function createWeapons({ root, scene, camera, player, renderer, city, game, combat, audio, haptic, getPCHand }) {
+  const W = (state.weapons ||= { owned: [], ammo: { light: 0, shell: 0, cell: 0 }, mags: {}, loadout: { sidearm: null, long: null, blade: null }, grenades: 0 });
+  W.ammo ||= { light: 0, shell: 0, cell: 0 }; W.mags ||= {}; W.loadout ||= {}; W.owned ||= [];
+  const sfx = n => audio?.play(n);
+  const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), v3 = new THREE.Vector3(), headP = new THREE.Vector3(), q1 = new THREE.Quaternion();
+
+  // ── holsters on your body (VR) ────────────────────────────────────────
+  const HOLSTER = {
+    sidearm: { at: new THREE.Vector3(0.22, -0.78, -0.04), r: 0.18, dir: new THREE.Vector3(0, -1, 0.15) },
+    long:    { at: new THREE.Vector3(0.0, -0.4, -0.2), r: 0.17, dir: new THREE.Vector3(-0.55, 0.8, 0.1) },
+    blade:   { at: new THREE.Vector3(-0.2, -0.13, -0.02), r: 0.15, dir: new THREE.Vector3(0.25, -0.55, 0.8) },
+    grenade: { at: new THREE.Vector3(0.0, -0.66, -0.25), r: 0.11, dir: new THREE.Vector3(0, 0, -1) }
+  };
+  const body = new THREE.Group(); body.name = "WEAPON_HOLSTERS"; scene.add(body);
+  const holsterModels = {};       // slot → { id, model }
+  function equippedIn(slot) { return slot === "grenade" ? (W.grenades > 0 ? "emp" : null) : W.loadout[slot] || null; }
+  function refreshHolsters() {
+    for (const slot of SLOTS) {
+      const id = equippedIn(slot), cur = holsterModels[slot];
+      if (cur?.id === id) continue;
+      if (cur) body.remove(cur.model);
+      if (!id) { delete holsterModels[slot]; continue; }
+      const m = buildWeaponModel(id);
+      m.position.copy(HOLSTER[slot].at);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), HOLSTER[slot].dir.clone().normalize());
+      m.scale.setScalar(0.92);
+      body.add(m); holsterModels[slot] = { id, model: m };
+    }
+  }
+  refreshHolsters();
+  let bodyYaw = 0;
+  function placeBody(dt) {
+    camera.getWorldPosition(headP);
+    camera.getWorldDirection(v1); v1.y = 0;
+    if (v1.lengthSq() > 1e-4) { const want = Math.atan2(-v1.x, -v1.z); const d = Math.atan2(Math.sin(want - bodyYaw), Math.cos(want - bodyYaw)); bodyYaw += d * (Math.abs(d) > 0.6 ? 1 : 1 - Math.exp(-4 * dt)); }
+    body.position.copy(headP); body.rotation.set(0, bodyYaw, 0);
+  }
+  const toBody = (p, out) => body.worldToLocal(out.copy(p));
+
+  // ── held weapons ──────────────────────────────────────────────────────
+  // held: side → { id, slot, model, cd, charge, reloadT, hist, kick, display }
+  const held = new Map();
+  const handState = new Map();          // side → { prevGrip, prevTrig }
+  function ammoDisplay(model) {
+    const c = document.createElement("canvas"); c.width = 128; c.height = 64;
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.025), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false }));
+    m.position.set(0, 0.075, 0.035); m.rotation.x = -0.55; model.add(m);
+    let key = "";
+    return {
+      draw(id, reloading) {
+        const def = WEAPONS[id], mag = W.mags[id] ?? 0, res = W.ammo[def.ammo] || 0;
+        const k = `${mag}|${res}|${reloading}`; if (k === key) return; key = k;
+        const x = c.getContext("2d"); x.clearRect(0, 0, 128, 64);
+        x.fillStyle = "rgba(4,8,18,0.8)"; x.fillRect(0, 0, 128, 64);
+        x.fillStyle = reloading ? "#ffcf4a" : mag === 0 ? "#ff3a4a" : "#" + new THREE.Color(def.color).getHexString();
+        x.font = "bold 38px Arial"; x.textAlign = "center"; x.textBaseline = "middle";
+        x.fillText(reloading ? "RELOAD" : `${mag}`, 46, 34);
+        x.fillStyle = "#c8d4ea"; x.font = "bold 22px Arial"; x.fillText(`/${res}`, 104, 38);
+        t.needsUpdate = true;
+      }
+    };
+  }
+  function draw(side, slot, hostObj, pc = false) {
+    const id = equippedIn(slot); if (!id) return null;
+    const def = WEAPONS[id];
+    const model = buildWeaponModel(id);
+    if (pc) {
+      if (def.kind === "melee") { model.position.set(0.3, -0.32, -0.55); model.rotation.set(0.95, 0.35, -0.25); }
+      else if (def.kind === "throw") { model.position.set(0.25, -0.25, -0.5); }
+      else { model.position.set(0.21, -0.22, -0.5); if (def.slot === "long") { model.position.set(0.24, -0.27, -0.5); model.scale.setScalar(0.85); } }
+    } else {
+      model.position.set(0, -0.012, -0.075);
+      if (def.kind === "melee") model.rotation.x = 0.85;
+      if (def.kind === "throw") model.position.set(0, 0, -0.085);
+    }
+    hostObj.add(model);
+    const h = { id, slot, def, model, cd: 0, charge: 0, reloadT: 0, kick: 0, hist: [], pc, host: hostObj, display: def.kind === "gun" ? ammoDisplay(model) : null, swingT: 0, hitCd: new Map() };
+    if (W.mags[id] === undefined && def.mag) W.mags[id] = Math.min(def.mag, W.ammo[def.ammo] || 0);
+    held.set(side, h);
+    if (holsterModels[slot]) holsterModels[slot].model.visible = false;
+    sfx("draw");
+    return h;
+  }
+  function holster(side, silent) {
+    const h = held.get(side); if (!h) return;
+    h.host.remove(h.model); held.delete(side);
+    if (holsterModels[h.slot]) holsterModels[h.slot].model.visible = true;
+    if (!silent) sfx("holster");
+  }
+
+  // ── shooting ──────────────────────────────────────────────────────────
+  const tracers = Array.from({ length: 24 }, () => {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    l.frustumCulled = false; l.visible = false; root.add(l); return { l, t: 0 };
+  });
+  let tn = 0;
+  function tracer(a, b, color, life = 0.07) {
+    const tr = tracers[tn = (tn + 1) % tracers.length];
+    const p = tr.l.geometry.attributes.position; p.setXYZ(0, a.x, a.y, a.z); p.setXYZ(1, b.x, b.y, b.z); p.needsUpdate = true;
+    tr.l.material.color.set(color); tr.l.material.opacity = 1; tr.l.visible = true; tr.t = life; tr.life = life;
+  }
+  // first wall (or the ground) along a ray
+  function wallDistance(o, d, max) {
+    for (let s = 0.4; s < max; s += 0.35) {
+      const x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s;
+      if (y < 0.02 || city.collides(x, z, y - 1, 0.02)) return s;
+    }
+    return max;
+  }
+  // closest distance between the ray and a vertical segment (people) or a point (drones)
+  function rayVsEnemy(o, d, e, out) {
+    combat.hitCenter(e, v3);
+    if (e.human) {
+      const s = e.type === "sergeant" ? 1.24 : 1.08;
+      const bottom = e.group.position.y + 0.25, top = e.group.position.y + 1.72 * s;
+      // solve in the horizontal plane, then check the height at that point
+      const dx = d.x, dz = d.z, len2 = dx * dx + dz * dz;
+      const t = len2 > 1e-6 ? ((v3.x - o.x) * dx + (v3.z - o.z) * dz) / len2 : 0;
+      if (t < 0) return null;
+      const px = o.x + dx * t, pz = o.z + dz * t, py = o.y + d.y * t;
+      const r = e.def.radius * 0.85;
+      if (Math.hypot(px - v3.x, pz - v3.z) > r || py < bottom || py > top + 0.05) return null;
+      out.set(px, py, pz);
+      return { t, head: py > top - 0.3 };
+    }
+    const toC = v2.subVectors(v3, o), t = toC.dot(d);
+    if (t < 0) return null;
+    const closest = v1.copy(o).addScaledVector(d, t);
+    if (closest.distanceTo(v3) > e.def.radius + 0.12) return null;
+    out.copy(closest); return { t, head: false };
+  }
+  function shootRay(o, d, def, dmgScale = 1) {
+    const max = 70, wall = wallDistance(o, d, max);
+    const hits = [];
+    for (const e of combat.enemies) {
+      if (e.dead || e.cine) continue;
+      const at = new THREE.Vector3(); const h = rayVsEnemy(o, d, e, at);
+      if (h && h.t < wall) hits.push({ e, at, ...h });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    const list = def.pierce ? hits : hits.slice(0, 1);
+    for (const h of list) {
+      const dmg = def.damage * dmgScale * (h.head ? 1.8 : 1);
+      combat.damageEnemy(h.e, dmg, d, { stun: def.pierce ? 0.6 : def.pellets ? 0.12 : 0.08, color: h.head ? 0xffffff : def.color });
+      if (h.head && !h.e.dead) game.toast?.("HEADSHOT", "credits");
+    }
+    const end = list.length && !def.pierce ? list[0].at : v1.copy(o).addScaledVector(d, wall).clone();
+    if (!list.length || def.pierce) { combat.burst(end, 0xffcf8a, 6, 1.6); }
+    game.npcSys?.startle(end, 7);
+    return end;
+  }
+  function fire(h, origin, dir, muzzlePos, side) {
+    const def = h.def;
+    if ((W.mags[h.id] || 0) <= 0) { sfx("dryFire"); h.cd = 0.25; emptyHint(); return; }
+    W.mags[h.id]--;
+    const shots = def.pellets || 1;
+    for (let i = 0; i < shots; i++) {
+      const d = dir.clone();
+      if (def.spread) { d.x += (Math.random() - 0.5) * def.spread * 2; d.y += (Math.random() - 0.5) * def.spread * 2; d.z += (Math.random() - 0.5) * def.spread * 2; d.normalize(); }
+      const end = shootRay(origin, d, def, h.chargeScale || 1);
+      tracer(muzzlePos, end, def.pierce ? 0x9ffcff : def.color, def.pierce ? 0.25 : 0.06);
+    }
+    combat.flash(muzzlePos, def.pierce ? 0x9ffcff : 0xffd27a, def.pierce ? 1.1 : def.pellets ? 0.9 : 0.45);
+    sfx(h.id === "p9" ? "pistol" : h.id === "rattler" ? "smg" : h.id === "breacher" ? "shotgun" : "rail");
+    haptic?.(side, def.pierce || def.pellets ? 1 : 0.55, def.pierce ? 140 : 50);
+    h.kick = def.pierce ? 0.35 : def.pellets ? 0.28 : def.auto ? 0.06 : 0.14;
+    h.cd = def.rate;
+    saveGameSoon();
+  }
+  let saveT = 0; const saveGameSoon = () => { saveT = 1.5; };
+  let hintAt = -1e9;
+  function emptyHint() {
+    if (performance.now() - hintAt < 8000) return; hintAt = performance.now();
+    game.toast(renderer.xr.isPresenting ? "EMPTY · tap the bottom of the grip with your other hand to reload" : "EMPTY · press R to reload", "warn");
+  }
+  function startReload(h) {
+    const def = h.def; if (def.kind !== "gun" || h.reloadT > 0) return false;
+    const need = def.mag - (W.mags[h.id] || 0), have = W.ammo[def.ammo] || 0;
+    if (need <= 0) return false;
+    if (have <= 0) { game.toast(`No ${AMMO[def.ammo].name.toLowerCase()} left. Rook sells more.`, "warn"); return false; }
+    h.reloadT = def.pellets ? 0.9 : def.pierce ? 1.0 : 0.55; sfx("reload"); return true;
+  }
+  function finishReload(h) {
+    const def = h.def, need = def.mag - (W.mags[h.id] || 0), take = Math.min(need, W.ammo[def.ammo] || 0);
+    W.mags[h.id] = (W.mags[h.id] || 0) + take; W.ammo[def.ammo] -= take; saveGameSoon();
+  }
+
+  // ── melee ─────────────────────────────────────────────────────────────
+  const segClosest = (a, b, p, out) => { const ab = v2.subVectors(b, a), t = THREE.MathUtils.clamp(v3.subVectors(p, a).dot(ab) / Math.max(1e-6, ab.lengthSq()), 0, 1); return out.copy(a).addScaledVector(ab, t); };
+  function meleeHits(h, base, tip, speed, dirMove, side) {
+    const def = h.def;
+    for (const [e, t] of h.hitCd) { if (t - performance.now() < 0) h.hitCd.delete(e); }
+    for (const e of combat.enemies) {
+      if (e.dead || e.cine || h.hitCd.has(e)) continue;
+      const c = combat.hitCenter(e, new THREE.Vector3());
+      const r = e.human ? e.def.radius * 0.9 : e.def.radius + 0.12;
+      let hit = false;
+      if (e.human) {
+        // sample along the blade against the body column
+        for (let k = 0; k <= 4 && !hit; k++) { const p = v1.copy(base).lerp(tip, k / 4); if (Math.hypot(p.x - c.x, p.z - c.z) < r && p.y > e.group.position.y + 0.2 && p.y < e.group.position.y + 1.95) hit = true; }
+      } else hit = segClosest(base, tip, c, v1).distanceTo(c) < r;
+      if (!hit) continue;
+      h.hitCd.set(e, performance.now() + 380);
+      const dmg = def.damage * THREE.MathUtils.clamp(speed / 5, 0.6, 1.8) * (1 + 0.12 * effectiveStrength());
+      if (!e.aware) combat.takedown(e, dirMove);
+      else if (combat.isWindingUp(e)) combat.counter(e, dmg, dirMove);
+      else combat.damageEnemy(e, dmg, dirMove, { stun: def.stun || 0.25, color: def.color });
+      sfx(h.id === "baton" ? "batonHit" : "slice");
+      haptic?.(side, 1, 90);
+    }
+    // katana: knock enemy bolts back
+    if (h.id === "katana") for (const b of combat.bolts) {
+      if (b.friendly) continue;
+      if (segClosest(base, tip, b.mesh.position, v1).distanceTo(b.mesh.position) > 0.16) continue;
+      b.friendly = true; b.damage = 24; b.life = 2;
+      b.vel.multiplyScalar(-1.6);
+      b.mesh.material = combat.mat.pulseBolt; b.mesh.children[0]?.material?.color?.set(0xff4fd8);
+      combat.burst(b.mesh.position, 0xff4fd8, 14, 2.5); sfx("slice"); haptic?.(side, 0.8, 60);
+      game.toast("DEFLECTED", "credits");
+    }
+  }
+
+  // ── grenades ──────────────────────────────────────────────────────────
+  const live = [];
+  function throwGrenade(from, vel) {
+    if (W.grenades <= 0) return;
+    W.grenades--; saveGameSoon(); refreshHolsters();
+    const m = buildWeaponModel("emp"); m.position.copy(from); root.add(m);
+    live.push({ m, vel: vel.clone(), fuse: 1.5 });
+    sfx("draw");
+  }
+  function blast(at) {
+    sfx("empBlast");
+    combat.flash(at, 0x38f0e6, 4.5); combat.burst(at, 0x38f0e6, 60, 7, 2); combat.burst(at, 0xffffff, 24, 4);
+    for (const e of combat.enemies) {
+      if (e.dead) continue;
+      const c = combat.hitCenter(e, new THREE.Vector3()), d = c.distanceTo(at);
+      if (d > WEAPONS.emp.radius) continue;
+      const k = 1 - d / WEAPONS.emp.radius;
+      combat.damageEnemy(e, WEAPONS.emp.damage * (0.4 + 0.6 * k) * (e.human ? 1 : 1.8), c.sub(at).normalize(), { stun: 2.5, color: 0x38f0e6 });
+    }
+    game.npcSys?.startle(at, 12);
+    camera.getWorldPosition(headP); if (headP.distanceTo(at) < 3) combat.debugHurt?.(8);
+  }
+
+  // ── per frame ─────────────────────────────────────────────────────────
+  const prevTip = new Map(), prevHand = new Map();
+  function update(time, dt, hands, opts = {}) {
+    const vr = renderer.xr.isPresenting, showBody = vr || window.__showHolsters;
+    body.visible = !!showBody;
+    if (showBody) { placeBody(dt); refreshHolsters(); }
+    // fade tracers
+    for (const tr of tracers) if (tr.t > 0) { tr.t -= dt; tr.l.material.opacity = Math.max(0, tr.t / tr.life); if (tr.t <= 0) tr.l.visible = false; }
+    // grenades in flight
+    for (let i = live.length - 1; i >= 0; i--) {
+      const g = live[i]; g.fuse -= dt;
+      g.vel.y -= 9.8 * dt; g.m.position.addScaledVector(g.vel, dt); g.m.rotation.x += dt * 8;
+      const ground = city.surfaceAt ? city.surfaceAt(g.m.position.x, g.m.position.z, g.m.position.y + 0.3) : 0;
+      if (g.m.position.y < ground + 0.04) { g.m.position.y = ground + 0.04; g.vel.y *= -0.35; g.vel.x *= 0.6; g.vel.z *= 0.6; }
+      if (city.collides(g.m.position.x, g.m.position.z, g.m.position.y - 1, 0.05)) { g.vel.x *= -0.4; g.vel.z *= -0.4; }
+      if (g.fuse <= 0) { blast(g.m.position.clone()); root.remove(g.m); live.splice(i, 1); }
+    }
+    if (saveT > 0 && (saveT -= dt) <= 0) saveGame();
+    if (vr) updateVR(hands, dt); else updatePC(dt, opts);
+    // per-weapon timers, recoil, ammo display
+    for (const [side, h] of held) {
+      h.cd = Math.max(0, h.cd - dt);
+      if (h.reloadT > 0 && (h.reloadT -= dt) <= 0) { h.reloadT = 0; finishReload(h); sfx("click"); haptic?.(side, 0.4, 40); }
+      h.kick = Math.max(0, h.kick - dt * 3);
+      const baseX = h.pc ? (h.def.kind === "melee" ? 0.95 : 0) : (h.def.kind === "melee" ? 0.85 : 0);
+      if (h.def.kind === "gun") h.model.rotation.x = baseX + h.kick;
+      if (h.reloadT > 0) h.model.rotation.z = Math.sin(h.reloadT * 10) * 0.25; else if (h.def.kind === "gun") h.model.rotation.z = 0;
+      if (h.def.pierce && h.model.userData.core) h.model.userData.core.scale.y = 1 + h.charge * 1.5, h.model.userData.core.material.color.setHex(h.charge >= h.def.charge ? 0xffffff : h.def.color);
+      h.display?.draw(h.id, h.reloadT > 0);
+    }
+  }
+  function updateVR(hands, dt) {
+    // holsters stay hidden until a free hand comes near one (keeps your view clean when you look down)
+    const near = new Set();
+    for (const hd of hands) {
+      if (!hd.controller || held.has(hd.side)) continue;
+      hd.controller.getWorldPosition(v1); toBody(v1, v2);
+      for (const slot of SLOTS) if (equippedIn(slot) && v2.distanceTo(HOLSTER[slot].at) < HOLSTER[slot].r * 2.2) { near.add(slot); if (!hd.prevNear?.has(slot)) haptic?.(hd.side, 0.12, 15); }
+      hd.prevNear = near;
+    }
+    for (const slot of SLOTS) { const hm = holsterModels[slot]; if (hm) hm.model.visible = near.has(slot) && ![...held.values()].some(h => h.slot === slot) || (window.__showHolsters && !held.size); }
+    for (const hd of hands) {
+      if (!hd.object || !hd.controller) continue;
+      const side = hd.side;
+      let st = handState.get(side); if (!st) { st = { prevGrip: 0, prevTrig: 0, hist: [] }; handState.set(side, st); }
+      hd.controller.getWorldPosition(v1);
+      const palm = v1.clone();
+      st.hist.push([palm.clone(), dt]); if (st.hist.length > 5) st.hist.shift();
+      const grabbing = hd.grip > 0.7 && st.prevGrip <= 0.5, letGo = hd.grip < 0.35 && st.prevGrip >= 0.35;
+      st.prevGrip = hd.grip;
+      let h = held.get(side);
+      hd.busy = !!h;
+      if (!h && grabbing && !game.isPanelOpen()) {
+        const local = toBody(palm, v2);
+        let best = null, bd = 1e9;
+        for (const slot of SLOTS) { if (!equippedIn(slot)) continue; const other = [...held.values()].find(x => x.slot === slot); if (other) continue; const d = local.distanceTo(HOLSTER[slot].at); if (d < HOLSTER[slot].r && d < bd) { bd = d; best = slot; } }
+        if (best) { h = draw(side, best, hd.controller); hd.busy = true; haptic?.(side, 0.5, 50); }
+      }
+      if (!h) { st.prevTrig = hd.trigger; continue; }
+      if (letGo) {
+        if (h.def.kind === "throw") {
+          // throw with the hand's motion
+          let vel = new THREE.Vector3();
+          if (st.hist.length > 2) { const [a] = st.hist[0], tot = st.hist.slice(1).reduce((s, x) => s + x[1], 0); vel.subVectors(palm, a).divideScalar(Math.max(tot, 1e-3)).multiplyScalar(1.25); }
+          holster(side, true); throwGrenade(palm, vel);
+        } else holster(side);
+        st.prevTrig = hd.trigger; continue;
+      }
+      // reload: the other (empty) hand touches the bottom of the grip
+      if (h.def.kind === "gun") {
+        const other = hands.find(x => x !== hd && x.controller);
+        if (other && !held.get(other.side)) {
+          other.controller.getWorldPosition(v2); h.model.userData.magWell.getWorldPosition(v3);
+          if (v2.distanceTo(v3) < 0.13 && startReload(h)) haptic?.(other.side, 0.5, 40);
+        }
+      }
+      // trigger
+      const down = hd.trigger > 0.6, pressed = down && st.prevTrig <= 0.6, released = !down && st.prevTrig > 0.6;
+      st.prevTrig = hd.trigger;
+      if (h.def.kind === "gun" && h.reloadT <= 0) {
+        h.model.userData.muzzle.getWorldPosition(v1);
+        const dir = h.model.getWorldDirection(v2).negate().clone();
+        if (h.def.charge) {
+          if (pressed && (W.mags[h.id] || 0) > 0 && h.cd <= 0) { h.charging = true; h.charge = 0; sfx("railCharge"); }
+          if (h.charging && down) { h.charge = Math.min(h.def.charge, h.charge + dt); if (h.charge >= h.def.charge) haptic?.(side, 0.15, 20); }
+          if (h.charging && released) { h.charging = false; h.chargeScale = 0.35 + 0.65 * (h.charge / h.def.charge); fire(h, v1.clone(), dir, v1.clone(), side); h.charge = 0; }
+          if (pressed && (W.mags[h.id] || 0) <= 0) { sfx("dryFire"); emptyHint(); }
+        } else if (h.cd <= 0 && (pressed || (h.def.auto && down))) fire(h, v1.clone(), dir, v1.clone(), side);
+      }
+      // melee swings
+      if (h.def.kind === "melee") {
+        const base = h.model.getWorldPosition(new THREE.Vector3());
+        const tip = h.model.localToWorld(new THREE.Vector3(0, 0, -(h.model.userData.bladeLen || 0.8)));
+        const prev = prevTip.get(side);
+        if (prev) {
+          const speed = tip.distanceTo(prev) / Math.max(dt, 1e-3);
+          if (speed > 2.2) meleeHits(h, base, tip, speed, v1.subVectors(tip, prev).normalize().clone(), side);
+        }
+        prevTip.set(side, tip);
+      }
+    }
+  }
+
+  // ── PC ────────────────────────────────────────────────────────────────
+  let pcDown = false, pcSwing = 0;
+  function updatePC(dt, opts) {
+    // VR models left in hands when leaving VR
+    for (const [side, h] of held) if (!h.pc) holster(side, true);
+    const h = held.get("pc"); if (!h) return;
+    const hand = getPCHand?.(); if (hand) hand.visible = false;
+    if (game.isPanelOpen()) return;
+    camera.getWorldPosition(v1); camera.getWorldDirection(v2);
+    if (h.def.kind === "gun" && h.reloadT <= 0) {
+      h.model.userData.muzzle.getWorldPosition(v3);
+      if (h.def.charge) {
+        if (pcDown && !h.charging && h.cd <= 0) { if ((W.mags[h.id] || 0) > 0) { h.charging = true; h.charge = 0; sfx("railCharge"); } else { sfx("dryFire"); emptyHint(); pcDown = false; } }
+        if (h.charging && pcDown) h.charge = Math.min(h.def.charge, h.charge + dt);
+        if (h.charging && !pcDown) { h.charging = false; h.chargeScale = 0.35 + 0.65 * (h.charge / h.def.charge); fire(h, v1.clone(), v2.clone(), v3.clone(), "right"); h.charge = 0; }
+      } else if (pcDown && h.cd <= 0) { fire(h, v1.clone(), v2.clone(), v3.clone(), "right"); if (!h.def.auto) pcDown = false; }
+    }
+    if (h.def.kind === "melee") {
+      if (pcDown && pcSwing <= 0) { pcSwing = 0.32; pcDown = false; pcMelee(h); }
+      if (pcSwing > 0) { pcSwing -= dt; const k = 1 - pcSwing / 0.32; h.model.rotation.set(0.95 - Math.sin(k * Math.PI) * 1.4, 0.35 + Math.sin(k * Math.PI) * 0.9, -0.25 - Math.sin(k * Math.PI) * 0.8); }
+      else h.model.rotation.set(0.95, 0.35, -0.25);
+    }
+  }
+  function pcMelee(h) {
+    camera.getWorldPosition(v1); camera.getWorldDirection(v2);
+    sfx(h.id === "baton" ? "batonHit" : "slice");
+    let best = null, bd = 1e9;
+    for (const e of combat.enemies) {
+      if (e.dead || e.cine) continue;
+      const c = combat.hitCenter(e, new THREE.Vector3()); const to = c.clone().sub(v1); const d = to.length();
+      if (d > 2.6 + e.def.radius) continue;
+      if (to.normalize().dot(v2) < 0.55) continue;
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) return;
+    const dmg = h.def.damage * 1.2 * (1 + 0.12 * effectiveStrength());
+    if (!best.aware) combat.takedown(best, v2.clone());
+    else if (combat.isWindingUp(best)) combat.counter(best, dmg, v2.clone());
+    else combat.damageEnemy(best, dmg, v2.clone(), { stun: h.def.stun || 0.3, color: h.def.color });
+  }
+  function pcEquip(slot) {
+    const cur = held.get("pc");
+    if (slot === "grenade") { pcThrow(); return true; }
+    if (cur) { const same = cur.slot === slot; holster("pc"); const hand = getPCHand?.(); if (hand) hand.visible = true; if (same) return true; }
+    if (!equippedIn(slot)) { game.toast(slot === "sidearm" ? "No sidearm yet." : slot === "long" ? "No long gun yet — Rook sells them." : "No blade yet.", "warn"); return true; }
+    draw("pc", slot, camera, true);
+    return true;
+  }
+  function pcThrow() {
+    if (W.grenades <= 0) { game.toast("No EMP grenades. Rook sells them.", "warn"); return; }
+    camera.getWorldPosition(v1); camera.getWorldDirection(v2);
+    throwGrenade(v1.clone().addScaledVector(v2, 0.4), v2.clone().multiplyScalar(11).add(new THREE.Vector3(0, 3, 0)));
+  }
+
+  // ── inventory & Rook's store ──────────────────────────────────────────
+  function give(id, ammo = 0, equip) {
+    const def = WEAPONS[id]; if (!def) return;
+    if (id === "emp") { W.grenades = Math.min(6, W.grenades + Math.max(1, ammo || 1)); refreshHolsters(); saveGame(); return; }
+    if (!W.owned.includes(id)) W.owned.push(id);
+    if (equip ?? !W.loadout[def.slot]) W.loadout[def.slot] = id;      // a dropped baton won't replace the katana you chose
+    if (def.ammo) { W.ammo[def.ammo] = Math.min(AMMO[def.ammo].max, (W.ammo[def.ammo] || 0) + ammo); if (W.mags[id] === undefined) W.mags[id] = def.mag; }
+    refreshHolsters(); saveGame();
+    game.toast(`WEAPON ACQUIRED · ${def.name.toUpperCase()}`, "chapter");
+  }
+  function addAmmo(type, n) { W.ammo[type] = Math.min(AMMO[type].max, (W.ammo[type] || 0) + n); saveGameSoon(); }
+  const where = { sidearm: "RIGHT HIP", long: "CHEST", blade: "LEFT SHOULDER", grenade: "BELT" };
+  const store = {
+    title: "ROOK'S · THINGS THAT GO BANG", accent: "#ffb02e", tabColor: "#a8641a",
+    tabs: [{ id: "guns", label: "GUNS" }, { id: "blades", label: "BLADES & EMP" }, { id: "ammo", label: "AMMO" }],
+    subtitle: () => `HIP ${WEAPONS[W.loadout.sidearm]?.name || "—"} · CHEST ${WEAPONS[W.loadout.long]?.name || "—"}`,
+    rows(cat) {
+      const can = p => state.credits >= p ? "#a8641a" : "#56607a";
+      if (cat === "ammo") return Object.entries(AMMO).map(([k, a]) => ({ id: "ammo:" + k, name: `${a.name} ×${a.pack}`, tag: `YOU HAVE ${W.ammo[k] || 0} / ${a.max}`, desc: k === "light" ? "Fits the Kasumi P9 and the Rattler." : k === "shell" ? "Breacher-6 shells." : "Longspike rail cells.", label: (W.ammo[k] || 0) >= a.max ? "FULL" : `BUY $${a.price}`, buttonColor: (W.ammo[k] || 0) >= a.max ? "#56607a" : can(a.price) }));
+      const ids = cat === "guns" ? ["p9", "rattler", "breacher", "longspike"] : ["katana", "baton", "emp"];
+      return ids.map(id => {
+        const d = WEAPONS[id], owned = W.owned.includes(id), equipped = W.loadout[d.slot] === id;
+        let label, col;
+        if (id === "emp") { label = W.grenades >= 6 ? "FULL" : `BUY $${d.price}`; col = W.grenades >= 6 ? "#56607a" : can(d.price); }
+        else if (equipped) { label = "EQUIPPED"; col = "#2a8a6a"; }
+        else if (owned) { label = "EQUIP"; col = "#2a6a8a"; }
+        else if (!d.price) { label = "NOT FOR SALE"; col = "#56607a"; }
+        else { label = `BUY $${d.price}`; col = can(d.price); }
+        return { id, name: d.name, color: "#" + new THREE.Color(d.color).getHexString(), tag: id === "emp" ? `${where.grenade} · YOU HAVE ${W.grenades}` : `${where[d.slot]}`, desc: d.desc, label, buttonColor: col };
+      });
+    },
+    click(id) {
+      if (id.startsWith("ammo:")) {
+        const k = id.slice(5), a = AMMO[k];
+        if ((W.ammo[k] || 0) >= a.max) return "Can't carry more.";
+        if (state.credits < a.price) return "Not enough credits.";
+        state.credits -= a.price; addAmmo(k, a.pack); saveGame(); return `+${a.pack} ${a.name.toLowerCase()}.`;
+      }
+      const d = WEAPONS[id];
+      if (id === "emp") { if (W.grenades >= 6) return "Six is plenty."; if (state.credits < d.price) return "Not enough credits."; state.credits -= d.price; W.grenades++; refreshHolsters(); saveGame(); return `EMP grenade. You have ${W.grenades}.`; }
+      if (W.owned.includes(id)) { W.loadout[d.slot] = id; for (const [s, h] of held) if (h.slot === d.slot) holster(s, true); refreshHolsters(); saveGame(); return `${d.name} equipped (${where[d.slot].toLowerCase()}).`; }
+      if (!d.price) return id === "baton" ? "Take one off a Tenkai enforcer." : "Not for sale.";
+      if (state.credits < d.price) return "Not enough credits.";
+      state.credits -= d.price; give(id, d.ammo ? AMMO[d.ammo].pack * 2 : 0, true); return `${d.name} is yours. It's on your ${where[d.slot].toLowerCase()}.`;
+    }
+  };
+
+  return {
+    update, give, addAmmo, store, refreshHolsters,
+    isHolding: side => held.has(side) || (side === "right" && held.has("pc")),
+    get pcHolding() { return held.has("pc"); },
+    pcEquip, pcThrow, pcTrigger(down) { pcDown = down; }, pcReload() { const h = held.get("pc"); if (h) startReload(h); },
+    owns: id => W.owned.includes(id), state: W,
+    onKill(e) {
+      // Tenkai drop a little ammo for whatever you carry
+      if (W.loadout.sidearm) addAmmo("light", e.human ? 10 : 4);
+      if (W.loadout.long === "breacher" && Math.random() < 0.6) addAmmo("shell", 2);
+      if (W.loadout.long === "longspike" && Math.random() < 0.3) addAmmo("cell", 1);
+    },
+    holsterAll() { for (const s of [...held.keys()]) holster(s, true); const hand = getPCHand?.(); if (hand) hand.visible = true; }
+  };
+}
+
+// Rook's stall in the Neon Mile east back lane: a crate counter and a lit gun rack.
+export function buildRookStall(root, city) {
+  const g = new THREE.Group(); g.name = "ROOK_STALL";
+  const wx = 30.95, z = -97.6;
+  const crate = new THREE.MeshStandardMaterial({ color: 0x3d3226, roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x15171c, metalness: 0.6, roughness: 0.4 });
+  const amber = new THREE.MeshBasicMaterial({ color: 0xffb02e, toneMapped: false });
+  const box = (w, h, d, x, y, zz, m) => { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); me.position.set(x, y, zz); g.add(me); return me; };
+  // counter of stacked crates in front of Rook
+  box(0.8, 0.95, 2.2, 29.1, 0.475, z, crate); box(0.82, 0.05, 2.24, 29.1, 0.97, z, dark);
+  box(0.02, 0.03, 2.2, 28.69, 0.95, z, amber);
+  city.colliders.push({ minX: 28.65, maxX: 29.55, minZ: z - 1.15, maxZ: z + 1.15, minY: 0, maxY: 1 });
+  // rack board on the wall
+  box(0.04, 1.3, 2.6, wx - 0.02, 1.85, z, dark);
+  box(0.02, 0.025, 2.6, wx - 0.05, 2.52, z, amber); box(0.02, 0.025, 2.6, wx - 0.05, 1.18, z, amber);
+  const lamp = new THREE.PointLight(0xffb02e, 5, 5, 2); lamp.position.set(29.6, 2.6, z); g.add(lamp);
+  // weapons on the rack (side-on, barrels pointing along the lane)
+  const rack = [["breacher", 2.25, -0.55], ["longspike", 2.25, 0.62], ["p9", 1.68, -0.85], ["rattler", 1.68, -0.15], ["katana", 1.5, 0.75]];
+  for (const [id, y, dz] of rack) {
+    const m = buildWeaponModel(id);
+    // side faces the lane (-x), barrel points along the wall (+z)
+    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1)));
+    m.position.set(wx - 0.08, y, z + dz);
+    g.add(m);
+  }
+  // little neon sign
+  const c = document.createElement("canvas"); c.width = 512; c.height = 128; const x = c.getContext("2d");
+  x.fillStyle = "#ffb02e"; x.font = "900 80px Arial"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("ROOK'S", 256, 68);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), new THREE.MeshBasicMaterial({ map: t, transparent: true, toneMapped: false }));
+  sign.position.set(wx - 0.06, 2.85, z); sign.rotation.y = -Math.PI / 2; g.add(sign);
+  root.add(g);
+  return g;
+}

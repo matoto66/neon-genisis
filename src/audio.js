@@ -287,6 +287,18 @@ export function createAudio(camera) {
     land:    () => { noiseHit({ d: 0.1, peak: 0.12, type: "lowpass", freq: 400 }); tone({ freq: 70, d: 0.12, peak: 0.12, glide: 40 }); },
     // ── combat ──
     blaster: () => { tone({ freq: 1900, type: "square", d: 0.16, peak: 0.07, glide: 260, filter: { freq: 3500 } }); tone({ freq: 950, type: "sawtooth", d: 0.12, peak: 0.04, glide: 180 }); noiseHit({ d: 0.12, peak: 0.06, type: "highpass", freq: 4000 }); },
+    pistol: () => { noiseHit({ d: 0.09, peak: 0.3, type: "lowpass", freq: 2600 }); noiseHit({ d: 0.22, peak: 0.08, type: "bandpass", freq: 900 }); tone({ freq: 160, d: 0.12, peak: 0.22, glide: 55 }); },
+    smg: () => { noiseHit({ d: 0.05, peak: 0.2, type: "lowpass", freq: 3200 }); tone({ freq: 210, d: 0.05, peak: 0.12, glide: 90 }); },
+    shotgun: () => { noiseHit({ d: 0.3, peak: 0.42, type: "lowpass", freq: 1500 }); tone({ freq: 95, d: 0.3, peak: 0.3, glide: 35 }); noiseHit({ t: now() + 0.32, d: 0.06, peak: 0.12, type: "highpass", freq: 2500 }); noiseHit({ t: now() + 0.42, d: 0.05, peak: 0.12, type: "highpass", freq: 2000 }); },
+    railCharge: () => { tone({ freq: 300, type: "sawtooth", d: 0.7, peak: 0.05, glide: 2400, filter: { freq: 3000 } }); },
+    rail: () => { tone({ freq: 3200, type: "sawtooth", d: 0.35, peak: 0.12, glide: 120 }); noiseHit({ d: 0.4, peak: 0.25, type: "lowpass", freq: 1200 }); tone({ freq: 70, d: 0.45, peak: 0.3, glide: 30 }); },
+    dryFire: () => { tone({ freq: 2400, type: "square", d: 0.025, peak: 0.08 }); noiseHit({ d: 0.02, peak: 0.06, type: "highpass", freq: 5000 }); },
+    reload: () => { noiseHit({ d: 0.04, peak: 0.12, type: "highpass", freq: 3000 }); noiseHit({ t: now() + 0.18, d: 0.05, peak: 0.16, type: "bandpass", freq: 1400 }); tone({ t: now() + 0.18, freq: 900, type: "square", d: 0.03, peak: 0.05 }); },
+    holster: () => { noiseHit({ d: 0.06, peak: 0.1, type: "bandpass", freq: 1800 }); tone({ freq: 600, type: "triangle", d: 0.05, peak: 0.05 }); },
+    draw: () => { noiseHit({ d: 0.08, peak: 0.1, type: "highpass", freq: 2600, glide: 6000 }); tone({ freq: 900, type: "triangle", d: 0.05, peak: 0.05 }); },
+    batonHit: () => { for (let i = 0; i < 4; i++) noiseHit({ t: now() + i * 0.03, d: 0.04, peak: 0.12, type: "highpass", freq: 4000 + Math.random() * 3000 }); tone({ freq: 140, d: 0.12, peak: 0.2, glide: 60 }); },
+    empBlast: () => { tone({ freq: 2000, type: "sine", d: 0.6, peak: 0.12, glide: 60 }); noiseHit({ d: 0.6, peak: 0.35, type: "lowpass", freq: 900 }); tone({ freq: 55, d: 0.7, peak: 0.35, glide: 30 }); },
+    sting: () => { tone({ freq: 110, type: "sawtooth", d: 1.4, peak: 0.12, filter: { freq: 900 } }); tone({ freq: 165, type: "sawtooth", d: 1.4, peak: 0.08, filter: { freq: 900 } }); noiseHit({ d: 0.5, peak: 0.25, type: "lowpass", freq: 300 }); tone({ t: now() + 0.9, freq: 220, type: "square", d: 0.5, peak: 0.06, glide: 440, filter: { freq: 2000 } }); },
     enemyShot: () => { tone({ freq: 700, type: "square", d: 0.2, peak: 0.05, glide: 160, filter: { freq: 1800 } }); noiseHit({ d: 0.1, peak: 0.03, freq: 1500 }); },
     punchLight: () => { noiseHit({ d: 0.07, peak: 0.16, type: "lowpass", freq: 900 }); tone({ freq: 140, d: 0.08, peak: 0.14, glide: 60 }); },
     punchHeavy: () => { noiseHit({ d: 0.14, peak: 0.24, type: "lowpass", freq: 600 }); tone({ freq: 110, d: 0.18, peak: 0.24, glide: 38 }); noiseHit({ d: 0.05, peak: 0.08, type: "highpass", freq: 3000 }); },
@@ -330,6 +342,7 @@ export function createAudio(camera) {
   // ── character voices: Animal-Crossing-style babble, one voice per person ─
   const VOICES = {
     mika:    { base: 62, spread: 5, rate: 0.075, type: "triangle", formant: 1800 },
+    rook:    { base: 44, spread: 4, rate: 0.09, type: "sawtooth", formant: 1100 },
     sato:    { base: 48, spread: 3, rate: 0.11, type: "sawtooth", formant: 900 },
     rei:     { base: 66, spread: 7, rate: 0.06, type: "square", formant: 2400 },
     doc:     { base: 57, spread: 4, rate: 0.09, type: "triangle", formant: 1500 },

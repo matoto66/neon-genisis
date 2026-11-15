@@ -20,13 +20,19 @@ import { state, saveGame, maxHealth, effectiveStrength, isActive, XP_REWARDS } f
 const ENEMY_TYPES = {
   scav:     { hp: 18, speed: 3.4, radius: 0.24, damage: 8, reward: 15, hover: 1.4 },
   sentry:   { hp: 34, speed: 2.4, radius: 0.3, damage: 12, reward: 25, hover: 2.6 },
-  enforcer: { hp: 70, speed: 2.1, radius: 0.42, damage: 18, reward: 40 }
+  enforcer: { hp: 70, speed: 2.1, radius: 0.42, damage: 18, reward: 40 },
+  gunner:   { hp: 55, speed: 2.0, radius: 0.42, damage: 9, reward: 35 },
+  sergeant: { hp: 380, speed: 2.4, radius: 0.5, damage: 24, reward: 250, boss: "SGT. KAGE OKABE" }
 };
+const HUMAN = new Set(["enforcer", "gunner", "sergeant"]);
 const ENFORCER_LOOK = {
   build: "male", scale: 1.08, skin: 0xc98e66, faceShape: "angular", eyes: 0x3a2414, facialHair: "none", hair: "buzz", hairColor: 0x111111,
   hat: "helmet", hatColor: 0x15171c, top: "coat", topColor: 0x101218, accent: 0x2a2f3a, shirt: 0x15171c, pantsStyle: "cargo", pants: 0x101218,
   shoesStyle: "boots", shoes: 0x101010, extra: "shoulder pad", cyberArm: "right", faceTech: "visor", glow: 0xff3a4a
 };
+
+const GUNNER_LOOK = { ...ENFORCER_LOOK, hat: "helmet", top: "jacket", topColor: 0x1a1f2a, accent: 0xff3a4a, extra: "none", cyberArm: "none", faceTech: "mask", glow: 0xff7a3a, skin: 0x9a6a4a };
+const SERGEANT_LOOK = { ...ENFORCER_LOOK, scale: 1.24, build: "male", hat: "none", hair: "mohawk", hairColor: 0xff3a4a, hairGlow: true, top: "coat", topColor: 0x0c0d12, accent: 0xff3a4a, extra: "shoulder pad", cyberArm: "both", faceTech: "face lines", glow: 0xff2a3a, skin: 0xb07a52, facialHair: "goatee" };
 
 export function createCombat({ root, camera, player, renderer, city, game, zones, haptic, audio }) {
   const sfx = name => audio?.play(name);
@@ -233,14 +239,27 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     g.scale.setScalar(scale);
     return { group: g, eyeMat, rotors, glow };
   }
-  function makeEnforcer() {
-    const model = buildCharacter(ENFORCER_LOOK);
+  function makeEnforcer(type = "enforcer") {
+    const model = buildCharacter(type === "gunner" ? GUNNER_LOOK : type === "sergeant" ? SERGEANT_LOOK : ENFORCER_LOOK);
     const rig = model.userData.rig;
-    const baton = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.62, 8), mat.baton.clone());
-    baton.position.set(0, -0.33, 0.28); baton.rotation.x = Math.PI / 2;
-    rig.elbows[1].add(baton);
     const g = new THREE.Group(); g.add(model);
-    return { group: g, rig, baton };
+    const out = { group: g, rig, human: true };
+    if (type !== "gunner") {
+      const baton = new THREE.Mesh(new THREE.CylinderGeometry(type === "sergeant" ? 0.03 : 0.022, 0.022, type === "sergeant" ? 0.8 : 0.62, 8), mat.baton.clone());
+      baton.position.set(0, -0.33, 0.28); baton.rotation.x = Math.PI / 2;
+      rig.elbows[1].add(baton); out.baton = baton;
+    }
+    if (type !== "enforcer") {
+      // Tenkai carbine: dark body, red emitter that glows while aiming
+      const gun = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.5), mat.hull); body.position.z = 0.1; gun.add(body);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 8), mat.trim); barrel.rotation.x = Math.PI / 2; barrel.position.z = 0.45; gun.add(barrel);
+      const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3a4a })); emitter.position.z = 0.6; gun.add(emitter);
+      gun.position.set(0, -0.3, 0.1); gun.rotation.x = -0.15;          // box runs along +z: points forward from the fist
+      (type === "sergeant" ? rig.elbows[0] : rig.elbows[1]).add(gun);
+      out.gun = gun; out.emitter = emitter;
+    }
+    return out;
   }
   // health bar sprite above enemies
   function makeBar() {
@@ -271,21 +290,30 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     const e = { type, def, hp: def.hp, pos: pos.clone(), vel: new THREE.Vector3(), state: "idle", t: 0, cooldown: 1 + Math.random() * 2,
       stun: 0, windup: 0, hitCd: [0, 0], dead: false, deadT: 0, phase: Math.random() * 10,
       aware: false, suspicion: 0, spottedT: 0, home: pos.clone(), wanderT: Math.random() * 6 };
-    if (type === "enforcer") Object.assign(e, makeEnforcer()); else Object.assign(e, makeDrone(type));
+    if (HUMAN.has(type)) Object.assign(e, makeEnforcer(type)); else Object.assign(e, makeDrone(type));
+    if (def.boss) e.tag = bossTag(def.boss);
     e.icon = new THREE.Sprite(iconMats["?"]); e.icon.visible = false; e.icon.renderOrder = 50;
     e.icon.scale.setScalar(0.42 / e.group.scale.x);
-    e.bar = makeBar(); e.bar.position.y = type === "enforcer" ? 2.25 : 0.55; e.group.add(e.bar);
-    if (type !== "enforcer") e.bar.position.y = 2.6;           // drone bars are in the scaled group
-    e.icon.position.y = e.bar.position.y + (type === "enforcer" ? 0.35 : 0.9); e.group.add(e.icon);
+    e.bar = makeBar(); e.bar.position.y = e.human ? (type === "sergeant" ? 2.75 : 2.25) : 0.55; e.group.add(e.bar);
+    if (!e.human) e.bar.position.y = 2.6;           // drone bars are in the scaled group
+    if (type === "sergeant") { e.bar.scale.set(1.3, 0.11, 1); e.bar.visible = true; e.bar.userData.draw(1); }
+    e.icon.position.y = e.bar.position.y + (e.human ? 0.35 : 0.9); e.group.add(e.icon);
+    if (e.tag) { e.tag.position.y = e.bar.position.y + 0.2; e.group.add(e.tag); }
     e.group.position.copy(pos);
     if (def.hover) e.group.position.y = def.hover;
     root.add(e.group);
     enemies.push(e);
     return e;
   }
+  function bossTag(name) {
+    const c = document.createElement("canvas"); c.width = 512; c.height = 64; const x = c.getContext("2d");
+    x.fillStyle = "#ff3a4a"; x.font = "900 40px Arial"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(name, 256, 34);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false })); sp.scale.set(1.3, 0.16, 1); return sp;
+  }
   function hitCenter(e, out) {
     out.copy(e.group.position);
-    if (e.type === "enforcer") out.y += 1.25;
+    if (e.human) out.y += 1.25;
     return out;
   }
   function damageEnemy(e, amount, dir, { stun = 0, color = 0xffcf4a } = {}) {
@@ -294,8 +322,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     hitCenter(e, tmp);
     burst(tmp, color, 14 + Math.min(20, amount), 3.5);
     flash(tmp, color, 0.6 + amount * 0.02);
-    if (dir) e.vel.addScaledVector(dir, e.type === "enforcer" ? 1.5 : 5);
-    e.stun = Math.max(e.stun, stun, e.type === "enforcer" && amount > 22 ? 0.5 : 0);
+    if (dir) e.vel.addScaledVector(dir, e.human ? 1.5 : 5);
+    e.stun = Math.max(e.stun, stun, e.human && amount > 22 ? 0.5 : 0);
     e.windup = 0;
     e.bar.visible = true; e.bar.userData.draw(Math.max(0, e.hp / e.def.hp));
     e.state = "chase";
@@ -318,7 +346,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   }
   /** Counter: hit an enemy while its warning icon is showing. */
   function isWindingUp(e) {
-    if (e.type === "enforcer") return e.windup > 0;
+    if (e.human) return e.windup > 0;
     const d = e.group.position.distanceTo(player.position);
     return e.type === "scav" ? e.cooldown < 0.6 && d < 5 : e.cooldown < 0.6 && d < 18;
   }
@@ -334,7 +362,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     for (const e of enemies) {
       if (e.dead) continue;
       hitCenter(e, tmp);
-      const dy = e.type === "enforcer" ? Math.max(0, Math.abs(pos.y - tmp.y) - 0.6) : pos.y - tmp.y;
+      const dy = e.human ? Math.max(0, Math.abs(pos.y - tmp.y) - 0.6) : pos.y - tmp.y;
       if (Math.hypot(pos.x - tmp.x, dy, pos.z - tmp.z) < e.def.radius + radius) {
         if (!e.aware && dmg > 8) { takedown(e, dir); return true; }
         damageEnemy(e, dmg, dir, { stun: 0.8, color: 0xffcf4a }); sfx("punchLight"); return true;
@@ -345,11 +373,12 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   function kill(e) {
     e.dead = true; e.deadT = 0; e.bar.visible = false; setIcon(e, null);
     hitCenter(e, tmp);
-    sfx(e.type === "enforcer" ? "enforcerDown" : "droneDown");
-    if (e.type === "enforcer") { burst(tmp, 0xff3a4a, 20, 2); }
+    sfx(e.human ? "enforcerDown" : "droneDown");
+    if (e.human) { burst(tmp, 0xff3a4a, 20, 2); }
     else { burst(tmp, 0xffb02e, 40, 6, 2); burst(tmp, 0xffffff, 16, 3); flash(tmp, 0xffcf4a, 2.2); }
     game.give(e.def.reward, "Tenkai salvage");
     game.awardXP?.(XP_REWARDS[e.type] || 1);
+    hooks.onKill?.(e);
   }
 
   // ── bolts (enemy shots and the player's palm pulse) ─────────────────────
@@ -400,7 +429,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       state.credits -= lost; saveGame();
       for (const e of enemies) despawn(e);
       enemies.length = 0;
-      player.position.copy(city.anchors.docksRespawn || new THREE.Vector3(0, 0, 7));
+      const spot = hooks.onRespawn?.();
+      player.position.copy(spot || city.anchors.docksRespawn || new THREE.Vector3(0, 0, 7));
       hp = maxHealth(); energy = 1; dead = false; deathT = 0;
       for (const z of zones) { z.active = false; z.cooldown = 5; }
       game.toast(`Doc Anaya patched you up. Lost $${lost}.`, "warn");
@@ -408,6 +438,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     }
   }
   let revive = 0;
+  const hooks = {};       // onKill(e), onRespawn() → Vector3 — set by story fights / weapons
   function despawn(e) { root.remove(e.group); }
 
   // ── per-frame ───────────────────────────────────────────────────────────
@@ -499,10 +530,10 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         const si = h.side === "left" ? 0 : 1;
         if (e.hitCd[si] > 0) continue;
         hitCenter(e, tmp);
-        const reach = e.def.radius + 0.14 + (e.type === "enforcer" ? 0.15 : 0) + (blades ? 0.3 : 0);
-        const dy = e.type === "enforcer" ? Math.max(0, Math.abs(handPos.y - tmp.y) - 0.45) : 0;   // tall hit capsule for people
+        const reach = e.def.radius + 0.14 + (e.human ? 0.15 : 0) + (blades ? 0.3 : 0);
+        const dy = e.human ? Math.max(0, Math.abs(handPos.y - tmp.y) - 0.45) : 0;   // tall hit capsule for people
         tmp2.set(handPos.x - tmp.x, 0, handPos.z - tmp.z);
-        if (Math.hypot(tmp2.length(), dy, e.type === "enforcer" ? 0 : handPos.y - tmp.y) > reach) continue;
+        if (Math.hypot(tmp2.length(), dy, e.human ? 0 : handPos.y - tmp.y) > reach) continue;
         const dmg = (6 + Math.min(speed, 7) * 3.2) * (1 + 0.15 * effectiveStrength()) * (arc ? 1.5 : 1) * (blades ? 1.4 : 1) * punchBoost();
         e.hitCd[si] = 0.35;
         if (!e.aware) { takedown(e, dir); haptic?.(h.side, 1, 120); h.object.userData?.flash?.(0x9fe9ff, 1.5); continue; }
@@ -542,11 +573,12 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       const g = e.group;
       if (e.dead) {
         e.deadT += edt;
-        if (e.type === "enforcer") { g.rotation.x = Math.max(-Math.PI / 2, -e.deadT * 3); g.position.y = Math.min(0, -(e.deadT - 1.5) * 0.6); }
+        if (e.human) { g.rotation.x = Math.max(-Math.PI / 2, -e.deadT * 3); g.position.y = Math.min(0, -(e.deadT - 1.5) * 0.6); }
         else { e.vel.y -= 9.8 * edt; g.position.addScaledVector(e.vel, edt); g.rotation.z += edt * 6; if (g.position.y < 0.15) { g.position.y = 0.15; e.vel.set(0, 0, 0); } }
         if (e.deadT > 3.5) { despawn(e); enemies.splice(i, 1); }
         continue;
       }
+      if (e.cine) continue;          // being flown in by a fight-intro cutscene
       e.t += edt; e.cooldown -= edt;
       const toP = tmp.subVectors(player.position, g.position); toP.y = 0;
       const dist = toP.length(); toP.normalize();
@@ -570,7 +602,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
           g.rotation.y += Math.atan2(Math.sin(wantYaw - g.rotation.y), Math.cos(wantYaw - g.rotation.y)) * (1 - Math.exp(-2.5 * edt));
           if (e.suspicion < 0.3) step(e, tmp2.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y)), e.def.speed * 0.25 * edt);
           if (e.def.hover) g.position.y = e.def.hover + Math.sin(t * 2 + e.phase) * 0.12;
-          if (e.type === "enforcer") { const ph = t * 4 + e.phase, sw = Math.sin(ph) * 0.25 * (e.suspicion < 0.3 ? 1 : 0); e.rig.hips[0].rotation.x = sw; e.rig.hips[1].rotation.x = -sw; e.rig.arms[0].rotation.x = -sw * 0.5; }
+          if (e.human) { const ph = t * 4 + e.phase, sw = Math.sin(ph) * 0.25 * (e.suspicion < 0.3 ? 1 : 0); e.rig.hips[0].rotation.x = sw; e.rig.hips[1].rotation.x = -sw; e.rig.arms[0].rotation.x = -sw * 0.5; }
           continue;
         }
       }
@@ -599,12 +631,34 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
           fireBolt(g.position.clone().addScaledVector(tmp2, 0.3), tmp2, false, e.def.damage, 7);
           e.cooldown = 2.2 + Math.random();
         }
+      } else if (e.type === "gunner" || (e.type === "sergeant" && dist > 5.5 && e.windup <= 0)) {
+        // gunner (and the sergeant at range): hold 7-11 m, strafe, aim (emitter flashes), fire a 3-shot burst of slow bolts
+        const r = e.rig, ser = e.type === "sergeant";
+        const keep = ser ? 3 : 8;
+        const strafe = tmp2.set(-toP.z, 0, toP.x).multiplyScalar(Math.sin(t * 0.6 + e.phase) > 0 ? 1 : -1);
+        const mv = dist < keep - 1.5 ? toP.clone().negate() : dist > keep + 3 ? toP.clone() : strafe.clone();
+        step(e, mv, e.def.speed * (ser && e.hp < e.def.hp * 0.5 ? 1.35 : 0.8) * edt);
+        const ph = t * 6 + e.phase, sw = Math.sin(ph) * 0.35;
+        r.hips[0].rotation.x = sw; r.hips[1].rotation.x = -sw;
+        const aimArm = ser ? 0 : 1;
+        r.arms[aimArm].rotation.x = -1.35; r.elbows[aimArm].rotation.x = -0.25;
+        const aiming = e.cooldown < 0.7 && dist < 22;
+        e.emitter.material.color.setHex(aiming && Math.sin(t * 30) > 0 ? 0xffffff : 0xff3a4a);
+        if (e.cooldown <= 0 && dist < 22) {
+          e.burst = (e.burst || 0) + 1;
+          e.emitter.getWorldPosition(tmp2);
+          const aimAt = head.clone(); aimAt.y -= 0.25;
+          const d = aimAt.sub(tmp2).normalize();
+          d.x += (Math.random() - 0.5) * 0.05; d.y += (Math.random() - 0.5) * 0.04; d.normalize();
+          fireBolt(tmp2.clone(), d, false, e.def.damage * (ser ? 1.2 : 1), ser ? 11 : 9);
+          if (e.burst < 3) e.cooldown = 0.16; else { e.burst = 0; e.cooldown = (ser ? 1.6 : 2.4) + Math.random(); }
+        }
       } else {
-        // enforcer: walk up, wind up the baton (glows), swing
+        // enforcer (and the sergeant up close): walk up, wind up the baton (glows), swing
         const r = e.rig;
         if (e.windup > 0) {
           e.windup -= edt;
-          r.arms[1].rotation.x = -2.4 * (1 - e.windup / 0.7); r.elbows[1].rotation.x = -0.8;
+          r.arms[1].rotation.x = -2.4 * Math.min(1, 1 - e.windup / 0.7); r.elbows[1].rotation.x = -0.8;
           e.baton.material.color.setHex(Math.sin(t * 40) > 0 ? 0xffffff : 0xff3a4a);
           if (e.windup <= 0) {
             r.arms[1].rotation.x = 0.6;
@@ -620,7 +674,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
           r.arms[0].rotation.x = -sw * 0.6; r.arms[1].rotation.x = sw * 0.4 - 0.3;
         } else {
           r.hips[0].rotation.x = r.hips[1].rotation.x = 0; r.knees[0].rotation.x = r.knees[1].rotation.x = 0.1;
-          if (e.cooldown <= 0) e.windup = 0.7;
+          if (e.cooldown <= 0) e.windup = e.type === "sergeant" ? (e.hp < e.def.hp * 0.5 ? 0.45 : 0.6) : 0.7;
         }
       }
       // keep enemies from stacking up
@@ -638,8 +692,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         for (const e of enemies) {
           if (e.dead) continue;
           hitCenter(e, tmp);
-          const r = e.def.radius + 0.12 + (e.type === "enforcer" ? 0.2 : 0);
-          const dy = e.type === "enforcer" ? Math.max(0, Math.abs(b.mesh.position.y - tmp.y) - 0.5) : b.mesh.position.y - tmp.y;
+          const r = e.def.radius + 0.12 + (e.human ? 0.2 : 0);
+          const dy = e.human ? Math.max(0, Math.abs(b.mesh.position.y - tmp.y) - 0.5) : b.mesh.position.y - tmp.y;
           if (Math.hypot(b.mesh.position.x - tmp.x, dy, b.mesh.position.z - tmp.z) < r) { damageEnemy(e, b.damage, b.vel.clone().normalize(), { stun: 0.25, color: 0x5ff5ff }); hit = true; break; }
         }
       } else if (!hit && !dead) {
@@ -658,7 +712,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
   function step(e, dir, amount) {
     const g = e.group.position;
     const nx = g.x + dir.x * amount, nz = g.z + dir.z * amount;
-    const ground = e.type === "enforcer";
+    const ground = e.human;
     if (!ground || !city.collides(nx, g.z, 0, 0.35)) g.x = nx;
     if (!ground || !city.collides(g.x, nz, 0, 0.35)) g.z = nz;
   }
@@ -703,6 +757,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
 
   return {
     update, firePulse, desktopPunch, useMedPatch, spawn, useChrono, hitEnemyAt, alertEnemy,
+    damageEnemy, burst, flash, hitCenter, counter, isWindingUp, takedown, bolts, fireBolt, hooks, mat, despawn: e => { despawn(e); const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1); },
     get hp() { return hp; }, get energy() { return energy; }, get guarding() { return guarding; }, get dead() { return dead; },
     get timeScale() { return chronoT > 0 ? CHRONO_SCALE : 1; },
     get inFight() { return enemies.some(e => !e.dead && e.group.position.distanceTo(player.position) < 25); },
