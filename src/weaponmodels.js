@@ -54,7 +54,7 @@ export function buildWeaponModel(id) {
 
   if (id === "p9") {
     add(B(0.032, 0.11, 0.045), m.grip, 0, -0.035, 0.01, -0.25);              // grip
-    add(B(0.034, 0.045, 0.2), m.dark, 0, 0.035, -0.06);                     // slide
+    g.userData.slide = add(B(0.034, 0.045, 0.2), m.dark, 0, 0.035, -0.06);   // slide (pull it back to rack)
     add(B(0.03, 0.02, 0.17), m.mid, 0, 0.004, -0.055);                       // frame
     add(B(0.004, 0.01, 0.17), glow, 0.0175, 0.04, -0.06);                    // side light
     add(B(0.004, 0.01, 0.17), glow, -0.0175, 0.04, -0.06);
@@ -66,7 +66,7 @@ export function buildWeaponModel(id) {
     g.userData.muzzle.position.set(0, 0.03, -0.195); g.userData.magWell.position.set(0, -0.1, 0.02);
   } else if (id === "seeker") {
     add(B(0.03, 0.105, 0.042), m.grip, 0, -0.035, 0.012, -0.22);
-    add(B(0.036, 0.05, 0.21), m.light, 0, 0.036, -0.065);                     // white slide
+    g.userData.slide = add(B(0.036, 0.05, 0.21), m.light, 0, 0.036, -0.065);  // white slide (pull it back to rack)
     add(B(0.032, 0.022, 0.18), m.dark, 0, 0.003, -0.06);
     add(C(0.011, 0.011, 0.05), m.dark, 0, 0.034, -0.19, Math.PI / 2);
     for (const s of [-1, 1]) add(B(0.004, 0.006, 0.19), glow, s * 0.0185, 0.05, -0.065);
@@ -88,14 +88,16 @@ export function buildWeaponModel(id) {
     add(B(0.05, 0.004, 0.2), glow, 0, 0.064, -0.06);                         // top strip
     add(B(0.02, 0.04, 0.12), m.mid, 0, 0.02, 0.12);                          // folded stock
     add(B(0.012, 0.02, 0.03), glow, 0, 0.077, -0.02);                        // optic
+    g.userData.slide = add(B(0.03, 0.018, 0.022), m.light, 0.032, 0.045, 0.02);   // charging handle on the side
     g.userData.muzzle.position.set(0, 0.035, -0.28); g.userData.magWell.position.set(0, -0.14, -0.11);
   } else if (id === "breacher") {
     add(B(0.035, 0.11, 0.045), m.grip, 0, -0.045, 0.02, -0.3);
     add(B(0.05, 0.07, 0.28), m.dark, 0, 0.025, -0.05);                       // receiver
     add(C(0.017, 0.017, 0.42), m.mid, 0, 0.045, -0.36, Math.PI / 2);        // barrel
     add(C(0.015, 0.015, 0.38), m.dark, 0, 0.005, -0.33, Math.PI / 2);       // tube
-    add(B(0.055, 0.05, 0.14), m.orange, 0, 0.01, -0.33);                     // pump
-    for (let i = 0; i < 5; i++) add(B(0.058, 0.006, 0.01), m.dark, 0, 0.01, -0.28 - i * 0.025);
+    const pump = new THREE.Group(); pump.position.set(0, 0.01, -0.33); g.add(pump); g.userData.slide = pump; g.userData.pump = true;
+    const pb = new THREE.Mesh(B(0.055, 0.05, 0.14), m.orange); pump.add(pb);                          // pump (slide it back to chamber)
+    for (let i = 0; i < 5; i++) { const r = new THREE.Mesh(B(0.058, 0.006, 0.01), m.dark); r.position.z = 0.05 - i * 0.025; pump.add(r); }
     add(B(0.04, 0.09, 0.2), m.orange, 0, -0.01, 0.17, 0.25);                 // stock
     add(B(0.004, 0.02, 0.24), glow, 0.026, 0.04, -0.05);
     for (let i = 0; i < 4; i++) add(C(0.009, 0.009, 0.03), m.red, -0.03, 0.02 - i * 0.022, 0.06, 0, 0, Math.PI / 2);   // side shell holder

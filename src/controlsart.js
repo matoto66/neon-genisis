@@ -23,7 +23,7 @@ export const GESTURES = [
   ["Open backpack", "Reach behind your shoulder and squeeze grip"],
   ["Med patch", "Squeeze grip at your LEFT hip, press it to your other arm"],
   ["Draw a weapon", "Grip at right hip (pistol), chest (long gun), left shoulder (blade), belt (EMP)"],
-  ["Reload", "Touch the bottom of the gun grip with your other hand"],
+  ["Reload", "Tap the grip bottom with your other hand. Ran dry? Then pull the slide / pump back"],
   ["Eat food", "Hold it up to your mouth"],
   ["Optic Scan", "Hand to the side of your head + pull trigger"],
   ["Pick up / throw", "Grip near something, swing, let go"],
