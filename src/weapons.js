@@ -21,7 +21,7 @@ const SLOTS = ["sidearm", "long", "blade", "grenade"];
 export function createWeapons({ root, scene, camera, player, renderer, city, game, combat, audio, haptic, getPCHand }) {
   const W = (state.weapons ||= { owned: [], ammo: { light: 0, shell: 0, cell: 0 }, mags: {}, loadout: { sidearm: null, long: null, blade: null }, grenades: 0 });
   W.ammo ||= { light: 0, shell: 0, cell: 0 }; W.mags ||= {}; W.loadout ||= {}; W.owned ||= [];
-  W.racked ||= {};      // id → false when the slide is locked back (empty) and needs racking
+  W.racked = {};        // racking removed: guns reload themselves
   // AMMO IS INFINITE: magazines always refill when you reload — you just have to reload.
   // Guns with a slide/pump that run dry also need it racked after the new mag goes in.
   const RACKS = { p9: "slide", seeker: "slide", rattler: "handle", breacher: "pump" };
@@ -182,6 +182,13 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       if (h && h.t < wall) hits.push({ e, at, ...h });
     }
     hits.sort((a, b) => a.t - b.t);
+    // a citizen standing in the way takes the shot instead (or as well, for the rail)
+    const civ = game.npcSys?.rayHit(o, d, Math.min(wall, def.pierce ? wall : hits[0]?.t ?? wall));
+    if (civ) {
+      game.npcSys.hurt(civ.npc, def.damage * dmgScale, d);
+      combat.burst(civ.at, 0xff3a4a, 10, 2);
+      if (!def.pierce) return civ.at;
+    }
     const list = def.pierce ? hits : hits.slice(0, 1);
     for (const h of list) {
       const dmg = def.damage * dmgScale * (h.head ? 1.8 : 1);
@@ -229,6 +236,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       r.m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v1.copy(r.vel).normalize());
       tracer(r.prev, r.m.position, 0x7dff9a, 0.12);
       let hit = r.life <= 0 || r.m.position.y < 0.02 || city.collides(r.m.position.x, r.m.position.z, r.m.position.y - 1, 0.02);
+      if (!hit) { const n = game.npcSys?.at(r.m.position, 0.05); if (n) { game.npcSys.hurt(n, r.dmg, v1.copy(r.vel).normalize()); hit = true; } }
       if (!hit) for (const e of combat.enemies) {
         if (e.dead || e.cine) continue;
         const c = combat.hitCenter(e, v3);
@@ -240,9 +248,9 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   function fire(h, origin, dir, muzzlePos, side) {
     const def = h.def;
-    if ((W.mags[h.id] || 0) <= 0 || W.racked[h.id] === false) { sfx("dryFire"); h.cd = 0.25; emptyHint(h); return; }
+    if ((W.mags[h.id] || 0) <= 0) { startReload(h); return; }
     W.mags[h.id]--;
-    if (W.mags[h.id] === 0 && RACKS[h.id]) W.racked[h.id] = false;      // last round: slide locks back
+    if (W.mags[h.id] === 0) h.autoReload = def.rate + 0.05;              // empty → reloads itself right after this shot
     if (def.smart) {
       fireSmart(h, origin, dir, muzzlePos);
       combat.flash(muzzlePos, 0x7dff9a, 0.4); sfx("smart"); haptic?.(side, 0.45, 40);
@@ -264,19 +272,15 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   let saveT = 0; const saveGameSoon = () => { saveT = 1.5; };
   let hintAt = -1e9;
-  function emptyHint(h) {
-    if (performance.now() - hintAt < 8000) return; hintAt = performance.now();
-    const rack = h && RACKS[h.id], verb = rack === "pump" ? "slide the pump back" : rack === "handle" ? "pull the side handle back" : "pull the slide back";
-    if (h && W.racked[h.id] === false && (W.mags[h.id] || 0) > 0) { game.toast(renderer.xr.isPresenting ? `Now ${verb} with your other hand` : "Press R to rack it", "warn"); return; }
-    game.toast(renderer.xr.isPresenting ? `EMPTY · tap the bottom of the grip, then ${rack ? verb : "you're good"}` : "EMPTY · press R to reload", "warn");
-  }
+  function emptyHint(h) { if (h) startReload(h); }
+
   // step 1: a fresh magazine (always full — ammo is infinite)
   function startReload(h) {
     const def = h.def; if (def.kind !== "gun" || h.reloadT > 0) return false;
     if ((W.mags[h.id] || 0) >= def.mag) return false;
-    h.reloadT = def.pellets ? 0.45 : def.pierce ? 0.5 : 0.3; sfx("reload"); return true;
+    h.reloadT = def.pellets ? 0.9 : def.pierce ? 0.9 : def.auto ? 0.8 : 0.65; sfx("reload"); return true;
   }
-  function finishReload(h) { W.mags[h.id] = h.def.mag; saveGameSoon(); }
+  function finishReload(h) { W.mags[h.id] = h.def.mag; W.racked[h.id] = true; h.pull = RACKS[h.id] === "pump" ? 0.07 : RACKS[h.id] === "handle" ? 0.05 : 0.035; if (RACKS[h.id]) sfx(RACKS[h.id] === "pump" ? "pump" : "rack"); saveGameSoon(); }
   // step 2 (only after running dry): rack the slide / pump
   function rack(h, side) {
     W.racked[h.id] = true; saveGameSoon();
@@ -305,6 +309,11 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       else combat.damageEnemy(e, dmg, dirMove, { stun: def.stun || 0.25, color: def.color });
       sfx(h.id === "baton" ? "batonHit" : "slice");
       haptic?.(side, 1, 90);
+    }
+    // citizens caught by the swing
+    for (let k = 1; k <= 4; k++) {
+      const p = v1.copy(base).lerp(tip, k / 4), n = game.npcSys?.at(p, 0.05);
+      if (n && !h.hitCd.has(n)) { h.hitCd.set(n, performance.now() + 500); game.npcSys.hurt(n, def.damage * THREE.MathUtils.clamp(speed / 5, 0.6, 1.8), dirMove); sfx(h.id === "baton" ? "batonHit" : "slice"); break; }
     }
     // katana: knock enemy bolts back
     if (h.id === "katana") for (const b of combat.bolts) {
@@ -338,6 +347,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       combat.damageEnemy(e, WEAPONS.emp.damage * (0.4 + 0.6 * k) * (e.human ? 1 : 1.8), c.sub(at).normalize(), { stun: 2.5, color: 0x38f0e6 });
     }
     game.npcSys?.startle(at, 12);
+    for (const n of game.npcSys?.npcs || []) { if (n.holder.position.distanceTo(at) < WEAPONS.emp.radius) game.npcSys.hurt(n, 30, n.holder.position.clone().sub(at).setY(0).normalize()); }
     camera.getWorldPosition(headP); if (headP.distanceTo(at) < 3) combat.debugHurt?.(8);
   }
 
@@ -376,15 +386,14 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
     // per-weapon timers, recoil, ammo display
     for (const [side, h] of held) {
       h.cd = Math.max(0, h.cd - dt);
-      if (h.reloadT > 0 && (h.reloadT -= dt) <= 0) { h.reloadT = 0; finishReload(h); sfx("click"); haptic?.(side, 0.4, 40); if (h.pc && W.racked[h.id] === false) h.pcRackT = 0.35; }
-      if (h.pcRackT > 0 && (h.pcRackT -= dt) <= 0) { h.pcRackT = 0; h.pull = 0.05; rack(h, side); }
+      if (h.autoReload > 0 && (h.autoReload -= dt) <= 0) { h.autoReload = 0; startReload(h); }
+      if (h.reloadT > 0 && (h.reloadT -= dt) <= 0) { h.reloadT = 0; finishReload(h); sfx("click"); haptic?.(side, 0.4, 40); }
       // slide / pump: locked back when empty, follows your hand while you rack it, springs home
       const sl = h.model.userData.slide;
       if (sl) {
         const travel = RACKS[h.id] === "pump" ? 0.07 : RACKS[h.id] === "handle" ? 0.05 : 0.035;
-        const locked = W.racked[h.id] === false;
-        const want = h.pull != null ? h.pull : locked ? travel : 0;
-        if (!h.grabbing) h.pull = h.pull != null ? Math.max(0, h.pull - dt * 0.6) || null : null;
+        const want = h.reloadT > 0 ? travel : h.pull != null ? h.pull : 0;    // slide sits back while reloading, snaps home after
+        h.pull = h.pull != null ? Math.max(0, h.pull - dt * 0.6) || null : null;
         sl.position.z = sl.userData.home + Math.min(travel, want);
       }
       h.kick = Math.max(0, h.kick - dt * 3);
@@ -443,32 +452,6 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
         } else holster(side);
         st.prevTrig = hd.trigger; continue;
       }
-      // reload, with the other (empty) hand:
-      //   1) touch the bottom of the grip → fresh magazine
-      //   2) if the gun ran dry: grab the slide / side handle / pump and pull it back toward you
-      if (h.def.kind === "gun") {
-        const other = hands.find(x => x !== hd && x.controller);
-        if (other && !held.get(other.side)) {
-          other.controller.getWorldPosition(v2); h.model.userData.magWell.getWorldPosition(v3);
-          if (v2.distanceTo(v3) < 0.14 && startReload(h)) haptic?.(other.side, 0.5, 40);
-          const sl = h.model.userData.slide;
-          if (sl && W.racked[h.id] === false && (W.mags[h.id] || 0) > 0 && h.reloadT <= 0) {
-            const local = h.model.worldToLocal(v2.clone());             // other hand in gun space (+z = back toward you)
-            const grip = other.grip > 0.5;
-            if (!h.grabbing && grip && Math.abs(local.x - sl.position.x) < 0.09 && Math.abs(local.y - sl.position.y) < 0.09 && Math.abs(local.z - sl.userData.home) < 0.12) {
-              h.grabbing = { side: other.side, z0: local.z }; haptic?.(other.side, 0.3, 25);
-            }
-            if (h.grabbing) {
-              if (!grip) h.grabbing = null;
-              else {
-                const travel = RACKS[h.id] === "pump" ? 0.07 : RACKS[h.id] === "handle" ? 0.05 : 0.035;
-                h.pull = THREE.MathUtils.clamp(local.z - h.grabbing.z0, 0, travel);
-                if (local.z - h.grabbing.z0 > (RACKS[h.id] === "pump" ? 0.06 : 0.045)) { rack(h, other.side); h.grabbing = null; }
-              }
-            }
-          } else h.grabbing = null;
-        }
-      }
       // trigger
       const down = hd.trigger > 0.6, pressed = down && st.prevTrig <= 0.6, released = !down && st.prevTrig > 0.6;
       st.prevTrig = hd.trigger;
@@ -479,7 +462,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
           if (pressed && (W.mags[h.id] || 0) > 0 && h.cd <= 0) { h.charging = true; h.charge = 0; sfx("railCharge"); }
           if (h.charging && down) { h.charge = Math.min(h.def.charge, h.charge + dt); if (h.charge >= h.def.charge) haptic?.(side, 0.15, 20); }
           if (h.charging && released) { h.charging = false; h.chargeScale = 0.35 + 0.65 * (h.charge / h.def.charge); fire(h, v1.clone(), dir, v1.clone(), side); h.charge = 0; }
-          if (pressed && (W.mags[h.id] || 0) <= 0) { sfx("dryFire"); emptyHint(h); }
+          if (pressed && (W.mags[h.id] || 0) <= 0) { emptyHint(h); }
         } else if (h.cd <= 0 && (pressed || (h.def.auto && down))) fire(h, v1.clone(), dir, v1.clone(), side);
       }
       // melee swings
@@ -530,7 +513,11 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       if (to.normalize().dot(v2) < 0.55) continue;
       if (d < bd) { bd = d; best = e; }
     }
-    if (!best) return;
+    if (!best) {
+      const p = v1.clone().addScaledVector(v2, 1.4); p.y -= 0.4;
+      const n = game.npcSys?.at(p, 0.6); if (n) game.npcSys.hurt(n, h.def.damage * 1.2, v2.clone());
+      return;
+    }
     const dmg = h.def.damage * 1.2 * (1 + 0.12 * effectiveStrength());
     if (!best.aware) combat.takedown(best, v2.clone());
     else if (combat.isWindingUp(best)) combat.counter(best, dmg, v2.clone());
@@ -603,6 +590,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
 
   return {
     update, give, addAmmo, store, refreshHolsters,
+    heldDef: side => held.get(side)?.def || null,
     isHolding: side => held.has(side) || (side === "right" && held.has("pc")),
     get pcHolding() { return held.has("pc"); },
     pcEquip, pcThrow, pcTrigger(down) { pcDown = down; }, pcReload() { const h = held.get("pc"); if (h) startReload(h); },

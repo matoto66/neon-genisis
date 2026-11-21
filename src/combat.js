@@ -22,9 +22,10 @@ const ENEMY_TYPES = {
   sentry:   { hp: 34, speed: 2.4, radius: 0.3, damage: 12, reward: 25, hover: 2.6 },
   enforcer: { hp: 70, speed: 2.1, radius: 0.42, damage: 18, reward: 40 },
   gunner:   { hp: 55, speed: 2.0, radius: 0.42, damage: 9, reward: 35 },
-  sergeant: { hp: 380, speed: 2.4, radius: 0.5, damage: 24, reward: 250, boss: "SGT. KAGE OKABE" }
+  sergeant: { hp: 380, speed: 2.4, radius: 0.5, damage: 24, reward: 250, boss: "SGT. KAGE OKABE" },
+  psycho:   { hp: 300, speed: 4.4, radius: 0.46, damage: 22, reward: 300, boss: "CYBERPSYCHO · RAZORBACK" }
 };
-const HUMAN = new Set(["enforcer", "gunner", "sergeant"]);
+const HUMAN = new Set(["enforcer", "gunner", "sergeant", "psycho"]);
 const ENFORCER_LOOK = {
   build: "male", scale: 1.08, skin: 0xc98e66, faceShape: "angular", eyes: 0x3a2414, facialHair: "none", hair: "buzz", hairColor: 0x111111,
   hat: "helmet", hatColor: 0x15171c, top: "coat", topColor: 0x101218, accent: 0x2a2f3a, shirt: 0x15171c, pantsStyle: "cargo", pants: 0x101218,
@@ -32,6 +33,7 @@ const ENFORCER_LOOK = {
 };
 
 const GUNNER_LOOK = { ...ENFORCER_LOOK, hat: "helmet", top: "jacket", topColor: 0x1a1f2a, accent: 0xff3a4a, extra: "none", cyberArm: "none", faceTech: "mask", glow: 0xff7a3a, skin: 0x9a6a4a };
+const PSYCHO_LOOK = { ...ENFORCER_LOOK, scale: 1.12, build: "male", hat: "none", hair: "spiky", hairColor: 0xff2a3a, hairGlow: true, top: "vest", topColor: 0x1a0a0e, accent: 0xff2a3a, extra: "chain", cyberArm: "both", faceTech: "visor", glow: 0xff1030, skin: 0x8a6a5a, implants: ["jaw", "spine", "eye", "sleeve lights"] };
 const SERGEANT_LOOK = { ...ENFORCER_LOOK, scale: 1.24, build: "male", hat: "none", hair: "mohawk", hairColor: 0xff3a4a, hairGlow: true, top: "coat", topColor: 0x0c0d12, accent: 0xff3a4a, extra: "shoulder pad", cyberArm: "both", faceTech: "face lines", glow: 0xff2a3a, skin: 0xb07a52, facialHair: "goatee" };
 
 export function createCombat({ root, camera, player, renderer, city, game, zones, haptic, audio }) {
@@ -240,10 +242,19 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     return { group: g, eyeMat, rotors, glow };
   }
   function makeEnforcer(type = "enforcer") {
-    const model = buildCharacter(type === "gunner" ? GUNNER_LOOK : type === "sergeant" ? SERGEANT_LOOK : ENFORCER_LOOK);
+    const model = buildCharacter(type === "gunner" ? GUNNER_LOOK : type === "sergeant" ? SERGEANT_LOOK : type === "psycho" ? PSYCHO_LOOK : ENFORCER_LOOK);
     const rig = model.userData.rig;
     const g = new THREE.Group(); g.add(model);
-    const out = { group: g, rig, human: true };
+    const out = { group: g, rig, human: true, model };
+    if (type === "psycho") {
+      // mantis-style arm blades, glowing red
+      out.blades = [0, 1].map(i => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.75), new THREE.MeshBasicMaterial({ color: 0xff2a3a }));
+        b.position.set(i ? 0.05 : -0.05, -0.28, 0.32); b.rotation.x = -0.35; rig.elbows[i].add(b); return b;
+      });
+      out.baton = out.blades[1];       // reuse the "baton flashes while winding up" logic
+      return out;
+    }
     if (type !== "gunner") {
       const baton = new THREE.Mesh(new THREE.CylinderGeometry(type === "sergeant" ? 0.03 : 0.022, 0.022, type === "sergeant" ? 0.8 : 0.62, 8), mat.baton.clone());
       baton.position.set(0, -0.33, 0.28); baton.rotation.x = Math.PI / 2;
@@ -294,11 +305,11 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     if (def.boss) e.tag = bossTag(def.boss);
     e.icon = new THREE.Sprite(iconMats["?"]); e.icon.visible = false; e.icon.renderOrder = 50;
     e.icon.scale.setScalar(0.42 / e.group.scale.x);
-    e.bar = makeBar(); e.bar.position.y = e.human ? (type === "sergeant" ? 2.75 : 2.25) : 0.55; e.group.add(e.bar);
+    e.bar = makeBar(); e.bar.position.y = e.human ? (type === "sergeant" ? 2.75 : type === "psycho" ? 2.5 : 2.25) : 0.55; e.group.add(e.bar);
     if (!e.human) e.bar.position.y = 2.6;           // drone bars are in the scaled group
-    if (type === "sergeant") { e.bar.scale.set(1.3, 0.11, 1); e.bar.visible = true; e.bar.userData.draw(1); }
+    if (def.boss) { e.bar.scale.set(1.3, 0.11, 1); e.bar.visible = true; e.bar.userData.draw(1); }
     e.icon.position.y = e.bar.position.y + (e.human ? 0.35 : 0.9); e.group.add(e.icon);
-    if (e.tag) { e.tag.position.y = e.bar.position.y + 0.2; e.group.add(e.tag); }
+    if (e.tag) { e.tag.position.y = e.bar.position.y + 0.2; e.group.add(e.tag); e.icon.position.y += 0.3; }
     e.group.position.copy(pos);
     if (def.hover) e.group.position.y = def.hover;
     root.add(e.group);
@@ -306,10 +317,11 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     return e;
   }
   function bossTag(name) {
-    const c = document.createElement("canvas"); c.width = 512; c.height = 64; const x = c.getContext("2d");
-    x.fillStyle = "#ff3a4a"; x.font = "900 40px Arial"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(name, 256, 34);
+    const c = document.createElement("canvas"); c.width = 768; c.height = 64; const x = c.getContext("2d");
+    let fs = 40; x.font = `900 ${fs}px Arial`; while (x.measureText(name).width > 740 && fs > 20) { fs -= 2; x.font = `900 ${fs}px Arial`; }
+    x.fillStyle = "#ff3a4a"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(name, 384, 34);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false })); sp.scale.set(1.3, 0.16, 1); return sp;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false })); sp.scale.set(1.9, 0.16, 1); return sp;
   }
   function hitCenter(e, out) {
     out.copy(e.group.position);
@@ -416,14 +428,52 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
     return true;
   }
   let deathT = 0, deathStart = 0;
+  // ── FLATLINED: the death screen ───────────────────────────────────────
+  const DEATH_LINES = [
+    "The city doesn't mourn. It recycles.", "Somewhere, a ripperdoc just pre-ordered your arms.", "Your chrome outlived you. Briefly.",
+    "Tenkai logs it as \"routine maintenance.\"", "Mika is going to be SO mad.", "The neon kept humming. It didn't even notice.",
+    "Static, meet silence.", "Insurance claim denied. Reason: you.", "Rebooting dignity… 0%.", "Even the rain didn't slow down for you.",
+    "Your last thought was a buffering icon.", "Neo Kasumi: 1. You: 0."
+  ];
+  const dc = document.createElement("canvas"); dc.width = 1024; dc.height = 512;
+  const dTex = new THREE.CanvasTexture(dc); dTex.colorSpace = THREE.SRGBColorSpace;
+  const deathCard = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.36), new THREE.MeshBasicMaterial({ map: dTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+  deathCard.position.set(0, 0, -0.42); deathCard.renderOrder = 10050; deathCard.visible = false; camera.add(deathCard);
+  let deathLine = "";
+  function drawDeath(k) {
+    const c = dc.getContext("2d"); c.clearRect(0, 0, 1024, 512);
+    // glitch bars
+    for (let i = 0; i < 9; i++) { c.fillStyle = `rgba(255,30,50,${0.06 + Math.random() * 0.1})`; c.fillRect(0, Math.random() * 512, 1024, 2 + Math.random() * 10); }
+    const shake = k < 0.25 ? (Math.random() - 0.5) * 24 : (Math.random() < 0.08 ? (Math.random() - 0.5) * 14 : 0);
+    c.textAlign = "center"; c.textBaseline = "middle";
+    c.font = "900 150px Arial";
+    c.fillStyle = "rgba(56,240,230,0.55)"; c.fillText("FLATLINED", 512 + shake - 6, 200);
+    c.fillStyle = "#ff1a3a"; c.fillText("FLATLINED", 512 + shake, 196);
+    // heartbeat line going flat
+    c.strokeStyle = "#ff1a3a"; c.lineWidth = 5; c.beginPath();
+    const beat = Math.max(0, 1 - k * 3);
+    for (let x = 80; x <= 944; x += 8) { const y = 300 + (Math.abs(x - 300) < 40 ? Math.sin((x - 260) / 80 * Math.PI * 2) * 50 * beat : 0); x === 80 ? c.moveTo(x, y) : c.lineTo(x, y); }
+    c.stroke();
+    c.globalAlpha = Math.min(1, Math.max(0, (k - 0.15) * 4));
+    c.fillStyle = "#ffffff"; c.font = "italic 40px Arial"; c.fillText(deathLine, 512, 372);
+    c.fillStyle = "#9fb0cc"; c.font = "28px Arial"; c.fillText("Doc Anaya is on her way…", 512, 440);
+    c.globalAlpha = 1;
+    dTex.needsUpdate = true;
+  }
   function die() {
     dead = true; deathT = 0; hp = 0; deathStart = performance.now();
-    game.toast("FLATLINED", "warn");
+    deathLine = hooks.deathLine?.() || DEATH_LINES[Math.floor(Math.random() * DEATH_LINES.length)];
+    sfx("flatline"); haptic?.("both", 1, 400);
   }
   function updateDeath() {
     deathT = (performance.now() - deathStart) / 1000;    // real time, not frame time
-    fade.visible = true; fadeMat.opacity = Math.min(1, deathT / 0.8);
-    if (deathT > 1.6 && dead) {
+    if (window.__deathHold) { deathStart = performance.now() - window.__deathHold * 1000; deathT = window.__deathHold; }   // test hook: freeze the death screen
+    fade.visible = true; fadeMat.opacity = Math.min(0.92, deathT / 0.6);
+    deathCard.visible = deathT > 0.25 && deathT < 4.3;
+    if (deathCard.visible) drawDeath((deathT - 0.25) / 4);
+    if (deathT > 4.4 && dead) {
+      deathCard.visible = false; fadeMat.opacity = 1;
+      hooks.onDeath?.();
       // Doc patches you up at the edge of the fight; it costs you.
       const lost = Math.floor(state.credits * 0.1);
       state.credits -= lost; saveGame();
@@ -520,7 +570,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       if (h.side === "left") attachWrist(h.object, h.controller);
       // Edge Fins only come out on an EMPTY fist — never while you're holding a weapon or an item
       const emptyHand = !h.busy && !h.holdingItem;
-      const ud = h.object.userData; ud.fistT = h.grip > 0.6 && emptyHand ? (ud.fistT || 0) + dt : 0;
+      const ud = h.object.userData; ud.npcCd = Math.max(0, (ud.npcCd || 0) - dt); ud.fistT = h.grip > 0.6 && emptyHand ? (ud.fistT || 0) + dt : 0;
       const blades = isActive("edge_fins") && ud.fistT > 0.18;        // a short delay so grabbing something never flicks them out
       const bladeObj = bladeFor(h.object);
       if (bladeObj.visible !== blades) sfx(blades ? "bladeOut" : "bladeIn");
@@ -548,6 +598,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         haptic?.(h.side, Math.min(1, 0.4 + speed * 0.1), 70);
         h.object.userData?.flash?.(blades ? 0xff4fd8 : arc ? 0x5ff5ff : 0xffcf4a, 1);
       }
+      // ...and anyone else who's in the way (citizens get hurt — Tenkai notices)
+      if ((ud.npcCd || 0) <= 0) { const n = game.npcSys?.at(handPos, 0.12); if (n) { game.npcSys.hurt(n, (6 + Math.min(speed, 7) * 3.2) * (blades ? 1.6 : 1), dir); ud.npcCd = 0.4; sfx(blades ? "slice" : "punchLight"); haptic?.(h.side, 0.8, 60); } }
       // punch enemy bolts back where they came from
       for (const b of bolts) {
         if (b.friendly || b.mesh.position.distanceTo(handPos) > 0.25) continue;
@@ -634,6 +686,51 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
           fireBolt(g.position.clone().addScaledVector(tmp2, 0.3), tmp2, false, e.def.damage, 7);
           e.cooldown = 2.2 + Math.random();
         }
+      } else if (e.type === "psycho") {
+        // sprint at you, crouch and LEAP from a few metres out, slash twice up close
+        const r = e.rig;
+        e.model.position.x = Math.random() < 0.06 ? (Math.random() - 0.5) * 0.12 : 0;     // twitchy glitch
+        const flashB = on => e.blades.forEach(b => b.material.color.setHex(on && Math.sin(t * 40) > 0 ? 0xffffff : 0xff2a3a));
+        if (e.leap > 0) {
+          e.leap -= edt;
+          const k = THREE.MathUtils.clamp(1 - e.leap / 0.55, 0, 1);
+          g.position.x = THREE.MathUtils.lerp(e.leapFrom.x, e.leapTo.x, k); g.position.z = THREE.MathUtils.lerp(e.leapFrom.z, e.leapTo.z, k);
+          g.position.y = e.leapFrom.y + Math.sin(k * Math.PI) * 1.7;
+          r.arms[0].rotation.x = r.arms[1].rotation.x = -2.6; r.knees[0].rotation.x = r.knees[1].rotation.x = 1.2;
+          if (e.leap <= 0) {
+            g.position.y = e.leapFrom.y; burst(g.position.clone().setY(0.1), 0xff2a3a, 20, 3); sfx("punchHeavy");
+            if (g.position.distanceTo(tmp2.set(player.position.x, g.position.y, player.position.z)) < 2.0) hurt(e.def.damage * 1.3);
+            e.cooldown = 1.1; r.knees[0].rotation.x = r.knees[1].rotation.x = 0.1;
+          }
+        } else if (e.windup > 0) {
+          e.windup -= edt; flashB(true);
+          r.knees[0].rotation.x = r.knees[1].rotation.x = e.pending === "leap" ? 0.9 : 0.3;
+          r.arms[0].rotation.x = r.arms[1].rotation.x = -1.8;
+          if (e.windup <= 0) {
+            flashB(false);
+            if (e.pending === "leap") {
+              e.leap = 0.55; e.leapFrom = g.position.clone();
+              e.leapTo = player.position.clone().addScaledVector(toP, -0.9); e.leapTo.y = g.position.y;
+              if (city.collides(e.leapTo.x, e.leapTo.z, e.leapTo.y, 0.3)) { e.leap = 0; e.cooldown = 0.4; }
+              sfx("psycho");
+            } else {
+              r.arms[0].rotation.x = r.arms[1].rotation.x = 0.7;
+              if (dist < 1.9) hurt(e.def.damage);
+              e.combo = (e.combo || 0) + 1;
+              e.cooldown = e.combo < 2 ? 0.22 : 0.9; if (e.combo >= 2) e.combo = 0;
+              sfx("slice");
+            }
+          }
+        } else if (dist > 7) {
+          if (dist > 40) { g.position.copy(player.position).addScaledVector(toP, -16); g.position.y = 0; }      // it keeps up with you
+          step(e, toP, e.def.speed * (e.hp < e.def.hp * 0.4 ? 1.25 : 1) * edt);
+          const ph = t * 11 + e.phase, sw = Math.sin(ph) * 0.65;
+          r.hips[0].rotation.x = sw; r.hips[1].rotation.x = -sw; r.knees[0].rotation.x = Math.max(0, -sw); r.knees[1].rotation.x = Math.max(0, sw);
+          r.arms[0].rotation.x = -sw * 0.9 - 0.4; r.arms[1].rotation.x = sw * 0.9 - 0.4;
+        } else if (dist > 1.7) {
+          if (e.cooldown <= 0 && dist > 3) { e.windup = 0.42; e.pending = "leap"; }
+          else step(e, toP, e.def.speed * 0.7 * edt);
+        } else if (e.cooldown <= 0) { e.windup = e.combo ? 0.18 : 0.32; e.pending = "slash"; }
       } else if (e.type === "gunner" || (e.type === "sergeant" && dist > 5.5 && e.windup <= 0)) {
         // gunner (and the sergeant at range): hold 7-11 m, strafe, aim (emitter flashes), fire a 3-shot burst of slow bolts
         const r = e.rig, ser = e.type === "sergeant";
@@ -755,6 +852,8 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
         return true;
       }
     }
+    const n = game.npcSys?.at(at, 0.45);
+    if (n) { game.npcSys.hurt(n, 16 * (1 + 0.15 * effectiveStrength()), tmp.clone()); sfx("punchLight"); return true; }
     return false;
   }
 

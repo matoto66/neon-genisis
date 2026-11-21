@@ -1357,7 +1357,7 @@ export function buildCity(scene, renderer) {
   // ── day / night cycle ───────────────────────────────────────────────
   // One full day = 24 minutes (about 12 night, 12 day). Daylight is kept dim
   // and hazy: Neo Kasumi never gets a clear sunny sky.
-  const CYCLE_SECONDS = 24 * 60, DAY_MAX = 0.62, NIGHT_LIFT = 0.35;
+  const CYCLE_SECONDS = 24 * 60, DAY_MAX = 0.62, NIGHT_LIFT = 0.5;
   let phaseOffset = 0.72;                                   // start in the evening
   const dayNight = { day: 0, phase: 0, lit: 0 };
   const sunDir = new THREE.Vector3();
@@ -1377,7 +1377,7 @@ export function buildCity(scene, renderer) {
     // (brighter, more neutral fill so facades read), the sky is left alone.
     const lit = day + (DAY_MAX - day) * NIGHT_LIFT;
     dayNight.lit = lit;
-    hemi.intensity = 1.2 + lit * 2.25;
+    hemi.intensity = 1.35 + lit * 2.25;
     hemi.color.copy(nightHemi).lerp(dayHemi, lit / DAY_MAX);
     moon.intensity = 1.15 + lit * 2.4;
     moon.color.copy(nightSun).lerp(daySun, lit / DAY_MAX * 0.7);

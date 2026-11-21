@@ -182,6 +182,20 @@ export function createNPCSystem(parent, rand) {
     for (const npc of npcs) {
       if (!npc.enabled) continue;
       const h = npc.holder;
+      if (npc.dead) {
+        // knocked down: topple over, lie there a while, then a new citizen walks in later
+        npc.deadT += dt;
+        const k = Math.min(1, npc.deadT / 0.55), e = k * k;
+        npc.model.rotation.x = -Math.PI / 2 * e; npc.model.position.y = 0.14 * e;
+        if (npc.bubble) npc.bubble.visible = npc.deadT < 2;
+        h.visible = npc.deadT < 30 && h.position.distanceTo(playerPos) < 40;
+        if (npc.deadT > 90 && h.position.distanceTo(playerPos) > 25) {
+          npc.dead = false; npc.hp = 40; npc.model.rotation.x = 0; npc.model.position.y = 0; npc.scared = 0;
+          if (npc.path) { const a = npc.path[0]; h.position.set(a[0] + npc.offset, 0, a[1]); npc.pathIndex = 0; npc.pathDir = 1; }
+          else if (npc.home) h.position.copy(npc.home);
+        }
+        continue;
+      }
       const dx = h.position.x - playerPos.x, dz = h.position.z - playerPos.z;
       const dy = h.position.y - playerPos.y;
       const d2 = dx * dx + dz * dz + dy * dy * 4;
@@ -296,7 +310,51 @@ export function createNPCSystem(parent, rand) {
     }
     return n;
   }
-  return { group, npcs, hitMeshes, byId, addNPC, update, setMarker, setEnabled, say, startle };
+  // ── getting hurt (citizens only — named story characters and holograms can't be) ──
+  const HURT_LINES = ["AAH! What is WRONG with you?!", "Somebody call Tenkai!", "Ow! Psycho!", "Help! HELP!", "You're glitched!", "Not the face!", "I'm calling the Spire!"];
+  const hooks = {};
+  const canHurt = npc => npc && npc.enabled && !npc.named && !npc.hologram && !npc.dead && npc.holder.visible;
+  function hurt(npc, dmg, dir) {
+    if (!canHurt(npc)) return null;
+    if (npc.home === undefined) npc.home = npc.holder.position.clone();
+    npc.hp = (npc.hp ?? 40) - dmg;
+    const killed = npc.hp <= 0;
+    if (killed) { npc.dead = true; npc.deadT = 0; npc.phoneT = 0; if (npc.phone) npc.phone.visible = false; say(npc, "—!", 1.2); }
+    else { say(npc, HURT_LINES[Math.floor(Math.random() * HURT_LINES.length)], 2.5); }
+    if (dir && !killed) { npc.holder.position.x += dir.x * 0.25; npc.holder.position.z += dir.z * 0.25; }
+    startle(npc.holder.position, 8);
+    if (!killed) { npc.scared = 4.5; npc.fear = npc.holder.position.clone().addScaledVector(dir || tmp.set(0, 0, 0), -2); }
+    hooks.onHurt?.(npc, killed);
+    return { killed };
+  }
+  // body column of a citizen (they're about 1.8 m tall)
+  function colOf(npc) { const s = npc.rig?.scale || 1; return { x: npc.holder.position.x, z: npc.holder.position.z, y0: npc.holder.position.y + 0.15, y1: npc.holder.position.y + 1.8 * s, r: 0.3 }; }
+  /** first citizen along a ray, closer than maxDist */
+  function rayHit(o, d, maxDist) {
+    let best = null;
+    const len2 = d.x * d.x + d.z * d.z;
+    for (const npc of npcs) {
+      if (!canHurt(npc)) continue;
+      const c = colOf(npc);
+      const t = len2 > 1e-6 ? ((c.x - o.x) * d.x + (c.z - o.z) * d.z) / len2 : 0;
+      if (t < 0 || t > maxDist || (best && t > best.t)) continue;
+      const px = o.x + d.x * t, pz = o.z + d.z * t, py = o.y + d.y * t;
+      if (Math.hypot(px - c.x, pz - c.z) > c.r || py < c.y0 || py > c.y1) continue;
+      best = { npc, t, at: new THREE.Vector3(px, py, pz) };
+    }
+    return best;
+  }
+  /** a citizen whose body is within r of point p */
+  function at(p, r = 0.3) {
+    for (const npc of npcs) {
+      if (!canHurt(npc)) continue;
+      const c = colOf(npc);
+      if (p.y < c.y0 - r || p.y > c.y1 + r) continue;
+      if (Math.hypot(p.x - c.x, p.z - c.z) < c.r + r) return npc;
+    }
+    return null;
+  }
+  return { group, npcs, hitMeshes, byId, addNPC, update, setMarker, setEnabled, say, startle, hurt, rayHit, at, hooks };
 }
 
 function dampAngle(a, b, lambda, dt) {

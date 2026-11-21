@@ -34,6 +34,8 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
   const sfx = n => audio?.play(n);
   const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), head = new THREE.Vector3();
   const runs = {};      // id → { phase: "intro"|"fight"|"done", enemies, center, t }
+  const custom = {};    // non-story fights started by other systems (e.g. the cyberpsycho hunt)
+  const defOf = id => FIGHTS[id] || custom[id];
   let cut = null;       // the cutscene currently playing
 
   // ── letterbox + title card ────────────────────────────────────────────
@@ -100,7 +102,7 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
   }
 
   function start(id) {
-    const f = FIGHTS[id];
+    const f = defOf(id);
     const center = centerOf(f, id).clone(); center.y = 0;
     // face the squad toward where you are looking, so the cutscene happens in front of you
     camera.getWorldPosition(head);
@@ -122,7 +124,7 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
     const shipFrom = base.clone().addScaledVector(fwd, 70).add(new THREE.Vector3(0, 14, 0)).addScaledVector(right, -25);
     const shipAt = base.clone().addScaledVector(fwd, 13).add(new THREE.Vector3(0, 8.5, 0));
     runs[id] = { phase: "intro", enemies, center: base.clone(), t: 0 };
-    const counts = Object.entries(f.wave.reduce((m, [t]) => (m[t] = (m[t] || 0) + 1, m), {})).map(([t, n]) => `${n}× ${t === "scav" ? "SCAV DRONE" : t === "sentry" ? "SENTRY DRONE" : t.toUpperCase()}`).join("  ·  ");
+    const counts = Object.entries(f.wave.reduce((m, [t]) => (m[t] = (m[t] || 0) + 1, m), {})).map(([t, n]) => `${n}× ${t === "scav" ? "SCAV DRONE" : t === "sentry" ? "SENTRY DRONE" : t === "psycho" ? "CYBERPSYCHO" : t.toUpperCase()}`).join("  ·  ");
     cut = { id, f, t: 0, skipAfter: 1.2, dur: f.arrive === "dropship" ? 5.2 : 4.2, counts, fwd, right, shipFrom, shipAt, base };
     // place the title card in front of you
     card.position.copy(head).addScaledVector(fwd, 4.2); card.position.y = head.y + 1.15;      // above the action, not on top of it
@@ -198,6 +200,12 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
   function update(dt) {
     if (cut) updateCutscene(dt);
     else if (ship.visible) ship.visible = false;
+    // custom fights: start as soon as nothing else is going on, finish when everyone's down
+    for (const [id, f] of Object.entries(custom)) {
+      const run = runs[id];
+      if (!run || run.phase === "waiting") { if (!cut && !game.isPanelOpen() && !combat.dead && !(f.when && !f.when())) start(id); continue; }
+      if (run.phase === "fight" && run.enemies.every(e => e.dead)) { run.phase = "done"; delete custom[id]; delete runs[id]; f.onClear?.(); }
+    }
     for (const [id, f] of Object.entries(FIGHTS)) {
       const run = runs[id];
       if (!stepActive(f)) { if (run && run.phase !== "done") reset(id); continue; }
@@ -225,6 +233,7 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
   }
   // dying mid-fight: wake up next to the fight, the squad regroups and comes again
   function onRespawn() {
+    for (const [id, f] of Object.entries(custom)) { if (runs[id]) reset(id); delete runs[id]; delete custom[id]; f.onFail?.(); }
     for (const [id, f] of Object.entries(FIGHTS)) {
       const run = runs[id];
       if (!run || run.phase === "done" || run.phase === "waiting") continue;
@@ -239,6 +248,10 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
 
   return {
     update, start, reset,
+    startCustom(id, def) { if (custom[id]) return false; custom[id] = def; return true; },
+    cancelCustom(id) { if (runs[id]) reset(id); delete runs[id]; delete custom[id]; },
+    customEnemies(id) { return runs[id]?.enemies || []; },
+    get storyFightActive() { return Object.keys(FIGHTS).some(id => runs[id] && (runs[id].phase === "intro" || runs[id].phase === "fight")); },
     get cutscene() { return !!cut; },
     skip() { if (cut && cut.t > cut.skipAfter) { cut.t = cut.dur + 0.01; endCutscene(); return true; } return !!cut; },
     fightPos(id) { const run = runs[id]; if (run && (run.phase === "intro" || run.phase === "fight")) return null; if (run?.center) return run.center; const f = FIGHTS[id]; return !f ? null : f.center !== "player" ? centerOf(f, id) : (FALLBACK[id] || null); },

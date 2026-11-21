@@ -20,6 +20,7 @@ import { createGear } from "./gear.js";
 import { createScooter } from "./scooter.js";
 import { createWeapons, buildRookStall } from "./weapons.js";
 import { createEncounters } from "./encounters.js";
+import { createHeat } from "./heat.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
 import { createArcade } from "./arcade.js";
 import { drawControllerDiagram } from "./controlsart.js";
@@ -66,7 +67,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 // Filmic tone mapping: richer, more realistic light and colour (as in films and modern games).
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 applyPicture(renderer);        // VIVID picture mode unless switched to STANDARD in Settings
-renderer.toneMappingExposure = 1.2;
+renderer.toneMappingExposure = 1.3;
 document.body.appendChild(renderer.domElement);
 
 const gameUI = document.querySelector("#game-ui");
@@ -101,7 +102,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-109", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-111", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -1267,6 +1268,39 @@ function updateAvatarHeightFromHeadset(xrFrame, delta) {
   playableAvatar.root.scale.set(1, smoothScale, 1);
 }
 
+// Weapon grip: roll the robot hand so the palm sits against the handle and the
+// fingers wrap round it (knuckles run down the grip, index finger up on the trigger).
+// k blends between the normal open-hand placement (0) and the grip (1).
+const GRIP_POSES = (() => {
+  const mk = (pos, tilt, roll = 0) => {
+    const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0));
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    q.premultiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, roll, 0)));
+    return { pos: new THREE.Vector3(...pos), q };
+  };
+  return {
+    gun: mk([0.042, -0.028, 0.055], -0.25),
+    long: mk([0.034, -0.032, 0.04], -0.3),
+    melee: mk([0.034, 0.002, 0.03], 0.85 - Math.PI / 2),
+    throw: mk([0.03, 0.0, 0.025], -0.1)
+  };
+})();
+const GRIP_CURL = { gun: [0.62, 0.86, 0.8], long: [0.62, 0.86, 0.8], melee: [0.8, 0.8, 0.85], throw: [0.55, 0.6, 0.65] };
+const DEFAULT_HAND_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), ZERO_V = new THREE.Vector3();
+const _gq = new THREE.Quaternion(), _gv = new THREE.Vector3();
+function applyGripPose(robotHand, kind, trigger, dt) {
+  const u = robotHand.userData;
+  if (kind) u.gripKind = kind;
+  u.gripK = THREE.MathUtils.damp(u.gripK || 0, kind ? 1 : 0, 22, dt);
+  const k = u.gripK, pose = GRIP_POSES[u.gripKind || "gun"];
+  if (k < 0.001) { robotHand.position.set(0, 0, 0); robotHand.quaternion.copy(DEFAULT_HAND_Q); return; }
+  robotHand.position.copy(_gv.copy(ZERO_V).lerp(pose.pos, k));
+  robotHand.quaternion.copy(_gq.copy(DEFAULT_HAND_Q).slerp(pose.q, k));
+  const c = GRIP_CURL[u.gripKind || "gun"], idx = u.gripKind === "gun" || u.gripKind === "long" ? 0.38 + (trigger || 0) * 0.3 : c[0];
+  const p = u.pose;
+  p.index = THREE.MathUtils.lerp(p.index, idx, k); p.other = THREE.MathUtils.lerp(p.other, c[1], k); p.thumb = THREE.MathUtils.lerp(p.thumb, c[2], k);
+  u.setPose(p.index, p.other, p.thumb);
+}
 function animateRobotHandJoints(hand, elapsed, phaseOffset = 0, input = 0) {
   if (!hand?.userData?.setPose) return;
   const u = hand.userData, dt = 1 / 72;
@@ -2468,6 +2502,8 @@ const encounters = createEncounters({ root: cityWorld, scene, camera, player, re
 game.hooks.weapons = weapons;
 buildRookStall(cityWorld, city);
 game.hooks.fightPos = id => encounters.fightPos(id);
+const heat = createHeat({ game, combat, npcSys: game.npcSys, encounters, audio, haptic });
+game.hooks.heatBanner = () => heat.banner();
 combat.hooks.onKill = e => weapons.onKill(e);
 gear.scanExtras.push(() => scooter.scanTarget());
 const arcade = createArcade({ root: cityWorld, scene, game, audio, player, camera, position: new THREE.Vector3(10.45, 0, -28), yaw: -Math.PI / 2 });
@@ -2517,12 +2553,12 @@ renderer.domElement.addEventListener("mousedown", event => {
 
 // Developer hook: open the page with ?debug to drive the game from the console.
 if (DEBUG) {
-  window.__NEON = {
+  window.__NEON = { createRobotHand, applyGripPose,
     game, state, city, player, camera, renderer, startCity, THREE, scene,
     setTone(on, exposure = 1.15) { renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = exposure; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }, audio,
     previewVRTerminal() { startScreen.classList.add("hidden"); vrSessionIntroActive = false; vrStartReady = false; player.position.set(0, 0, 7); player.rotation.set(0, 0, 0); menuView = { x: 0, y: 0, z: 7, pitch: -0.02 }; showVRIntro(); vrSessionIntroActive = false; },
     vrTab(i) { creatorTab = i; refreshVRCreator(); },
-    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get scooter() { return scooter; }, get weapons() { return weapons; }, get encounters() { return encounters; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
+    intro, replayIntro, worlds, get combat() { return combat; }, docks, cityFX, get gear() { return gear; }, get scooter() { return scooter; }, get weapons() { return weapons; }, get encounters() { return encounters; }, get heat() { return heat; }, get arcade() { return arcade; }, comfortSys, drawVRMenu: () => drawVRMenu(), switchWorld, newWorld, vrWorlds() { vrWorldsOpen = true; drawVRCreator(); },
     wristMenu(page) { vrMenuPage = page; drawVRMenu(); return vrMenuCanvas.toDataURL(); },
     vrClick(u, v) { vrcPanel.userData.hover({ uv: { x: u, y: v } }); vrcPanel.userData.action({ uv: { x: u, y: v } }); return { tab: creator.TABS[creatorTab].id, look: { ...creator.look }, inCity: isInCity }; },
     teleport(x, y, z, yaw = 0, pitchValue = 0) {
@@ -2567,6 +2603,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       hover, holding: activeDoorGrab?.controller === controller
     };
     animateRobotHandJoints(robotHand, time * 0.001, handIndex * Math.PI, handInput);
+    if (robotHand) { const wd = side ? weapons?.heldDef(side) : null; applyGripPose(robotHand, wd ? (wd.kind === "gun" ? (wd.slot === "long" ? "long" : "gun") : wd.kind) : null, handInput.trigger, delta); }
     if (side && robotHand) combatHands.push({ side, object: robotHand, grip, controller, trigger: bt[0]?.value || 0 });
   }
   if (renderer.xr.isPresenting) {
@@ -2588,6 +2625,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
     weapons.update(time, delta, combatHands);
     for (const h of combatHands) h.holdingItem = gear.isHolding(h.object);
     encounters.update(delta);
+    heat.update(delta);
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(worldTime);
     cityFX.update(worldTime, worldDelta);

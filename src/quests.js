@@ -687,6 +687,7 @@ export function createGame(ctx) {
   function setHover(i) { if (i !== hoverIndex) { hoverIndex = i; if (i >= 0) audio.play("hover"); if (panelState) drawPanel(); } }
 
   function talkTo(npc) {
+    if (npc.dead) return;
     if (!npc.named) { const pool = npc.gang ? npc.barks : AMBIENT_BARKS; const line = pool[Math.floor(Math.random() * pool.length)]; npcSys.say(npc, line); audio.speak("citizen", line); if (npc.gang) npc.glare = 5; return; }
     const node = entryFor(npc.id, api);
     if (node) openDialogue(node, npc);
@@ -743,7 +744,7 @@ export function createGame(ctx) {
     const id = trackedMission();
     const sum = objectiveSummary();
     const main = id && MISSIONS[id]?.kind === "main";
-    const col = !id ? "#9fe9ff" : main ? "#ffcf4a" : "#5ff5e8";
+    const col = sum.heat || (!id ? "#9fe9ff" : main ? "#ffcf4a" : "#5ff5e8");
     const near = target && dist != null && dist < 3.5 && Math.abs(target.y - tmpV2.y) < 5;
     let ang = null;
     if (target && !near) {
@@ -752,7 +753,7 @@ export function createGame(ctx) {
       const rel = Math.atan2(Math.sin(tYaw - headYaw), Math.cos(tYaw - headYaw));
       ang = Math.round(rel * 180 / Math.PI / 15) * 15;   // 15° steps keeps redraws cheap
     }
-    drawObjectivePanel((id ? (main ? "OBJECTIVE · " : "SIDE JOB · ") : "") + sum.title, sum.text, !target ? "" : near ? "HERE" : `${Math.round(dist)} m`, col, ang);
+    drawObjectivePanel((sum.heat ? "" : id ? (main ? "OBJECTIVE · " : "SIDE JOB · ") : "") + sum.title, sum.text, !target ? "" : near ? "HERE" : `${Math.round(dist)} m`, col, ang);
   }
   const distLabel = textPlate("", "#ffcf4a"); distLabel.visible = false; cityWorld.add(distLabel);
   let lastDistText = "";
@@ -763,6 +764,7 @@ export function createGame(ctx) {
   });
 
   function objectivePosition() {
+    const ban = hooks.heatBanner?.(); if (ban) return ban.target || null;
     const id = trackedMission();
     const step = id && currentStep(id);
     if (!step?.target) return null;
@@ -999,6 +1001,7 @@ export function createGame(ctx) {
     if (hud.dist) hud.dist.textContent = dist != null ? `${Math.round(dist)} m` : "";
   }
   function objectiveSummary() {
+    const ban = hooks.heatBanner?.(); if (ban) return { title: ban.title, text: ban.text, heat: ban.color };
     const id = trackedMission();
     if (!id) {
       if (state.flags.chapter1_done) {
