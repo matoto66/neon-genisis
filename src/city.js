@@ -97,7 +97,7 @@ class Batch {
   }
 }
 
-function canvasTexture(w, h, painter, { repeat = false, aniso = 4, renderer } = {}) {
+function canvasTexture(w, h, painter, { repeat = false, aniso = 8, renderer } = {}) {
   const c = document.createElement("canvas");
   c.width = w; c.height = h;
   painter(c.getContext("2d"), w, h);
@@ -124,7 +124,7 @@ function makeConcreteMaps(renderer) {
     if (sx < 2 || sy < 2) hgt[y * N + x] -= 0.9;
     for (const [cx, cy] of [[32, 32], [96, 32], [32, 96], [96, 96]]) { const dx = (x % 128) - cx, dy = (y % 128) - cy; if (dx * dx + dy * dy < 9) hgt[y * N + x] -= 0.6; }
   }
-  for (let i = 0; i < 260; i++) { const x = Math.floor(r() * N), y = Math.floor(r() * N); hgt[y * N + x] -= 0.5 + r() * 0.4; }   // pits
+  for (let i = 0; i < 120; i++) { const x = Math.floor(r() * N), y = Math.floor(r() * N); hgt[y * N + x] -= 0.5 + r() * 0.4; }   // pits
   const col = document.createElement("canvas"); col.width = col.height = N; const cx = col.getContext("2d");
   const nrm = document.createElement("canvas"); nrm.width = nrm.height = N; const nx = nrm.getContext("2d");
   const ci = cx.createImageData(N, N), ni = nx.createImageData(N, N);
@@ -134,7 +134,7 @@ function makeConcreteMaps(renderer) {
     const l = Math.hypot(dx, dy, 1), i = (y * N + x) * 4;
     ni.data[i] = (-dx / l * 0.5 + 0.5) * 255; ni.data[i + 1] = (dy / l * 0.5 + 0.5) * 255; ni.data[i + 2] = (1 / l * 0.5 + 0.5) * 255; ni.data[i + 3] = 255;
     // colour: light concrete, darker in seams, rain streaks running down
-    const streak = 0.08 * Math.max(0, Math.sin(x * 0.37) * Math.sin(x * 0.11 + 1.3)) * (1 - (y % 128) / 128);
+    const streak = 0.05 * Math.max(0, Math.sin(x * 0.37) * Math.sin(x * 0.11 + 1.3)) * (1 - (y % 128) / 128);
     const v = 150 + hgt[y * N + x] * 60 - streak * 255;
     ci.data[i] = v; ci.data[i + 1] = v * 0.98; ci.data[i + 2] = v * 0.95; ci.data[i + 3] = 255;
   }
@@ -166,8 +166,8 @@ function makeFacadeTextures(style, seed, renderer) {
   const diffuse = canvasTexture(W, H, (ctx) => {
     ctx.fillStyle = s.wall; ctx.fillRect(0, 0, W, H);
     // concrete panel noise
-    for (let i = 0; i < 900; i++) {
-      ctx.fillStyle = `rgba(0,0,0,${rand() * 0.08})`;
+    for (let i = 0; i < 450; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${rand() * 0.06})`;
       ctx.fillRect(rand() * W, rand() * H, 2 + rand() * 18, 2 + rand() * 18);
     }
     for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
@@ -180,8 +180,8 @@ function makeFacadeTextures(style, seed, renderer) {
       ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
       ctx.strokeRect(x + 9, y + 22, cw - 18, ch - 44);
       // grime streaks below windows (Sump)
-      if (style === "sump" && rand() < 0.5) {
-        ctx.fillStyle = "rgba(30,25,20,0.25)";
+      if (style === "sump" && rand() < 0.3) {
+        ctx.fillStyle = "rgba(30,25,20,0.16)";
         ctx.fillRect(x + 12 + rand() * 20, y + ch - 22, 3, 18 + rand() * 30);
       }
     }
@@ -366,7 +366,7 @@ export function buildCity(scene, renderer) {
   // Weathered concrete panels with a generated normal map (real-looking seams,
   // pitting and streaks that catch the neon) for the Sump street walls.
   const concrete = makeConcreteMaps(renderer);
-  const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: concrete.color, normalMap: concrete.normal, normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.8, metalness: 0.15 });
+  const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: concrete.color, normalMap: concrete.normal, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.8, metalness: 0.15 });
   const walls = new Batch(wallMat, "SUMP_WALLS");
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const beaconMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
@@ -1395,10 +1395,10 @@ export function buildCity(scene, renderer) {
     const t = THREE.MathUtils.clamp((-z - 20) / 50, 0, 1);
     fogTmp.copy(fogSump).lerp(fogMile, t).lerp(fogDay, THREE.MathUtils.lerp(dayNight.lit, dayNight.day, 0.4) / DAY_MAX);
     sceneRef.environmentIntensity = 0.6 + dayNight.lit * 0.6;
-    if (!sceneRef.fog) sceneRef.fog = new THREE.Fog(fogTmp, 14, 150);
+    if (!sceneRef.fog) sceneRef.fog = new THREE.Fog(fogTmp, 20, 175);
     sceneRef.fog.color.copy(fogTmp);
-    sceneRef.fog.near = THREE.MathUtils.lerp(10, 18, t);
-    sceneRef.fog.far = THREE.MathUtils.lerp(120, 165, t);
+    sceneRef.fog.near = THREE.MathUtils.lerp(15, 25, t);
+    sceneRef.fog.far = THREE.MathUtils.lerp(140, 190, t);
     sceneRef.fog.far *= 1 + dayNight.day * 0.6;   // see further in daylight
     sceneRef.background = fogTmp;
   }
