@@ -483,6 +483,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       player.position.copy(spot || city.anchors.docksRespawn || new THREE.Vector3(0, 0, 7));
       hp = maxHealth(); energy = 1; dead = false; deathT = 0;
       for (const z of zones) { z.active = false; z.cooldown = 5; }
+      game.clearToasts?.();   // drop anything that stacked up while you were down
       game.toast(`Doc Anaya patched you up. Lost $${lost}.`, "warn");
       revive = 1;
     }

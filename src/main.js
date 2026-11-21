@@ -102,7 +102,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-112", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-113", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -2502,7 +2502,7 @@ const encounters = createEncounters({ root: cityWorld, scene, camera, player, re
 game.hooks.weapons = weapons;
 buildRookStall(cityWorld, city);
 game.hooks.fightPos = id => encounters.fightPos(id);
-const heat = createHeat({ game, combat, npcSys: game.npcSys, encounters, audio, haptic });
+const heat = createHeat({ game, combat, npcSys: game.npcSys, encounters, audio, haptic, player });
 game.hooks.heatBanner = () => heat.banner();
 combat.hooks.onKill = e => weapons.onKill(e);
 gear.scanExtras.push(() => scooter.scanTarget());

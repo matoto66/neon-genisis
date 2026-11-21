@@ -130,6 +130,8 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
     card.position.copy(head).addScaledVector(fwd, 4.2); card.position.y = head.y + 1.15;      // above the action, not on top of it
     card.lookAt(head.x, card.position.y, head.z); card.visible = false; card.scale.setScalar(0.01);
     if (f.arrive === "dropship") { ship.visible = true; ship.position.copy(shipFrom); ship.lookAt(shipAt.x, shipFrom.y, shipAt.z); }
+    // quick drop-in (REDLINE responders): no letterbox, no title card, keep your weapon out
+    if (f.quick) { ship.visible = false; haptic?.("both", 0.4, 150); endCutscene(); return; }
     sfx("sting"); haptic?.("both", 0.6, 250);
     weapons?.holsterAll?.();
     game.toast(f.boss ? "BOSS FIGHT" : "AMBUSH", "warn");
@@ -147,6 +149,7 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
     card.visible = false;
     run.phase = "fight";
     cut = null;
+    if (f.quick) return;
     game.toast(f.boss ? "TAKE HIM DOWN!" : "FIGHT!", "chapter");
     const hint = weapons?.owns("p9") && !weapons?.state?.hinted;
     if (hint) { weapons.state.hinted = true; setTimeout(() => game.toast(renderer.xr.isPresenting ? "DRAW: squeeze grip at your right hip · TRIGGER fires" : "Press 1 to draw the P9 · click to fire · R reloads", "objective"), 1500); }
@@ -251,6 +254,7 @@ export function createEncounters({ root, scene, camera, player, renderer, city, 
     startCustom(id, def) { if (custom[id]) return false; custom[id] = def; return true; },
     cancelCustom(id) { if (runs[id]) reset(id); delete runs[id]; delete custom[id]; },
     customEnemies(id) { return runs[id]?.enemies || []; },
+    customPending(id) { return !!custom[id]; },
     get storyFightActive() { return Object.keys(FIGHTS).some(id => runs[id] && (runs[id].phase === "intro" || runs[id].phase === "fight")); },
     get cutscene() { return !!cut; },
     skip() { if (cut && cut.t > cut.skipAfter) { cut.t = cut.dur + 0.01; endCutscene(); return true; } return !!cut; },

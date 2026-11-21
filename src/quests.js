@@ -798,8 +798,18 @@ export function createGame(ctx) {
   const TOAST_COLORS = { chapter: "#c58bff", mission: "#ffcf4a", objective: "#5ff5e8", complete: "#6aff9e", credits: "#ff6fe0", warn: "#ff8a5a", info: "#9fe9ff", district: "#ffffff" };
   let lastToastSound = 0;
   const TOAST_SOUNDS = { mission: "mission", objective: "objective", complete: "complete", credits: "credits", warn: "warn", district: "district", chapter: "chapter" };
+  // Keep the VR queue short and fresh: skip repeats of what's showing or already
+  // waiting, and drop the oldest when too many pile up (e.g. dying mid-fight).
+  let toastShowing = null;
+  const TOAST_MAX_QUEUE = 3;
+  function clearToasts() {
+    toastQueue.length = 0; toastTimer = 0; toastShowing = null; toastMesh.visible = false;
+    if (hud.toasts) hud.toasts.replaceChildren();
+  }
   function toast(text, kind = "info") {
+    if (toastShowing?.text === text || toastQueue.some(q => q.text === text)) return;
     toastQueue.push({ text, kind });
+    while (toastQueue.length > TOAST_MAX_QUEUE) toastQueue.shift();
     const nowMs = performance.now();
     if (TOAST_SOUNDS[kind] && (nowMs - lastToastSound > 900 || kind === "complete" || kind === "chapter")) { audio.play(TOAST_SOUNDS[kind]); lastToastSound = nowMs; }
     if (hud.toasts) {
@@ -822,12 +832,13 @@ export function createGame(ctx) {
     toastTex.needsUpdate = true;
   }
   function updateToasts(dt) {
-    if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) toastMesh.visible = false; return; }
+    if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) { toastMesh.visible = false; toastShowing = null; } return; }
     const next = toastQueue.shift();
     if (!next) return;
-    drawToast(next);
+    drawToast(next); toastShowing = next;
     toastMesh.visible = renderer.xr.isPresenting;
     toastTimer = next.kind === "district" ? 2.2 : 3.4;
+    if (toastQueue.length) toastTimer = Math.min(toastTimer, 2.0);   // backlog: move through it faster
   }
 
   // Fade-to-black sphere around the head: used for lifts and story moments.
@@ -1101,7 +1112,7 @@ export function createGame(ctx) {
   return {
     update, onTrigger, desktopInteract, desktopClick, handleKey, cursorPoint, beginSession, onExit,
     isPanelOpen: () => panel.visible, closePanel, hooks, emit, openStore, setHudSuppressed: v => { hudSuppressed = !!v; }, openBoard, addInteractable, teleport: (pos, title) => teleport(pos, title), textPlate: (t, c) => textPlate(t, c),
-    refreshBoard: () => { if (panelState?.mode === "board") drawPanel(); }, objectiveSummary, toast, npcSys, openShop, give: (n, why) => give(n, why), awardXP: n => awardXP(n),
+    refreshBoard: () => { if (panelState?.mode === "board") drawPanel(); }, objectiveSummary, toast, clearToasts, npcSys, openShop, give: (n, why) => give(n, why), awardXP: n => awardXP(n),
     debug: { startMission, completeStep, emit, openDialogue, state, interactables, choose, objectivePosition }
   };
 }
