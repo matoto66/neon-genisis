@@ -35,6 +35,9 @@ export const state = {
 export function resetState() {
   Object.assign(state.character, { strength: 0, health: 0, compatibility: 0 });
   Object.assign(state, { bonusPoints: 0, xp: 0, credits: 500, missions: {}, flags: {}, owned: [], installed: [], collected: [], items: {}, introSeen: false, tracked: null });
+  // weapons.js holds a reference to state.weapons, so reset it in place
+  if (state.weapons) Object.assign(state.weapons, { owned: [], ammo: { light: 0, shell: 0, cell: 0 }, mags: {}, loadout: { sidearm: null, long: null, blade: null }, grenades: 0, upgrades: {} });
+  state.gigs = null;
 }
 
 export function loadGame() {
@@ -71,6 +74,21 @@ export function loadGame() {
       }
     }
     state.tracked = typeof saved.tracked === "string" ? saved.tracked : null;
+    // weapons (bought guns, loadout, mods). Before this, guns were saved but never loaded back.
+    const sw = saved.weapons;
+    if (sw && typeof sw === "object") {
+      const w = (state.weapons ||= { owned: [], ammo: { light: 0, shell: 0, cell: 0 }, mags: {}, loadout: { sidearm: null, long: null, blade: null }, grenades: 0, upgrades: {} });
+      const str = v => typeof v === "string" ? v : null;
+      if (Array.isArray(sw.owned)) w.owned = sw.owned.filter(v => typeof v === "string");
+      if (sw.loadout && typeof sw.loadout === "object") w.loadout = { sidearm: str(sw.loadout.sidearm), long: str(sw.loadout.long), blade: str(sw.loadout.blade) };
+      if (sw.mags && typeof sw.mags === "object") { w.mags = {}; for (const [k, v] of Object.entries(sw.mags)) if (Number.isInteger(v) && v >= 0) w.mags[k] = v; }
+      w.grenades = Math.max(0, Math.min(6, sw.grenades | 0));
+      w.upgrades = {};
+      if (sw.upgrades && typeof sw.upgrades === "object") for (const [k, v] of Object.entries(sw.upgrades)) w.upgrades[k] = Math.max(0, Math.min(3, v | 0));
+    }
+    // gigs: earnings and how many done (the board itself re-rolls on load)
+    const sg = saved.gigs;
+    state.gigs = sg && typeof sg === "object" ? { done: Math.max(0, sg.done | 0), earned: Math.max(0, sg.earned | 0) } : null;
     return true;
   } catch { return false; }
 }

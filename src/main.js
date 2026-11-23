@@ -21,6 +21,7 @@ import { createScooter } from "./scooter.js";
 import { createWeapons, buildRookStall } from "./weapons.js";
 import { createEncounters } from "./encounters.js";
 import { createHeat } from "./heat.js";
+import { createGigs } from "./gigs.js";
 import { TRAVEL, isUnlocked, discover, drawMap } from "./map.js";
 import { createArcade } from "./arcade.js";
 import { drawControllerDiagram } from "./controlsart.js";
@@ -102,7 +103,7 @@ const city = buildCity(scene, renderer);
 const docks = buildDocks(city.root, city);
 // Neon bloom halos, lamp beams, flying cars and searchlights (fx.js).
 const cityFX = createCityFX(city.root, city, renderer);
-loadProps3D(city.root, city, "neo-kasumi-113", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
+loadProps3D(city.root, city, "neo-kasumi-114", models => { if (models.hover_car) cityFX.setCarModel(models.hover_car); });
 const comfortSys = createComfort({ renderer, camera });
 const radios = buildRadios(city.root, city);
 let lastTurnRate = 0;
@@ -801,7 +802,7 @@ const CONTROLS_PC = [
   ["Move", "W A S D"], ["Sprint", "Hold Shift"], ["Look", "Mouse (click to lock)"], ["Jump", "Space"],
   ["Interact / talk", "F or click"], ["Dialogue choice", "1 - 4"], ["Punch", "Left click"], ["Palm blast (Pulse Emitter)", "Right click"],
   ["Guard", "Hold C"], ["Med patch", "Q"], ["Chrono Spike", "V"], ["Menu", "E"], ["Mute sound", "M"],
-  ["Pick up / take", "F"], ["Throw what you're holding", "Left click"], ["Backpack", "I"], ["Optic Scan", "R"], ["Tether Line", "G"]
+  ["Pick up / take", "F"], ["Throw what you're holding", "Left click"], ["Backpack", "I"], ["Optic Scan", "R"], ["Tether Line", "G"], ["Gig board", "J"]
 ];
 const characterPanel = document.querySelector("#character-panel");
 const shopPanel = document.querySelector("#shop-panel");
@@ -852,6 +853,7 @@ document.addEventListener("keydown", event => {
     if (["Digit1", "Digit2", "Digit3", "Digit4"].includes(event.code) && !encounters.cutscene) { weapons.pcEquip(["sidearm", "long", "blade", "grenade"][+event.code.slice(5) - 1]); return; }
     if (event.code === "KeyG") { gear.desktopTether(); return; }
     if (event.code === "KeyI") { gear.openBackpack(); return; }
+    if (event.code === "KeyJ") { if (game.isPanelOpen()) game.closePanel(); else game.openStore(gigs.store); return; }
   }
   if (event.code === "KeyE" && !renderer.xr.isPresenting) {
     event.preventDefault();
@@ -1594,6 +1596,7 @@ function onLookChanged() {
 // Switching loads that world's progress and character without reloading.
 function refreshAfterWorldChange() {
   loadGame();
+  weapons?.refreshHolsters?.();   // pick up this world's guns
   creator.loadLook();
   updateCharacterPreview();
   rebuildPlayableAvatar();
@@ -1946,8 +1949,8 @@ for (let i = 0; i < 2; i++) {
 
 let vrMenuPage = "character";
 const VR_WARE_TOP = 200, VR_WARE_ROW = 76;
-const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "map", label: "MAP" }, { id: "controls", label: "CONTROLS" }, { id: "settings", label: "SETTINGS" }];
-const VR_TAB_W = 176, VR_TAB_STEP = 186;
+const VR_TABS = [{ id: "character", label: "CHARACTER" }, { id: "cyberware", label: "CYBERWARE" }, { id: "gigs", label: "GIGS" }, { id: "map", label: "MAP" }, { id: "controls", label: "CONTROLS" }, { id: "settings", label: "SETTINGS" }];
+const VR_TAB_W = 146, VR_TAB_STEP = 154;
 let vrMapHover = -1;
 function drawVRMenu() {
   const ctx = vrMenuContext;
@@ -1971,9 +1974,9 @@ function drawVRMenu() {
     ctx.lineWidth = 4;
     ctx.strokeRect(x, 92, VR_TAB_W, 66);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 22px Arial";
+    ctx.font = "bold 19px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(t.label, x + VR_TAB_W / 2, 134);
+    ctx.fillText(t.label, x + VR_TAB_W / 2, 133);
     ctx.textAlign = "left";
   });
 
@@ -2025,6 +2028,24 @@ function drawVRMenu() {
       ctx.fillStyle = on ? "#ffffff" : "#56607a"; ctx.font = "bold 21px Arial"; ctx.fillText(on ? t.name : "??? · not found yet", 606, y + 33);
       if (on) { ctx.fillStyle = "#ffcf4a"; ctx.font = "bold 18px Arial"; ctx.textAlign = "right"; ctx.fillText("GO ▸", 955, y + 33); ctx.textAlign = "left"; }
     });
+  } else if (vrMenuPage === "gigs") {
+    // wrist phone: the active gig, plus a button that opens the full GIG BOARD
+    const g = gigs.active, ban = gigs.banner();
+    ctx.fillStyle = "#ff6fe0"; ctx.font = "bold 26px Arial"; ctx.fillText("GIGS · WORK ON THE WIRE", 60, 200);
+    ctx.fillStyle = "#aab6cf"; ctx.font = "20px Arial";
+    ctx.fillText(`Done ${state.gigs?.done || 0}  ·  Earned $${(state.gigs?.earned || 0).toLocaleString()}`, 60, 234);
+    ctx.fillStyle = "#13233b"; ctx.fillRect(55, 262, 914, 150);
+    if (g && ban) {
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 26px Arial"; ctx.fillText(ban.title, 80, 306);
+      ctx.fillStyle = "#dce7ff"; ctx.font = "21px Arial"; ctx.fillText(ban.text.length > 74 ? ban.text.slice(0, 72) + "…" : ban.text, 80, 346);
+      ctx.fillStyle = "#aab6cf"; ctx.font = "18px Arial"; ctx.fillText("Follow the arrow on your HUD.", 80, 384);
+    } else {
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial"; ctx.fillText("No active gig.", 80, 320);
+      ctx.fillStyle = "#aab6cf"; ctx.font = "20px Arial"; ctx.fillText("Courier runs, drone nests and bounties. New jobs every few minutes.", 80, 360);
+    }
+    ctx.fillStyle = "#a0287a"; ctx.fillRect(312, 446, 400, 76);
+    ctx.strokeStyle = "#ff6fe0"; ctx.lineWidth = 3; ctx.strokeRect(312, 446, 400, 76);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 28px Arial"; ctx.textAlign = "center"; ctx.fillText("OPEN GIG BOARD ▸", 512, 494); ctx.textAlign = "left";
   } else if (vrMenuPage === "controls") {
     drawControllerDiagram(ctx, 50, 170, 924, 470);
   } else if (vrMenuPage === "settings") {
@@ -2104,6 +2125,8 @@ function activateVRMenuAtController(controller) {
   if (y >= 92 && y <= 158) {
     const i = Math.floor((x - 50) / VR_TAB_STEP);
     if (i >= 0 && i < VR_TABS.length && x - 50 - i * VR_TAB_STEP <= VR_TAB_W) vrMenuPage = VR_TABS[i].id;
+  } else if (vrMenuPage === "gigs") {
+    if (x >= 312 && x <= 712 && y >= 446 && y <= 522) { setVRMenuOpen(false); game.openStore(gigs.store); return; }
   } else if (vrMenuPage === "map") {
     const i = Math.floor((y - 212) / 61);
     if (x >= 590 && x <= 970 && i >= 0 && i < TRAVEL.length && y - 212 - i * 61 <= 52) { fastTravel(TRAVEL[i]); return; }
@@ -2503,7 +2526,9 @@ game.hooks.weapons = weapons;
 buildRookStall(cityWorld, city);
 game.hooks.fightPos = id => encounters.fightPos(id);
 const heat = createHeat({ game, combat, npcSys: game.npcSys, encounters, audio, haptic, player });
-game.hooks.heatBanner = () => heat.banner();
+const gigs = createGigs({ game, combat, encounters, player, audio });
+// REDLINE takes priority on the HUD banner; otherwise the active gig shows there
+game.hooks.heatBanner = () => heat.banner() || gigs.banner();
 combat.hooks.onKill = e => weapons.onKill(e);
 gear.scanExtras.push(() => scooter.scanTarget());
 const arcade = createArcade({ root: cityWorld, scene, game, audio, player, camera, position: new THREE.Vector3(10.45, 0, -28), yaw: -Math.PI / 2 });
@@ -2574,8 +2599,33 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 let worldTime = 0;
+// ── debug FPS meter (?debug=1 only): corner text on PC, small readout low-left of your view in VR ──
+const fpsMeter = DEBUG ? (() => {
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;top:8px;right:8px;z-index:50;font:bold 14px monospace;color:#5ff5e8;background:rgba(5,10,25,.75);padding:4px 8px;border-radius:6px;pointer-events:none";
+  document.body.appendChild(el);
+  const c = document.createElement("canvas"); c.width = 256; c.height = 64; const x = c.getContext("2d");
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.03), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+  plate.position.set(-0.22, -0.2, -0.7); plate.renderOrder = 10002; camera.add(plate);
+  let frames = 0, last = 0;
+  return {
+    tick(t) {
+      frames++;
+      if (t - last < 500) return;
+      const fps = Math.round(frames * 1000 / (t - last)); frames = 0; last = t;
+      const info = renderer.info.render, col = fps >= 70 ? "#6aff9e" : fps >= 60 ? "#ffcf4a" : "#ff3a4a";
+      const txt = `${fps} FPS · ${info.calls} calls`;
+      el.textContent = txt; el.style.color = col;
+      plate.visible = renderer.xr.isPresenting;
+      if (plate.visible) { x.clearRect(0, 0, 256, 64); x.fillStyle = "rgba(5,10,25,0.8)"; x.fillRect(0, 0, 256, 64); x.fillStyle = col; x.font = "bold 21px monospace"; x.fillText(txt, 8, 40); tex.needsUpdate = true; }
+    }
+  };
+})() : null;
+
 renderer.setAnimationLoop((time, xrFrame) => {
   const delta = Math.min(clock.getDelta(), 0.05);
+  fpsMeter?.tick(time);
   // World clock: runs at Chrono Spike speed so the whole city slows down (you don't)
   const worldScale = combat?.timeScale ?? 1, worldDelta = delta * worldScale;
   worldTime += worldDelta * 1000;
@@ -2626,6 +2676,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
     for (const h of combatHands) h.holdingItem = gear.isHolding(h.object);
     encounters.update(delta);
     heat.update(delta);
+    gigs.update(delta);
     combat.update(time, delta, combatHands, renderer.xr.isPresenting ? {} : { desktop: { guard: !!keys.KeyC } });
     docks.update(worldTime);
     cityFX.update(worldTime, worldDelta);

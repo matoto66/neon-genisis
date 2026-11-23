@@ -529,7 +529,7 @@ export function createGame(ctx) {
     drawPanel(); onPanelOpen();
   }
   // TEST MODE: everything at Second Skin costs $0. Set to false to restore prices.
-  const FREE_SHOP = true;
+  const FREE_SHOP = false;
   const priceOf = item => FREE_SHOP ? 0 : item.price;
   const priceLabel = item => FREE_SHOP ? "GET · FREE" : `BUY $${item.price}`;
 

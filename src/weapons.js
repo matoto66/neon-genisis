@@ -22,6 +22,34 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   const W = (state.weapons ||= { owned: [], ammo: { light: 0, shell: 0, cell: 0 }, mags: {}, loadout: { sidearm: null, long: null, blade: null }, grenades: 0 });
   W.ammo ||= { light: 0, shell: 0, cell: 0 }; W.mags ||= {}; W.loadout ||= {}; W.owned ||= [];
   W.racked = {};        // racking removed: guns reload themselves
+  W.upgrades ||= {};    // weapon id → mod tier 0..3 (bought at Rook's)
+
+  // ── weapon mods (Rook's MODS tab) ─────────────────────────────────────
+  // Each tier adds damage and one perk. Guns: T1 bigger mag, T2 faster fire,
+  // T3 tighter spread + extra mag. Blade: more damage per tier.
+  const MOD_IDS = ["p9", "seeker", "rattler", "breacher", "longspike", "katana"];
+  const MOD_COST = [300, 600, 1000];
+  const MOD_NAMES = ["STOCK", "TUNED", "CUSTOM", "BLACK-MARKET"];
+  const MOD_DMG = [1, 1.15, 1.3, 1.5];
+  const defCache = new Map();
+  function tierOf(id) { return Math.max(0, Math.min(3, W.upgrades[id] | 0)); }
+  function defFor(id) {
+    const base = WEAPONS[id], t = tierOf(id);
+    if (!base || !t) return base;
+    const key = id + t; if (defCache.has(key)) return defCache.get(key);
+    const d = { ...base, damage: base.damage * MOD_DMG[t] };
+    if (base.kind === "gun") {
+      if (t >= 1 && base.mag) d.mag = Math.round(base.mag * (t >= 3 ? 1.5 : 1.25));
+      if (t >= 2) { d.rate = base.rate * 0.85; if (base.charge) d.charge = base.charge * 0.85; }
+      if (t >= 3 && base.spread) d.spread = base.spread * 0.6;
+    }
+    defCache.set(key, d); return d;
+  }
+  function modPerk(id, t) {
+    const g = WEAPONS[id].kind === "gun";
+    if (!g) return `+${Math.round((MOD_DMG[t] - 1) * 100)}% damage`;
+    return [`+15% damage · bigger mag`, `+30% damage · bigger mag · 15% faster fire`, `+50% damage · +50% mag · faster fire · tighter spread`][t - 1];
+  }
   // AMMO IS INFINITE: magazines always refill when you reload — you just have to reload.
   // Guns with a slide/pump that run dry also need it racked after the new mag goes in.
   const RACKS = { p9: "slide", seeker: "slide", rattler: "handle", breacher: "pump" };
@@ -40,6 +68,10 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   const holsterModels = {};       // slot → { id, model: marker }  (weapons stay invisible on your body; a small tag shows where they are)
   function equippedIn(slot) { return slot === "grenade" ? (W.grenades > 0 ? "emp" : null) : W.loadout[slot] || null; }
   function refreshHolsters() {
+    // drop anything a save names that doesn't exist (old or hand-edited saves)
+    W.owned = W.owned.filter(id => WEAPONS[id]);
+    for (const k of ["sidearm", "long", "blade"]) if (W.loadout[k] && !W.owned.includes(W.loadout[k])) W.loadout[k] = null;
+    defCache.clear();
     for (const slot of SLOTS) {
       const id = equippedIn(slot), cur = holsterModels[slot];
       if (cur?.id === id) continue;
@@ -106,7 +138,7 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   function draw(side, slot, hostObj, pc = false) {
     const id = equippedIn(slot); if (!id) return null;
-    const def = WEAPONS[id];
+    const def = defFor(id);
     const model = buildWeaponModel(id);
     if (pc) {
       if (def.kind === "melee") { model.position.set(0.3, -0.32, -0.55); model.rotation.set(0.95, 0.35, -0.25); }
@@ -549,16 +581,25 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
   }
   function addAmmo() {}      // ammo is infinite now
   // TEST MODE: everything at Rook's is free. Set to false to restore prices.
-  const FREE_ARMS = true;
+  const FREE_ARMS = false;
   const cost = p => FREE_ARMS ? 0 : p;
   const buyLabel = p => FREE_ARMS ? "GET · FREE" : `BUY $${p}`;
   const where = { sidearm: "RIGHT HIP", long: "CHEST", blade: "LEFT SHOULDER", grenade: "BELT" };
   const store = {
     title: "ROOK'S · THINGS THAT GO BANG", accent: "#ffb02e", tabColor: "#a8641a",
-    tabs: [{ id: "guns", label: "GUNS" }, { id: "blades", label: "BLADES & EMP" }],
+    tabs: [{ id: "guns", label: "GUNS" }, { id: "blades", label: "BLADES & EMP" }, { id: "mods", label: "MODS" }],
     subtitle: () => `HIP ${WEAPONS[W.loadout.sidearm]?.name || "—"} · CHEST ${WEAPONS[W.loadout.long]?.name || "—"}`,
     rows(cat) {
       const can = p => state.credits >= cost(p) ? "#a8641a" : "#56607a";
+      if (cat === "mods") return MOD_IDS.map(id => {
+        const d = WEAPONS[id], t = tierOf(id), owned = W.owned.includes(id), next = t + 1;
+        let label, col;
+        if (!owned) { label = "NOT OWNED"; col = "#56607a"; }
+        else if (t >= 3) { label = "MAXED"; col = "#2a8a6a"; }
+        else { label = `${MOD_NAMES[next]} $${MOD_COST[t]}`; col = can(MOD_COST[t]); }
+        return { id: "mod:" + id, name: d.name, color: "#" + new THREE.Color(d.color).getHexString(), tag: `MOD ${t}/3 · ${MOD_NAMES[t]}`,
+          desc: !owned ? "Buy it first, then Rook can work on it." : t >= 3 ? "Nothing left to bolt on. It's a monster." : `Next: ${modPerk(id, next)}`, label, buttonColor: col };
+      });
       if (cat === "ammo") return Object.entries(AMMO).map(([k, a]) => ({ id: "ammo:" + k, name: `${a.name} ×${a.pack}`, tag: `YOU HAVE ${W.ammo[k] || 0} / ${a.max}`, desc: k === "light" ? "Fits the Kasumi P9 and the Rattler." : k === "shell" ? "Breacher-6 shells." : "Longspike rail cells.", label: (W.ammo[k] || 0) >= a.max ? "FULL" : buyLabel(a.price), buttonColor: (W.ammo[k] || 0) >= a.max ? "#56607a" : can(a.price) }));
       const ids = cat === "guns" ? ["p9", "seeker", "rattler", "breacher", "longspike"] : ["katana", "baton", "emp"];
       return ids.map(id => {
@@ -573,6 +614,17 @@ export function createWeapons({ root, scene, camera, player, renderer, city, gam
       });
     },
     click(id) {
+      if (id.startsWith("mod:")) {
+        const wid = id.slice(4), t = tierOf(wid);
+        if (!W.owned.includes(wid)) return "Buy it first.";
+        if (t >= 3) return "Already black-market spec.";
+        if (state.credits < MOD_COST[t]) return "Not enough credits.";
+        state.credits -= MOD_COST[t]; W.upgrades[wid] = t + 1; defCache.clear();
+        // re-arm anything you're holding so the new stats apply right away
+        for (const h of held.values()) if (h.id === wid) h.def = defFor(wid);
+        saveGame(); audio?.play("credits");
+        return `${WEAPONS[wid].name}: ${MOD_NAMES[t + 1]} mod installed.`;
+      }
       if (id.startsWith("ammo:")) {
         const k = id.slice(5), a = AMMO[k];
         if ((W.ammo[k] || 0) >= a.max) return "Can't carry more.";

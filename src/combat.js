@@ -475,7 +475,7 @@ export function createCombat({ root, camera, player, renderer, city, game, zones
       deathCard.visible = false; fadeMat.opacity = 1;
       hooks.onDeath?.();
       // Doc patches you up at the edge of the fight; it costs you.
-      const lost = Math.floor(state.credits * 0.1);
+      const lost = Math.floor(state.credits * 0.3);
       state.credits -= lost; saveGame();
       for (const e of enemies) despawn(e);
       enemies.length = 0;
